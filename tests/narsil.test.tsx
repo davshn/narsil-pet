@@ -562,3 +562,12 @@ test('Narsil moves visibly in every state', () => {
   expect(sprite('asking')).toContain('class="aura"')
   expect(sprite('idle')).not.toContain('class="aura"')
 })
+
+test('in the light theme the glow and halo are fainter, so her pale body keeps its contrast', () => {
+  const svg = sprite('asking')
+  expect(svg).toContain('<radialGradient id="aura-o"><stop offset="0" stop-color="#F5B400" stop-opacity="0.5"/>')
+  expect(svg).toContain('<radialGradient id="aura-c"><stop offset="0" stop-color="#F5B400" stop-opacity="0.2"/>')
+  const halos = svg.match(/<circle class="halo"[^>]*>/g) ?? []
+  expect(halos.length).toBe(2)
+  expect(halos.filter(h => h.includes('fill-opacity=".55"')).length).toBe(1)
+})

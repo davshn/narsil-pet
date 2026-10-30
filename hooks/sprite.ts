@@ -67,19 +67,19 @@ const BOX = { centerX: 44, top: 2, height: 116 }
 // the picture: each pose holds its head somewhere else.
 type Layout = { headX: number; headY: number; neckY: number }
 const LAYOUT: Record<string, Layout> = {
-  'base-claro': { headX: 0.42, headY: 0.19, neckY: 0.36 },
+  'base-claro': { headX: 0.43, headY: 0.31, neckY: 0.46 },
   'base-oscuro': { headX: 0.55, headY: 0.17, neckY: 0.34 },
-  'trabajando-claro': { headX: 0.38, headY: 0.17, neckY: 0.33 },
+  'trabajando-claro': { headX: 0.42, headY: 0.29, neckY: 0.43 },
   'trabajando-oscuro': { headX: 0.64, headY: 0.19, neckY: 0.33 },
-  'parada-claro': { headX: 0.36, headY: 0.19, neckY: 0.34 },
+  'parada-claro': { headX: 0.42, headY: 0.3, neckY: 0.44 },
   'parada-oscuro': { headX: 0.7, headY: 0.26, neckY: 0.36 },
-  'necesita-claro': { headX: 0.38, headY: 0.16, neckY: 0.31 },
+  'necesita-claro': { headX: 0.41, headY: 0.28, neckY: 0.42 },
   'necesita-oscuro': { headX: 0.5, headY: 0.17, neckY: 0.31 },
-  'terminado-claro': { headX: 0.38, headY: 0.17, neckY: 0.3 },
+  'terminado-claro': { headX: 0.41, headY: 0.27, neckY: 0.41 },
   'terminado-oscuro': { headX: 0.5, headY: 0.17, neckY: 0.3 },
-  'error-claro': { headX: 0.36, headY: 0.16, neckY: 0.29 },
+  'error-claro': { headX: 0.42, headY: 0.27, neckY: 0.41 },
   'error-oscuro': { headX: 0.5, headY: 0.18, neckY: 0.31 },
-  'hola-claro': { headX: 0.38, headY: 0.16, neckY: 0.3 },
+  'hola-claro': { headX: 0.41, headY: 0.26, neckY: 0.4 },
   'hola-oscuro': { headX: 0.5, headY: 0.16, neckY: 0.3 },
 }
 const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
@@ -183,6 +183,16 @@ function place(image: Art, pose: string) {
   }
 }
 
+// The soft glow behind her: fainter in the light theme, where a strong color
+// washes out her pale body.
+function aura(status: Status, id: string, strength: number): string {
+  const color = STATUS_COLOR[status]
+  return (
+    `<radialGradient id="aura-${id}"><stop offset="0" stop-color="${color}" stop-opacity="${strength}"/>` +
+    `<stop offset=".6" stop-color="${color}" stop-opacity="${r1(strength * 0.4)}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient>`
+  )
+}
+
 function swimFilter(status: Status): string {
   const { swim, swimSeconds } = MOTION[status]
   return (
@@ -218,8 +228,8 @@ function picture(mood: Mood, status: Status, theme: Theme): string {
   const glow = status === 'idle' ? '' : ` glow-${status}`
   return (
     `<g class="th-${theme}">` +
-    (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura)"/>`) +
-    badge(mood, status, at.headX, at.headY) +
+    (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
+    badge(mood, status, at.headX, at.headY, theme) +
     `<g class="enter"><g class="whole${glow}">` +
     `<g filter="url(#swim)"><use href="#art-${id}"/></g>` +
     `<g class="head" style="transform-origin:${at.headX}px ${at.neckY}px" mask="url(#head-${id})"><use href="#art-${id}"/></g>` +
@@ -265,7 +275,7 @@ function confetti(): string {
 }
 
 // What says the state at a glance, around her head.
-function badge(mood: Mood, status: Status, x: number, y: number): string {
+function badge(mood: Mood, status: Status, x: number, y: number, theme: Theme): string {
   const color = STATUS_COLOR[status]
   if (mood === 'scared') {
     // a failed step: a red flash, then she works on
@@ -276,7 +286,8 @@ function badge(mood: Mood, status: Status, x: number, y: number): string {
       return `<circle class="ring" cx="${x}" cy="${y}" r="24" fill="none" stroke="${color}" stroke-width="2.4" stroke-dasharray="10 7" stroke-linecap="round" opacity=".85"/>`
     case 'waiting':
     case 'error':
-      return `<circle class="halo" cx="${x}" cy="${y}" r="25" fill="${color}" opacity=".45"/>`
+      // fainter in the light theme, over her pale body
+      return `<circle class="halo" cx="${x}" cy="${y}" r="25" fill="${color}"${theme === 'claro' ? ' fill-opacity=".55"' : ''}/>`
     default:
       return ''
   }
@@ -386,7 +397,7 @@ export function sprite(mood: Mood): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
-    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient><radialGradient id="aura"><stop offset="0" stop-color="${STATUS_COLOR[status]}" stop-opacity=".5"/><stop offset=".6" stop-color="${STATUS_COLOR[status]}" stop-opacity=".22"/><stop offset="1" stop-color="${STATUS_COLOR[status]}" stop-opacity="0"/></radialGradient>${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme)).join('')}</defs>` +
+    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme)).join('')}</defs>` +
     `<style>${STYLE}</style>` +
     `<g class="s-${status} m-${mood}">` +
     water() +
