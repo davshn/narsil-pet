@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
-import { SYSTEM } from '../hooks/advice'
+import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -305,20 +305,31 @@ function model(on: On, reply: string | ModelCompleteResult = TIP): Asked[] {
 
 // The engine with a clock the test moves, a session started and the turn's
 // own events answered beneath the plugin.
+// `hasSteps` keeps the next steps on; `hasPlan` reads a plan's limits.
 // `everyMinutes` shortens the throttle, so a test of several tips moves the
 // clock (and the 2-second heartbeat with it) only a little.
 async function tipEngine(
   $: Engine,
   on: On,
-  { store = {}, hasTools = true, everyMinutes }: { store?: Record<string, unknown>; hasTools?: boolean; everyMinutes?: number } = {},
+  {
+    store = {},
+    hasTools = true,
+    everyMinutes,
+    hasSteps = false,
+    hasPlan = false,
+  }: { store?: Record<string, unknown>; hasTools?: boolean; everyMinutes?: number; hasSteps?: boolean; hasPlan?: boolean } = {},
 ) {
   const posts = engine(on, null, { hasClock: false, store })
   const clock = mock.clock(on, { now: 1_000_000 })
   if (hasTools) on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  if (hasPlan) measured(on)
   on('prompt.submit', (_, e) => ({ text: e.text }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  if (hasPlan) await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
+  // The tip tests count the tip calls alone.
+  if (!hasSteps) await $.command.run({ command: 'narsil', args: 'pasos off', ...TYPED })
   if (everyMinutes) await $.command.run({ command: 'narsil', args: `consejos cada ${everyMinutes}`, ...TYPED })
   return { posts, clock }
 }
@@ -878,4 +889,123 @@ test('on another system Narsil runs none of her scripts', async ($, on) => {
   await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
 
   expect(runs.filter(r => r.argv[0] !== 'uname')).toEqual([])
+})
+
+// --- The prompt cache and the next steps ---
+
+const STEPS = '1. Ejecuta los tests de register.tsx\n2. Revisa el diff antes del commit\n3. Prueba el overlay en vivo'
+
+// Answers the next-steps call with `steps` and any tip call with TIP; records
+// which of the two each call was.
+function stepsModel(on: On, steps = STEPS): string[] {
+  const kinds: string[] = []
+  on('model.complete', (_, e) => {
+    const isSteps = String(e.system).includes('próximos pasos')
+    kinds.push(isSteps ? 'steps' : 'tip')
+    return { value: { isAnswered: true as const, text: isSteps ? steps : TIP, usage: USAGE } }
+  })
+  return kinds
+}
+
+async function bandTexts($: Engine, surface: 'terminal' | 'desktop'): Promise<string[]> {
+  const ui = await $.ui.mount({ ...BAND, surface })
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text))
+  await ui.unmount()
+  return texts
+}
+
+test('after a turn the band counts down the prompt cache, and says when it has gone cold', async ($, on) => {
+  stepsModel(on)
+  const { posts, clock } = await tipEngine($, on, { hasSteps: true })
+  expect((await bandTexts($, 'desktop')).some(t => t.includes('Caché'))).toBe(false)
+
+  await finishTurn($)
+  await clock.settle()
+  // Off a plan the cache lasts 5 minutes.
+  for (const surface of ['terminal', 'desktop'] as const) {
+    expect(await bandTexts($, surface)).toContain('🧊 Caché: 5 min')
+  }
+  await clock.advance(3 * MINUTE)
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché: 2 min')
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.cache).toBe('🧊 Caché: 2 min')
+
+  await clock.advance(2 * MINUTE + 2000)
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché fría: el próximo mensaje se cobra completo')
+
+  // A new turn writes the cache again: no clock while Claude works.
+  await $.turn.start({ text: 'sigue', turnId: 'next' })
+  expect((await bandTexts($, 'desktop')).some(t => t.includes('Caché'))).toBe(false)
+})
+
+test('on a plan the cache lasts an hour, and /narsil cache sets it by hand', async ($, on) => {
+  stepsModel(on)
+  const { clock } = await tipEngine($, on, { hasSteps: true, hasPlan: true })
+  await finishTurn($)
+  await clock.settle()
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché: 60 min')
+
+  const answer = await $.command.run({ command: 'narsil', args: 'cache 5', ...TYPED })
+  expect(JSON.stringify(answer)).toContain('5 min')
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché: 5 min')
+})
+
+test('a few minutes after a turn Narsil offers next steps, and one click puts it in the prompt', async ($, on) => {
+  const kinds = stepsModel(on)
+  const filled: string[] = []
+  on('prompt.fill', (_, e) => {
+    filled.push(e.text)
+    return { isFilled: true }
+  })
+  const { posts, clock } = await tipEngine($, on, { hasSteps: true })
+  await finishTurn($)
+  await clock.settle()
+  expect(kinds).toEqual(['tip'])
+
+  await clock.advance(3 * MINUTE + 2000)
+  await clock.settle()
+  expect(kinds).toEqual(['tip', 'steps'])
+  const state = posts.filter(p => p.url.endsWith('/state')).at(-1)
+  expect(state?.body.steps).toEqual(['Ejecuta los tests de register.tsx', 'Revisa el diff antes del commit', 'Prueba el overlay en vivo'])
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    expect(await ui.find({ key: 'step-2' })).toBeDefined()
+    await ui.unmount()
+  }
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'step-1' })
+  await ui.unmount()
+  expect(filled).toEqual(['Revisa el diff antes del commit'])
+  // A picked step clears the others.
+  const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await after.find({ key: 'step-0' })).toBeUndefined()
+  await after.unmount()
+
+  // Asked once per finished turn.
+  await clock.advance(10 * MINUTE)
+  expect(kinds).toEqual(['tip', 'steps'])
+})
+
+test('a new turn before the minutes pass, or /narsil pasos off, offers no next steps', async ($, on) => {
+  const kinds = stepsModel(on)
+  const { clock } = await tipEngine($, on, { hasSteps: true })
+  await finishTurn($)
+  await clock.advance(1 * MINUTE)
+  await $.turn.start({ text: 'otra cosa', turnId: 'again' })
+  await clock.advance(5 * MINUTE)
+  expect(kinds.includes('steps')).toBe(false)
+
+  const answer = await $.command.run({ command: 'narsil', args: 'pasos off', ...TYPED })
+  expect(JSON.stringify(answer)).toContain('desactivados')
+  await finishTurn($)
+  await clock.advance(5 * MINUTE)
+  await clock.settle()
+  expect(kinds.includes('steps')).toBe(false)
+})
+
+test('the next-steps prompt asks for short actionable steps in neutral wording', () => {
+  expect(STEPS_SYSTEM).toContain('próximos pasos')
+  expect(STEPS_SYSTEM).toContain('lenguaje neutro')
+  expect(parseSteps('- Uno\n2) Dos\n\n3. Tres\n4. Cuatro')).toEqual(['Uno', 'Dos', 'Tres'])
+  expect(parseSteps('SKIP')).toEqual([])
 })

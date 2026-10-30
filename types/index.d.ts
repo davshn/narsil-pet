@@ -27,6 +27,10 @@ export type Prefs = {
   isAdviceOn: boolean
   adviceEveryMinutes: number
   isAdviceSpoken: boolean
+  // The next steps offered a few minutes after a turn, on or off; how long
+  // the prompt cache lasts, in minutes (null: 60 on a plan, 5 off one).
+  isNextStepsOn: boolean
+  cacheMinutes: number | null
 }
 
 // The tip on show: its text, why it was given (TipKind) and when. Faded: it
@@ -47,8 +51,15 @@ export type Usage = {
   week: Meter | null
 }
 
+// The prompt cache since the last turn ended (`at`): how long it lasts and
+// the whole minutes it has left, 0 once it has gone cold.
+export type Cache = { at: number; minutes: number; left: number }
+
+// The next steps offered for the turn that ended at `at`.
+export type Steps = { at: number; items: readonly string[] }
+
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly string[] }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly string[]; cache: Cache | null; steps: Steps | null }
   }
 }

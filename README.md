@@ -56,6 +56,14 @@ La barra de contexto calcula, al ritmo de los últimos 15 minutos, cuándo se ll
 - **Tests**: celebra cuando pasan, se da cuenta cuando fallan y celebra cuando se recuperan. Reconoce npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle y más.
 - **Comandos peligrosos**: avisa antes de que se ejecute un comando sin vuelta atrás, como `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `git branch -D`, `Remove-Item -Recurse -Force`, `DROP TABLE`, `chmod -R 777` o `curl … | sh`. Solo avisa: nunca bloquea nada.
 
+### Reloj de la caché
+Cuando termina un turno, Narsil muestra cuánto le queda a la caché del prompt ("🧊 Caché: 42 min"), en verde mientras está fresca y en rojo cuando está a punto de caducar. Si vuelves a escribir antes de que llegue a cero, Claude reutiliza la conversación ya cacheada y el mensaje sale más barato. Al caducar avisa: "🧊 Caché fría: el próximo mensaje se cobra completo".
+
+Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`.
+
+### Próximos pasos
+Tres minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos sacados de lo que se hizo ("Ejecuta los tests de register.tsx"). Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
+
 ### Subagentes
 Cada subagente en marcha aparece como una pequeña serpiente con su tarea (🐍 Revisar los tests), en la banda y en la ventana flotante, y desaparece cuando termina.
 
@@ -115,6 +123,8 @@ La ventana flotante necesita, además:
 | `/narsil consejos on` · `off` | Activa o desactiva los consejos automáticos. |
 | `/narsil consejos cada <min>` | Como mucho un consejo automático cada tantos minutos (10 por defecto). |
 | `/narsil consejos voz` | Dice en voz alta, o no, los consejos de fin de turno. |
+| `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
+| `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
 
 ## Sistemas compatibles
 

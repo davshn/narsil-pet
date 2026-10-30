@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
+import type { Cache, Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
-import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, prompt, remember } from './advice'
+import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -24,6 +24,8 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isAdviceOn: true,
   adviceEveryMinutes: 10,
   isAdviceSpoken: false,
+  isNextStepsOn: true,
+  cacheMinutes: null,
 })
 // Every open conversation, by state: counted by the floating window.
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
@@ -33,6 +35,10 @@ const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
 // The subagents running now, by their task, in the order they started.
 const agents = atom({ plugin: 'narsil-pet', key: 'agents' } as const, [])
+// The prompt cache's clock while Claude waits for you, and the next steps
+// offered for the last turn.
+const cache = atom({ plugin: 'narsil-pet', key: 'cache' } as const, null)
+const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -311,6 +317,8 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     tip: (await read($, tip))?.text ?? null,
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agents),
+    cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
+    steps: (await read($, steps))?.items ?? [],
   })
   await $.http
     .fetch(`${OVERLAY}/state`, {
@@ -330,6 +338,7 @@ async function beat($: EngineInterface): Promise<void> {
   const age = kept ? (await $.clock.now()) - kept.at : 0
   if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
+  await tickCache($)
   await pushOverlay($)
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
@@ -662,12 +671,112 @@ async function adviceCommand($: EngineInterface, arg: string): Promise<string | 
   return undefined
 }
 
+// --- The prompt cache's clock and the next steps ---
+
+// How long the prompt cache lasts, in minutes: on a plan Claude Code keeps it
+// an hour, with an API key five minutes. The API does not say which: a
+// person who knows better sets it with /narsil cache.
+const PLAN_CACHE_MINUTES = 60
+const API_CACHE_MINUTES = 5
+// How long after a finished turn Narsil offers next steps.
+const STEPS_AFTER_MS = 3 * 60_000
+
+let stepsAskedFor: number | null = null
+
+async function cacheMinutes($: EngineInterface): Promise<number> {
+  const set = (await read($, prefs)).cacheMinutes
+  if (set) return set
+  const spent = await read($, usage)
+  return spent.fiveHour || spent.week ? PLAN_CACHE_MINUTES : API_CACHE_MINUTES
+}
+
+function cacheLeft(at: number, minutes: number, now: number): number {
+  return Math.max(0, Math.ceil((at + minutes * 60_000 - now) / 60_000))
+}
+
+function cacheLabel(c: Cache): string {
+  return c.left > 0 ? `🧊 Caché: ${c.left} min` : '🧊 Caché fría: el próximo mensaje se cobra completo'
+}
+
+// The color of what the cache has spent of its life: green while fresh.
+function cacheColor(c: Cache): string {
+  return levelColor(100 - (c.left / c.minutes) * 100)
+}
+
+// A turn just ended: the cache was written now.
+async function startCache($: EngineInterface): Promise<void> {
+  const at = await $.clock.now()
+  const minutes = await cacheMinutes($)
+  await update($, cache, () => ({ at, minutes, left: minutes }))
+}
+
+// On every heartbeat: count the cache down, and offer next steps once the
+// turn has been over long enough.
+async function tickCache($: EngineInterface): Promise<void> {
+  const c = await read($, cache)
+  if (!c) return
+  const now = await $.clock.now()
+  const left = cacheLeft(c.at, c.minutes, now)
+  if (left !== c.left) await update($, cache, k => (k ? { ...k, left } : k))
+  if (now - c.at >= STEPS_AFTER_MS) void offerSteps($, c.at).catch(() => undefined)
+}
+
+// One small completion for what to ask next, once per finished turn.
+async function offerSteps($: EngineInterface, at: number): Promise<void> {
+  if (stepsAskedFor === at || (await read($, steps))?.at === at) return
+  stepsAskedFor = at
+  if (!(await read($, prefs)).isNextStepsOn) return
+  try {
+    const reply = await $.model.complete({
+      model: 'haiku',
+      system: STEPS_SYSTEM,
+      prompt: stepsPrompt(describe(seen, 'review')),
+      effort: 'low',
+      maxTokens: 160,
+      timeoutMs: 8000,
+    })
+    const items = reply.isAnswered ? parseSteps(reply.text) : []
+    // A turn that started meanwhile makes them stale.
+    if (items.length === 0 || (await read($, cache))?.at !== at) return
+    await update($, steps, () => ({ at, items }))
+    $.ui.log(`➜ Narsil propone: ${items.join(' · ')}`)
+    await pushOverlay($)
+  } catch {
+    // no steps this time
+  }
+}
+
+// A step picked: it goes to the prompt box as the draft, for you to send.
+async function pickStep($: EngineInterface, step: string): Promise<void> {
+  await $.prompt.fill({ text: step })
+  await update($, steps, () => null)
+  await pushOverlay($)
+}
+
+// `/narsil pasos …` and `/narsil cache …`; undefined for any other words.
+async function stepsCommand($: EngineInterface, arg: string): Promise<string | undefined> {
+  if (arg === 'pasos on' || arg === 'pasos off') {
+    const isOn = arg === 'pasos on'
+    await setAdvice($, { isNextStepsOn: isOn })
+    if (!isOn) await update($, steps, () => null)
+    return `Narsil: próximos pasos ${isOn ? 'activados' : 'desactivados'}.`
+  }
+  const set = /^cach[eé](?: (auto|\d{1,3}))?$/.exec(arg)
+  if (!set) return undefined
+  if (set[1]) await setAdvice($, { cacheMinutes: set[1] === 'auto' ? null : Math.min(1440, Math.max(1, Number(set[1]))) })
+  const minutes = await cacheMinutes($)
+  const now = await $.clock.now()
+  const c = await read($, cache)
+  if (c) await update($, cache, () => ({ ...c, minutes, left: cacheLeft(c.at, minutes, now) }))
+  return `Narsil: la caché dura ${minutes} min${(await read($, prefs)).cacheMinutes ? '' : ' (según tu cuenta; cámbialo con /narsil cache <min>)'}.`
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>]',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -695,6 +804,8 @@ export const register: Register = on => {
     const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
     const advice = await adviceCommand($, arg)
     if (advice !== undefined) return { text: advice }
+    const stepped = await stepsCommand($, arg)
+    if (stepped !== undefined) return { text: stepped }
     const change: Record<string, Partial<Prefs>> = {
       ocultar: { isHidden: true },
       mostrar: { isHidden: false },
@@ -737,7 +848,8 @@ export const register: Register = on => {
           `y la ventana flotante ${p.isFloating ? 'activada' : 'desactivada'}.\n` +
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
-          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz',
+          `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
+          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>]',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
@@ -762,6 +874,8 @@ export const register: Register = on => {
       failuresByTool = new Map()
       failuresThisTurn = 0
       triedThisTurn = new Set()
+      await update($, cache, () => null)
+      await update($, steps, () => null)
       await setMood($, 'thinking')
     }
 
@@ -856,6 +970,8 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined) return result
+    // Every request of the turn wrote the prompt cache; its clock starts now.
+    await startCache($)
 
     if (e.reason === 'answer') {
       const took = duration(e.durationMs)
@@ -901,6 +1017,9 @@ export const register: Register = on => {
     const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
     // A small serpent per running subagent, with its task.
     const helpers = (await read($, agents)).slice(0, MAX_AGENTS_SHOWN)
+    // The cache's clock while Claude waits, and the next steps on offer.
+    const clockShown = await read($, cache)
+    const offered = (await read($, steps))?.items ?? []
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -943,6 +1062,15 @@ export const register: Register = on => {
           {helpers.map((task, i) => (
             <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
           ))}
+          {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
+          {offered.length > 0 ? (
+            <Box flexDirection="row" gap={1} flexWrap="wrap">
+              <Text dimColor>➜ ¿Y ahora?</Text>
+              {offered.map((step, i) => (
+                <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
+              ))}
+            </Box>
+          ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
       )
@@ -986,6 +1114,17 @@ export const register: Register = on => {
               {helpers.map((task, i) => (
                 <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
               ))}
+            </Box>
+          ) : null}
+          {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
+          {offered.length > 0 ? (
+            <Box flexDirection="column" gap={1} alignItems="flex-start" minWidth={0}>
+              <Text dimColor>➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:</Text>
+              <Box flexDirection="row" gap={1} flexWrap="wrap" minWidth={0}>
+                {offered.map((step, i) => (
+                  <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
+                ))}
+              </Box>
             </Box>
           ) : null}
           {others ? <Text dimColor>{others}</Text> : null}

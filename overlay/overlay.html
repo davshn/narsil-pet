@@ -47,6 +47,12 @@
   .agents { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
   .agents:empty { display: none; }
   .agent { max-width: 100%; padding: 2px 8px; border-radius: 9px; background: var(--row); color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cache { font-size: 11px; color: var(--dim); text-align: center; }
+  .cache:empty { display: none; }
+  .steps { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; font-size: 11px; }
+  .steps:empty { display: none; }
+  .step { padding: 3px 8px; border-radius: 8px; background: var(--row); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .step::before { content: "➜ "; color: var(--dim); }
   .list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
   .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
   .row:hover { background: var(--row-hover); }
@@ -72,6 +78,8 @@
     <div class="line clamp" id="line"></div>
     <div class="tip clamp" id="tip" title="Consejo de Narsil"></div>
     <div class="agents" id="agents"></div>
+    <div class="cache" id="cache"></div>
+    <div class="steps" id="steps" title="Próximos pasos: vuelve a la conversación para elegir uno"></div>
   </div>
   <div class="usage" id="usage"></div>
   <div class="summary" id="summary"></div>
@@ -141,6 +149,16 @@
           chip.textContent = '🐍 ' + task
           chip.title = task
           return chip
+        }),
+      )
+      // The prompt cache's clock, and the next steps Narsil offers.
+      $('cache').textContent = focus.cache || ''
+      $('steps').replaceChildren(
+        ...(focus.steps || []).map(text => {
+          const step = document.createElement('div')
+          step.className = 'step'
+          step.textContent = text
+          return step
         }),
       )
       drawUsage(focus.usage || [])

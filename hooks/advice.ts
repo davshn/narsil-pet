@@ -148,3 +148,42 @@ export function parse(reply: string): string | null {
   const space = cut.lastIndexOf(' ')
   return `${space > MAX_TIP / 2 ? cut.slice(0, space) : cut}…`
 }
+
+// The next steps Narsil offers a few minutes after a finished turn: each one
+// a prompt the person can put in the box with one click.
+export const MAX_STEPS = 3
+export const MAX_STEP = 60
+
+export const STEPS_SYSTEM = [
+  'Eres Narsil, una vieja serpiente marina sabia que acompaña a quien programa.',
+  'El turno terminó hace unos minutos: propón los próximos pasos que la persona podría pedir ahora.',
+  'Reglas:',
+  `- Entre uno y ${MAX_STEPS} pasos, uno por línea, en español, como mucho ${MAX_STEP} caracteres cada uno.`,
+  '- Cada paso es una petición en imperativo que se le puede enviar tal cual (por ejemplo: "Ejecuta los tests").',
+  '- Concretos y sacados del contexto: un archivo, un comando, algo que quedó pendiente; nada inventado.',
+  '- Usa lenguaje neutro, sin suponer el género de la persona; no nombres a ningún asistente ni a "Claude".',
+  '- Si no hay nada útil que proponer, responde exactamente SKIP.',
+  'Responde solo con los pasos (o SKIP), sin comillas ni introducción.',
+].join('\n')
+
+export function stepsPrompt(context: string): string {
+  return `Contexto del trabajo:\n${context}\n\nPróximos pasos:`
+}
+
+// The reply as at most MAX_STEPS steps; none for SKIP or an empty reply.
+export function parseSteps(reply: string): string[] {
+  if (/^\s*skip\b/i.test(reply)) return []
+  return reply
+    .split('\n')
+    .map(line =>
+      line
+        .trim()
+        .replace(/^([-*•]|\d+[.)])\s*/, '')
+        .replace(/^["'«“]+|["'»”]+$/g, '')
+        .replace(/\bClaude\b/g, 'Narsil')
+        .trim(),
+    )
+    .filter(Boolean)
+    .slice(0, MAX_STEPS)
+    .map(step => (step.length > MAX_STEP ? `${step.slice(0, MAX_STEP - 1)}…` : step))
+}
