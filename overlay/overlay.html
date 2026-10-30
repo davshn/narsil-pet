@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Narsil</title>
+<style>
+  :root { color-scheme: light dark; --bg: #F7F6FB; --bg2: #ECEAF5; --text: #1E1C2C; --dim: #6E6A85; --row: rgba(0,0,0,.04); --row-hover: rgba(0,0,0,.08);
+          --working: #3B8BFF; --idle: #8A90A6; --waiting: #F5B400; --done: #22B573; --error: #F0435A; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16182A; --bg2: #202440; --text: #ECEBF3; --dim: #9A98AD; --row: rgba(255,255,255,.05); --row-hover: rgba(255,255,255,.1); }
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.35 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
+  .card { position: relative; height: 100%; box-sizing: border-box; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
+          background: radial-gradient(120% 70% at 50% 0%, var(--bg2) 0%, var(--bg) 70%); }
+  .event { display: none; padding: 6px 30px 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 22%, transparent);
+           border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 600; cursor: pointer; }
+  .event small { display: block; font-weight: 400; color: var(--text); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .has-event .event { display: block; animation: drop .35s ease-out; }
+  .close { position: absolute; top: 12px; right: 16px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text); opacity: .6; font-size: 16px; cursor: pointer; display: none; }
+  .has-event .close { display: block; }
+  .close:hover { opacity: 1; background: var(--row-hover); }
+  .focus { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border-radius: 10px; padding: 2px 0 4px; }
+  .focus:hover { background: var(--row); }
+  #sprite, #sprite svg { width: 168px; height: 150px; }
+  .has-event #sprite, .has-event #sprite svg { width: 136px; height: 122px; }
+  .status { font-weight: 800; letter-spacing: .6px; font-size: 12px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
+  .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .s-working .status::before { animation: blink 1s ease-in-out infinite; }
+  .headline { font-weight: 600; text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .line { font-size: 12px; color: var(--dim); text-align: center; }
+  .summary { font-size: 11px; color: var(--dim); text-align: center; }
+  .list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+  .row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
+  .row:hover { background: var(--row-hover); }
+  .row .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .name small { color: var(--dim); margin-left: 4px; }
+  .row .tag { font-size: 10px; font-weight: 800; letter-spacing: .4px; color: var(--accent); }
+  .s-working { --accent: var(--working); } .s-idle { --accent: var(--idle); } .s-waiting { --accent: var(--waiting); }
+  .s-done { --accent: var(--done); } .s-error { --accent: var(--error); }
+  .k-done { --accent: var(--done); } .k-question { --accent: var(--waiting); } .k-error { --accent: var(--error); }
+  @keyframes drop { from { transform: translateY(-6px); opacity: 0 } to { transform: none; opacity: 1 } }
+  @keyframes blink { 50% { opacity: .3 } }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="event" id="event" title="Abrir la conversación"><span id="event-title"></span><small id="event-text"></small></div>
+  <button class="close" id="close" title="Descartar">×</button>
+  <div class="focus" id="focus" title="Abrir la conversación">
+    <div id="sprite"></div>
+    <div class="status" id="status">…</div>
+    <div class="headline" id="headline">Narsil se está despertando…</div>
+    <div class="line" id="line"></div>
+  </div>
+  <div class="summary" id="summary"></div>
+  <div class="list" id="list"></div>
+</div>
+<script>
+  const $ = id => document.getElementById(id)
+  const LABEL = { working: 'TRABAJANDO', idle: 'PARADA', waiting: 'TE NECESITA', done: 'TERMINADO', error: 'ERROR' }
+  const ORDER = ['working', 'waiting', 'error', 'done', 'idle']
+  let shownSvg = null
+  let focusId = null
+
+  const open = session => fetch('/open' + (session ? '?session=' + encodeURIComponent(session) : ''), { method: 'POST' })
+
+  function render({ sessions, summary, event }) {
+    // The conversation an event is about comes first; else whoever needs you most.
+    const focus = (event && sessions.find(s => s.sessionId === event.sessionId)) || sessions[0]
+    focusId = focus ? focus.sessionId : null
+    if (focus) {
+      // Replace the drawing only when it changes, so its animation runs on.
+      if (focus.svg !== shownSvg) {
+        $('sprite').innerHTML = focus.svg
+        shownSvg = focus.svg
+      }
+      $('focus').className = 'focus s-' + focus.status
+      $('status').textContent = LABEL[focus.status] + (summary.total > 1 ? ' · ' + focus.title : '')
+      $('headline').textContent = focus.headline
+      $('line').textContent = focus.line
+    }
+    $('card').className = 'card' + (event ? ' has-event' : '')
+    $('event').className = 'event' + (event ? ' k-' + event.kind : '')
+    $('event-title').textContent = event ? event.title : ''
+    $('event-text').textContent = event ? event.text : ''
+
+    const counted = ORDER.filter(s => summary[s] > 0).map(s => summary[s] + ' ' + LABEL[s].toLowerCase())
+    $('summary').textContent = summary.total > 1 ? summary.total + ' conversaciones: ' + counted.join(' · ') : ''
+
+    $('list').replaceChildren(
+      ...sessions
+        .filter(s => s.sessionId !== focusId)
+        .slice(0, 4)
+        .map(s => {
+          const row = document.createElement('div')
+          row.className = 'row s-' + s.status
+          row.title = s.headline
+          row.innerHTML = '<span class="dot"></span><span class="name"></span><span class="tag"></span>'
+          row.querySelector('.name').textContent = s.title
+          const small = document.createElement('small')
+          small.textContent = s.headline
+          row.querySelector('.name').append(small)
+          row.querySelector('.tag').textContent = LABEL[s.status]
+          row.addEventListener('click', () => open(s.sessionId))
+          return row
+        }),
+    )
+  }
+
+  new EventSource('/events').onmessage = message => render(JSON.parse(message.data))
+  $('focus').addEventListener('click', () => open(focusId))
+  $('event').addEventListener('click', () => open(null))
+  $('close').addEventListener('click', click => {
+    click.stopPropagation()
+    fetch('/dismiss', { method: 'POST' })
+  })
+</script>
+</body>
+</html>
