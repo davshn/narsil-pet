@@ -1,6 +1,6 @@
 {
   "name": "narsil-pet",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Narsil, a chibi sea serpent that lives above the prompt and shows at a glance what Claude is doing",
   "author": { "name": "Davshn" },
   "types": "./types/index.d.ts"
