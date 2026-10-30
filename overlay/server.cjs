@@ -35,6 +35,8 @@ const STATUSES = ['working', 'idle', 'waiting', 'done', 'error']
 const PRIORITY = { waiting: 0, error: 1, working: 2, done: 3, idle: 4 }
 const SESSION_TIMEOUT_MS = 30_000
 const PAGE = fs.readFileSync(path.join(__dirname, 'overlay.html'))
+// The window's icon on the taskbar (tools/build-icon.ps1).
+const ICON = fs.readFileSync(path.join(__dirname, 'icon.png'))
 const POWERSHELL = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File']
 
 // One entry per open conversation, as its own mod reports it.
@@ -207,6 +209,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil')
   if (req.method === 'GET' && url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE)
+  if (req.method === 'GET' && (url.pathname === '/icon.png' || url.pathname === '/favicon.ico')) return send(200, 'image/png', ICON)
   if (req.method === 'GET' && url.pathname === '/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
     res.write(`data: ${snapshot()}\n\n`)
