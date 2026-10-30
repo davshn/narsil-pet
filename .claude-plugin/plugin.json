@@ -3,5 +3,7 @@
   "version": "1.3.0",
   "description": "Narsil, a chibi sea serpent that lives above the prompt and shows at a glance what Claude is doing",
   "author": { "name": "Davshn" },
+  "license": "GPL-3.0-or-later",
+  "repository": "https://github.com/davshn/narsil-pet",
   "types": "./types/index.d.ts"
 }
