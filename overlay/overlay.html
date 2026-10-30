@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Narsil</title>
 <style>
   :root { color-scheme: light dark; --bg: #F7F6FB; --bg2: #ECEAF5; --text: #1E1C2C; --dim: #6E6A85; --row: rgba(0,0,0,.04); --row-hover: rgba(0,0,0,.08);
@@ -10,8 +11,11 @@
     :root { --bg: #16182A; --bg2: #202440; --text: #ECEBF3; --dim: #9A98AD; --row: rgba(255,255,255,.05); --row-hover: rgba(255,255,255,.1); }
   }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.35 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
-  .card { position: relative; height: 100%; box-sizing: border-box; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
+  .card { position: relative; width: 100%; height: 100%; box-sizing: border-box; overflow: hidden; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px;
           background: radial-gradient(120% 70% at 50% 0%, var(--bg2) 0%, var(--bg) 70%); }
+  /* Long text wraps or is cut inside the window, never widens it. */
+  .card > *, .focus > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+  .clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
   .event { display: none; padding: 6px 30px 6px 10px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 22%, transparent);
            border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); font-weight: 600; cursor: pointer; }
   .event small { display: block; font-weight: 400; color: var(--text); opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -19,27 +23,27 @@
   .close { position: absolute; top: 12px; right: 16px; width: 22px; height: 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text); opacity: .6; font-size: 16px; cursor: pointer; display: none; }
   .has-event .close { display: block; }
   .close:hover { opacity: 1; background: var(--row-hover); }
-  .focus { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border-radius: 10px; padding: 2px 0 4px; }
+  .focus { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border-radius: 10px; padding: 2px 0 4px; }
   .focus:hover { background: var(--row); }
   #sprite, #sprite svg { width: 168px; height: 150px; }
-  .has-event #sprite, .has-event #sprite svg { width: 136px; height: 122px; }
+  .has-event #sprite, .has-event #sprite svg, .has-tip #sprite, .has-tip #sprite svg { width: 120px; height: 107px; }
   .status { font-weight: 800; letter-spacing: .6px; font-size: 12px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
   .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .s-working .status::before { animation: blink 1s ease-in-out infinite; }
-  .headline { font-weight: 600; text-align: center; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .line { font-size: 12px; color: var(--dim); text-align: center; }
-  .tip { display: none; position: relative; margin-top: 6px; padding: 5px 9px; border-radius: 10px; background: var(--row-hover); font-size: 12px; text-align: center; }
-  .tip.shown { display: block; }
+  .headline { font-weight: 600; text-align: center; -webkit-line-clamp: 2; }
+  .line { font-size: 12px; color: var(--dim); text-align: center; -webkit-line-clamp: 1; }
+  .tip { display: none; -webkit-line-clamp: 4; position: relative; overflow: visible; margin-top: 6px; padding: 5px 9px; border-radius: 10px; background: var(--row-hover); font-size: 12px; text-align: center; }
+  .tip.shown { display: -webkit-box; }
   .tip::before { content: ''; position: absolute; top: -6px; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--row-hover); }
   .usage { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
-  .meter { display: grid; grid-template-columns: 56px 1fr 38px; align-items: center; gap: 6px; }
+  .meter { display: grid; grid-template-columns: 56px minmax(0, 1fr) 38px; align-items: center; gap: 6px; }
   .meter .label { color: var(--dim); }
   .meter .track { height: 7px; border-radius: 4px; background: var(--row-hover); overflow: hidden; }
   .meter .fill { height: 100%; border-radius: 4px; transition: width .6s ease-out; }
   .meter .pct { font-weight: 700; text-align: right; }
   .summary { font-size: 11px; color: var(--dim); text-align: center; }
   .list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
-  .row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
+  .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
   .row:hover { background: var(--row-hover); }
   .row .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -59,9 +63,9 @@
   <div class="focus" id="focus" title="Abrir la conversación">
     <div id="sprite"></div>
     <div class="status" id="status">…</div>
-    <div class="headline" id="headline">Narsil se está despertando…</div>
-    <div class="line" id="line"></div>
-    <div class="tip" id="tip" title="Consejo de Narsil"></div>
+    <div class="headline clamp" id="headline">Narsil se está despertando…</div>
+    <div class="line clamp" id="line"></div>
+    <div class="tip clamp" id="tip" title="Consejo de Narsil"></div>
   </div>
   <div class="usage" id="usage"></div>
   <div class="summary" id="summary"></div>
@@ -109,13 +113,15 @@
       $('focus').className = 'focus s-' + focus.status
       $('status').textContent = LABEL[focus.status] + (summary.total > 1 ? ' · ' + focus.title : '')
       $('headline').textContent = focus.headline
+      $('headline').title = focus.headline
       $('line').textContent = focus.line
       // Narsil's tip, as a speech bubble under her.
       $('tip').textContent = focus.tip ? '💡 ' + focus.tip : ''
-      $('tip').className = 'tip' + (focus.tip ? ' shown' : '')
+      $('tip').className = 'tip clamp' + (focus.tip ? ' shown' : '')
+      $('tip').title = focus.tip || ''
       drawUsage(focus.usage || [])
     }
-    $('card').className = 'card' + (event ? ' has-event' : '')
+    $('card').className = 'card' + (event ? ' has-event' : '') + (focus && focus.tip ? ' has-tip' : '')
     $('event').className = 'event' + (event ? ' k-' + event.kind : '')
     $('event-title').textContent = event ? event.title : ''
     $('event-text').textContent = event ? event.text : ''
