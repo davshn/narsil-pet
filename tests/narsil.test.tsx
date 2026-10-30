@@ -121,16 +121,47 @@ test('a question from Claude pops up with the conversation it belongs to', async
   await ui.unmount()
 })
 
-test('a permission Claude must ask for pops up as a question', async ($, on) => {
+test('a permission dialog you must answer pops up as a question', async ($, on) => {
   const posts = engine(on)
-  on('tool.check', () => ({ decision: 'ask' as const }))
+  on('classic.PermissionRequest', () => ({}))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
-  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' }, permission_mode: 'default' })
 
   const asked = posts.find(p => p.url.endsWith('/event'))
   expect(asked?.body.kind).toBe('question')
   expect(asked?.body.text).toBe('Pide permiso para usar Bash.')
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an ask the mode settles by itself (bypass permissions) raises no alarm', async ($, on) => {
+  const posts = engine(on)
+  // the engine's verdict before the mode settles it: "ask", then allowed
+  on('tool.check', () => ({ decision: 'ask' as const }))
+  on('tool.call', () => ({ result: {} }))
+  on('classic.PermissionRequest', () => ({}))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf build' } })
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {}, permission_mode: 'bypassPermissions' })
+
+  expect(posts.find(p => p.url.endsWith('/event'))).toBeUndefined()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a permission a settings hook answers raises no alarm', async ($, on) => {
+  const posts = engine(on)
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' as const } }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: {}, permission_mode: 'default' })
+
+  expect(posts.find(p => p.url.endsWith('/event'))).toBeUndefined()
 })
 
 test('the open conversations are counted by state', async ($, on) => {

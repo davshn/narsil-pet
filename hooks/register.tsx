@@ -611,15 +611,20 @@ export const register: Register = on => {
     }
   })
 
-  // A permission Claude has to ask you for.
-  on('tool.check', async ($, e, next) => {
-    const verdict = await next(e)
-    if (verdict.decision === 'ask' && !ASKING_TOOLS.has(e.tool) && e.agentId === undefined) {
-      await setMood($, 'asking', `pide permiso para usar ${e.tool}`)
-      await announceQuestion($, `Pide permiso para usar ${e.tool}.`)
+  // A permission you have to decide. Not `tool.check`: its `ask` comes before
+  // the mode settles it, so under "bypass permissions" (or a rule, or the
+  // auto classifier) it would cry wolf. The engine raises PermissionRequest
+  // only when it is about to show you the dialog.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const result = await next(e)
+    // A settings hook already answered it: nobody is asked.
+    const isDecided = result.decision !== undefined || e.permission_mode === 'bypassPermissions'
+    if (!isDecided && !ASKING_TOOLS.has(e.tool_name)) {
+      await setMood($, 'asking', `pide permiso para usar ${e.tool_name}`)
+      await announceQuestion($, `Pide permiso para usar ${e.tool_name}.`)
     }
 
-    return verdict
+    return result
   })
 
   on('tool.call', async ($, e, next) => {
