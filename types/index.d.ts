@@ -29,8 +29,9 @@ export type Prefs = {
   isAdviceSpoken: boolean
 }
 
-// The tip on show: its text, why it was given (TipKind) and when.
-export type Tip = { text: string; kind: string; at: number }
+// The tip on show: its text, why it was given (TipKind) and when. Faded: it
+// has left the band, and only the floating window still shows it.
+export type Tip = { text: string; kind: string; at: number; isFaded?: boolean }
 
 // The open conversations, by state, as the floating window counts them.
 export type Fleet = Record<Status, number> & { total: number }

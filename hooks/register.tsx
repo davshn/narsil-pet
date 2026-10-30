@@ -252,8 +252,12 @@ async function pushOverlay($: EngineInterface): Promise<void> {
 // The heartbeat: keep the window in sync, and learn how many conversations
 // are open and in which state.
 async function beat($: EngineInterface): Promise<void> {
-  const shown = await read($, tip)
-  if (shown && (await $.clock.now()) - shown.at >= TIP_SHOWN_MS) await update($, tip, () => null)
+  // A tip leaves the band after TIP_SHOWN_MS; the window keeps it for
+  // TIP_KEPT_MS, since it shows while Claude is minimized, often later.
+  const kept = await read($, tip)
+  const age = kept ? (await $.clock.now()) - kept.at : 0
+  if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
+  else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
   await pushOverlay($)
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
@@ -344,6 +348,7 @@ async function setUsage($: EngineInterface, next: Usage): Promise<void> {
 // Narsil's tips. What she has seen of the work (advice.ts), and how often she
 // may speak up unasked: module variables, which a reload resets harmlessly.
 const TIP_SHOWN_MS = 3 * 60_000
+const TIP_KEPT_MS = 15 * 60_000
 const LONG_TURN_MS = 3 * 60_000
 const TIPS_PER_DAY = 20
 const RECENT_TIPS = 5
@@ -670,7 +675,8 @@ export const register: Register = on => {
     const color = STATUS_COLOR[status]
     const title = headline(state.mood, state.detail)
     const others = fleetSummary(await read($, fleet))
-    const shown = await read($, tip)
+    const kept = await read($, tip)
+    const shown = kept && !kept.isFaded ? kept : null
     const spent = await read($, usage)
     const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now()) : []
     const dismiss = async () => {

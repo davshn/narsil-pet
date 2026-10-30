@@ -297,6 +297,21 @@ test('a tip is dismissed with its ×, and leaves on its own after 3 minutes', as
   expect(await bandTip($, 'desktop')).toBeUndefined()
 })
 
+test('the floating window keeps the tip after it leaves the band, for 15 minutes', async ($, on) => {
+  model(on)
+  const { posts, clock } = await tipEngine($, on)
+  const lastTip = () => posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.tip
+  await finishTurn($)
+  await clock.settle()
+
+  await clock.advance(5 * MINUTE)
+  expect(await bandTip($, 'desktop')).toBeUndefined()
+  expect(lastTip()).toBe(TIP)
+
+  await clock.advance(10 * MINUTE + 2000)
+  expect(lastTip()).toBeNull()
+})
+
 test('SKIP or an empty reply shows nothing', async ($, on) => {
   let reply: ModelCompleteResult = { isAnswered: true, text: 'SKIP', usage: USAGE }
   let calls = 0
