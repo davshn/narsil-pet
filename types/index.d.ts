@@ -18,13 +18,25 @@ export type Status = 'working' | 'idle' | 'waiting' | 'done' | 'error'
 
 export type Pet = { mood: Mood; line: string; detail: string }
 
-export type Prefs = { isHidden: boolean; isMuted: boolean; isFloating: boolean }
+export type Prefs = {
+  isHidden: boolean
+  isMuted: boolean
+  isFloating: boolean
+  // Narsil's tips: on or off, at most one automatic tip every so many
+  // minutes, and whether the turn-finished ones are spoken.
+  isAdviceOn: boolean
+  adviceEveryMinutes: number
+  isAdviceSpoken: boolean
+}
+
+// The tip on show: its text, why it was given (TipKind) and when.
+export type Tip = { text: string; kind: string; at: number }
 
 // The open conversations, by state, as the floating window counts them.
 export type Fleet = Record<Status, number> & { total: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null }
   }
 }

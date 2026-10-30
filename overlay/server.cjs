@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
     if (!data || typeof data !== 'object') return send(400, 'text/plain', 'bad state')
     const id = SESSION.test(data.sessionId || '') ? data.sessionId : 'local_unknown'
     const before = sessions.get(id)
-    const isChanged = !before || before.mood !== data.mood || before.headline !== data.headline
+    const isChanged = !before || before.mood !== data.mood || before.headline !== data.headline || before.tip !== data.tip
     const now = Date.now()
     sessions.set(id, { ...data, sessionId: id, at: now, changedAt: isChanged || !before ? now : before.changedAt })
     lastBeat = now

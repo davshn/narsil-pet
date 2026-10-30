@@ -2,6 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { Fleet, Mood, Pet, Prefs, Status } from '../types'
+import type { TipKind } from './advice'
+import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, parse, prompt, remember } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
@@ -17,9 +19,14 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isHidden: false,
   isMuted: false,
   isFloating: true,
+  isAdviceOn: true,
+  adviceEveryMinutes: 10,
+  isAdviceSpoken: false,
 })
 // Every open conversation, by state: counted by the floating window.
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
+// Narsil's tip on show, if any: under the headline and in the window.
+const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -227,6 +234,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     headline: headline(s.mood, s.detail),
     line: s.line,
     svg: sprite(s.mood),
+    tip: (await read($, tip))?.text ?? null,
   })
   await $.http
     .fetch(`${OVERLAY}/state`, {
@@ -240,6 +248,8 @@ async function pushOverlay($: EngineInterface): Promise<void> {
 // The heartbeat: keep the window in sync, and learn how many conversations
 // are open and in which state.
 async function beat($: EngineInterface): Promise<void> {
+  const shown = await read($, tip)
+  if (shown && (await $.clock.now()) - shown.at >= TIP_SHOWN_MS) await update($, tip, () => null)
   await pushOverlay($)
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
@@ -321,11 +331,147 @@ async function setMood($: EngineInterface, mood: Mood, detail = ''): Promise<voi
   await pushOverlay($)
 }
 
+// Narsil's tips. What she has seen of the work (advice.ts), and how often she
+// may speak up unasked: module variables, which a reload resets harmlessly.
+const TIP_SHOWN_MS = 3 * 60_000
+const LONG_TURN_MS = 3 * 60_000
+const TIPS_PER_DAY = 20
+const RECENT_TIPS = 5
+const WRITING_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+
+const seen = emptyContext()
+const recentTips: string[] = []
+let turnStartedAt = 0
+let failuresByTool = new Map<string, number>()
+let failuresThisTurn = 0
+// The automatic kinds already tried this turn: each at most once.
+let triedThisTurn = new Set<TipKind>()
+let lastAutoAt: number | null = null
+let lastAutoKind: TipKind | null = null
+let tipDay = -1
+let tipsToday = 0
+
+// Whether an automatic tip may be asked for now; if so, it counts.
+async function mayTip($: EngineInterface, kind: TipKind): Promise<boolean> {
+  const p = await read($, prefs)
+  if (!p.isAdviceOn) return false
+  const now = await $.clock.now()
+  const today = Math.floor(now / 86_400_000)
+  if (today !== tipDay) {
+    tipDay = today
+    tipsToday = 0
+  }
+  if (tipsToday >= TIPS_PER_DAY) return false
+  // The same kind twice in a row waits twice as long.
+  const every = Math.max(1, p.adviceEveryMinutes) * 60_000 * (kind === lastAutoKind ? 2 : 1)
+  if (lastAutoAt !== null && now - lastAutoAt < every) return false
+  lastAutoAt = now
+  tipsToday += 1
+  return true
+}
+
+// One small completion over what Narsil has seen; null when she has nothing
+// useful to say or the call failed.
+async function askTip($: EngineInterface, kind: TipKind): Promise<string | null> {
+  try {
+    const reply = await $.model.complete({
+      model: 'haiku',
+      system: SYSTEM,
+      prompt: prompt(describe(seen, kind), recentTips),
+      effort: 'low',
+      maxTokens: 120,
+      timeoutMs: 8000,
+    })
+    return reply.isAnswered ? parse(reply.text) : null
+  } catch {
+    return null
+  }
+}
+
+async function showTip($: EngineInterface, text: string, kind: TipKind): Promise<void> {
+  remember(recentTips, text, RECENT_TIPS)
+  const at = await $.clock.now()
+  await update($, tip, () => ({ text, kind, at }))
+  $.ui.log(`💡 ${text}`)
+  await pushOverlay($)
+}
+
+async function autoTip($: EngineInterface, kind: TipKind): Promise<void> {
+  if (triedThisTurn.has(kind)) return
+  triedThisTurn.add(kind)
+  if (!(await mayTip($, kind))) return
+  const text = await askTip($, kind)
+  if (!text) return
+  lastAutoKind = kind
+  await showTip($, text, kind)
+  const { isAdviceSpoken, isMuted } = await read($, prefs)
+  if (kind === 'review' && isAdviceSpoken && !isMuted) await speak($, text)
+}
+
+// Never awaited by the hook that triggers it: a tip must not slow the turn.
+function tipLater($: EngineInterface, kind: TipKind): void {
+  void autoTip($, kind).catch(() => undefined)
+}
+
+async function askedTip($: EngineInterface, isDeep: boolean): Promise<string> {
+  let text: string | null = null
+  let why = 'ahora mismo no tengo un consejo útil que darte'
+  if (isDeep) {
+    try {
+      const reply = await $.model.fork({ prompt: forkPrompt(recentTips) })
+      if (reply.isAnswered) text = parse(reply.text)
+      else if (reply.reason === 'nothing-to-fork') why = 'todavía no hay conversación que mirar'
+      else why = 'no he podido pensar el consejo ahora'
+    } catch {
+      why = 'no he podido pensar el consejo ahora'
+    }
+  } else {
+    text = await askTip($, 'asked')
+  }
+  if (!text) return `Narsil: ${why}.`
+  await showTip($, text, 'asked')
+  return `Narsil: 💡 ${text}`
+}
+
+async function setAdvice($: EngineInterface, patch: Partial<Prefs>): Promise<Prefs> {
+  const saved = await update($, prefs, p => ({ ...p, ...patch }))
+  await $.store.set(PREFS_KEY, saved).catch(() => undefined)
+  return saved
+}
+
+// `/narsil consejo …` and `/narsil consejos …`; undefined for any other words.
+async function adviceCommand($: EngineInterface, arg: string): Promise<string | undefined> {
+  if (arg === 'consejo') return askedTip($, false)
+  if (arg === 'consejo profundo') return askedTip($, true)
+  if (arg === 'consejos on') {
+    await setAdvice($, { isAdviceOn: true })
+    return 'Narsil: consejos activados.'
+  }
+  if (arg === 'consejos off') {
+    await setAdvice($, { isAdviceOn: false })
+    await update($, tip, () => null)
+    return 'Narsil: consejos desactivados (aún puedes pedirme uno con /narsil consejo).'
+  }
+  if (arg === 'consejos voz') {
+    const p = await setAdvice($, { isAdviceSpoken: !(await read($, prefs)).isAdviceSpoken })
+    return `Narsil: ${p.isAdviceSpoken ? 'diré en voz alta' : 'ya no diré en voz alta'} los consejos de fin de turno.`
+  }
+  const every = /^consejos cada (\d{1,4})$/.exec(arg)
+  if (every) {
+    const minutes = Math.min(1440, Math.max(1, Number(every[1])))
+    await setAdvice($, { adviceEveryMinutes: minutes })
+    return `Narsil: como mucho un consejo cada ${minutes} min.`
+  }
+  if (arg.startsWith('consejo')) return 'Uso: /narsil consejo [profundo] | consejos on | off | cada <min> | voz'
+  return undefined
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'narsil',
-      description: 'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba',
+      description:
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -348,7 +494,9 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'narsil' }, async ($, e) => {
-    const arg = e.args.trim().toLowerCase()
+    const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
+    const advice = await adviceCommand($, arg)
+    if (advice !== undefined) return { text: advice }
     const change: Record<string, Partial<Prefs>> = {
       ocultar: { isHidden: true },
       mostrar: { isHidden: false },
@@ -387,7 +535,9 @@ export const register: Register = on => {
         text:
           `Narsil está ${p.isHidden ? 'oculta' : 'visible'}, con la voz ${p.isMuted ? 'apagada' : 'encendida'} ` +
           `y la ventana flotante ${p.isFloating ? 'activada' : 'desactivada'}.\n` +
-          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba',
+          `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
+          `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
+          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
@@ -397,7 +547,22 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined) await setMood($, 'thinking')
+    if (e.agentId === undefined) {
+      turnStartedAt = await $.clock.now()
+      seen.touched = new Map()
+      seen.durationMs = 0
+      seen.answer = ''
+      failuresByTool = new Map()
+      failuresThisTurn = 0
+      triedThisTurn = new Set()
+      await setMood($, 'thinking')
+    }
+
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    if (!e.isMeta) seen.prompt = e.text.slice(0, 400)
 
     return next(e)
   })
@@ -432,11 +597,21 @@ export const register: Register = on => {
       return next(e)
     }
     const mood = MOOD_BY_TOOL[e.tool] ?? 'running'
-    await setMood($, mood, describeCall(e.tool, e))
+    const detail = describeCall(e.tool, e)
+    remember(seen.calls, { tool: e.tool, detail }, MAX_CALLS)
+    if (WRITING_TOOLS.has(e.tool)) seen.touched.set(detail, (seen.touched.get(detail) ?? 0) + 1)
+    await setMood($, mood, detail)
     const result = await next(e)
     if (result.isError) {
       await setMood($, 'scared', e.tool)
+      const error = 'text' in result && typeof result.text === 'string' ? result.text : ''
+      remember(seen.failures, { tool: e.tool, error: error.slice(0, 200) }, MAX_FAILURES)
+      const sameTool = (failuresByTool.get(e.tool) ?? 0) + 1
+      failuresByTool.set(e.tool, sameTool)
+      failuresThisTurn += 1
+      if (sameTool >= 2 || failuresThisTurn >= 3) tipLater($, 'debug')
     }
+    if (turnStartedAt > 0 && (await $.clock.now()) - turnStartedAt > LONG_TURN_MS) tipLater($, 'pacing')
 
     return result
   })
@@ -452,6 +627,9 @@ export const register: Register = on => {
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
       await announce($, 'done', 'Narsil ha terminado', summary(e.answer, took), 'Ya está, Narsil ha terminado.')
+      seen.durationMs = e.durationMs
+      seen.answer = e.answer.slice(0, 400)
+      tipLater($, 'review')
     } else if (e.reason === 'aborted') {
       await setMood($, 'idle', 'lo has detenido tú')
     } else {
@@ -473,9 +651,14 @@ export const register: Register = on => {
     const color = STATUS_COLOR[status]
     const title = headline(state.mood, state.detail)
     const others = fleetSummary(await read($, fleet))
+    const shown = await read($, tip)
+    const dismiss = async () => {
+      await update($, tip, () => null)
+      await pushOverlay($)
+    }
 
     if (e.surface === 'terminal') {
-      const { Box, Text } = $.ui.resolve(e)
+      const { Box, Button, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="column">
           <Box flexDirection="row">
@@ -485,12 +668,20 @@ export const register: Register = on => {
             </Text>
             <Text wrap="truncate-end"> · {title}</Text>
           </Box>
+          {shown ? (
+            <Box flexDirection="row" gap={1}>
+              <Text dimColor wrap="truncate-end">
+                {`💡 ${shown.text}`}
+              </Text>
+              <Button key="tip-dismiss" label="×" onPress={dismiss} />
+            </Box>
+          ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
       )
     }
 
-    const { Box, Text, Svg } = $.ui.resolve(e)
+    const { Box, Button, Text, Svg } = $.ui.resolve(e)
     return (
       <Box flexDirection="row" alignItems="center" gap={2}>
         {/* Not isInteractive: the desktop's interactive frame shows no embedded
@@ -507,6 +698,12 @@ export const register: Register = on => {
             {title}
           </Text>
           <Text dimColor>{state.line}</Text>
+          {shown ? (
+            <Box flexDirection="row" gap={1} alignItems="center">
+              <Text wrap="truncate-end">{`💡 ${shown.text}`}</Text>
+              <Button key="tip-dismiss" label="×" onPress={dismiss} />
+            </Box>
+          ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
       </Box>

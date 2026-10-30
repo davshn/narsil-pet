@@ -1,6 +1,6 @@
 # Plan: Narsil gives advice on what you are working on
 
-Status: planned, not implemented. Implement in a new session.
+Status: implemented (hooks/advice.ts, hooks/register.tsx, overlay/, tests/narsil.test.tsx).
 
 ## Goal
 
