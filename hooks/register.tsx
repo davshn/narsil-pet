@@ -348,7 +348,6 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
     isShown ? Promise.resolve() : notify($, `Narsil · ${title}`, text),
   ])
 }
-
 // One tool can raise both a permission ask and its own question.
 let lastQuestionAt = 0
 
@@ -377,6 +376,33 @@ async function setMood($: EngineInterface, mood: Mood, detail = ''): Promise<voi
   const next: Pet = { mood, line: pick(mood), detail }
   await update($, pet, () => next)
   await pushOverlay($)
+}
+
+// What each surface (terminal, desktop, vscode, mobile) has asked of Narsil:
+// when it joined the session and when it last asked to draw the band.
+// `/narsil estado` shows it, to tell a surface that never asks (it cannot
+// show her) from one that asks and still shows nothing. Module variables: a
+// reload starts them over.
+const joinedAt = new Map<string, number>()
+const askedAt = new Map<string, number>()
+
+function ago(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 5) return 'ahora mismo'
+  return seconds >= 60 ? `hace ${Math.round(seconds / 60)} min` : `hace ${seconds} s`
+}
+
+async function surfaceReport($: EngineInterface): Promise<string> {
+  const now = await $.clock.now()
+  const attached: readonly string[] = await $.session.surfaces().catch(() => [])
+  const names = [...new Set([...attached, ...joinedAt.keys(), ...askedAt.keys()])]
+  if (names.length === 0) return 'Superficies: ninguna conectada.'
+  const parts = names.map(name => {
+    const asked = askedAt.get(name)
+    const state = attached.includes(name) ? '' : ' (desconectada)'
+    return `${name}${state}: ${asked === undefined ? 'nunca ha pedido la banda' : `pidió la banda ${ago(now - asked)}`}`
+  })
+  return `Superficies: ${parts.join(' · ')}`
 }
 
 async function setUsage($: EngineInterface, next: Usage): Promise<void> {
@@ -580,7 +606,9 @@ export const register: Register = on => {
       const counted = fleetSummary(await read($, fleet))
       const s = await read($, pet)
       return {
-        text: `Narsil: ${STATUS_LABEL[statusOf(s.mood)]} · ${headline(s.mood, s.detail)}.\n${counted || 'Esta es la única conversación abierta.'}`,
+        text:
+          `Narsil: ${STATUS_LABEL[statusOf(s.mood)]} · ${headline(s.mood, s.detail)}.\n` +
+          `${counted || 'Esta es la única conversación abierta.'}\n${await surfaceReport($)}`,
       }
     }
     if (arg === 'flotante') {
@@ -719,7 +747,14 @@ export const register: Register = on => {
     return result
   })
 
+  on('session.attach', async ($, e, next) => {
+    joinedAt.set(e.surface, await $.clock.now())
+
+    return next(e)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    askedAt.set(e.surface, await $.clock.now())
     const { isHidden } = await read($, prefs)
     if (e.props.hasSurvey || isHidden) return next(e)
 

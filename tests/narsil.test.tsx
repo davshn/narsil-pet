@@ -190,6 +190,18 @@ test('the open conversations are counted by state', async ($, on) => {
   await ui.unmount()
 })
 
+test('/narsil estado tells which surfaces asked to draw the band, and which never did', async ($, on) => {
+  engine(on)
+  on('session.surfaces', () => ({ value: ['desktop', 'mobile'] as const }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.unmount()
+
+  const answer = await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
+
+  expect(JSON.stringify(answer)).toContain('Superficies: desktop: pidió la banda ahora mismo · mobile: nunca ha pedido la banda')
+})
+
 test('with one conversation, or no floating window, nothing is counted', async ($, on) => {
   engine(on, null)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
