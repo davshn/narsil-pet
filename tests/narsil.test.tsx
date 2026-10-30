@@ -312,6 +312,27 @@ test('the floating window keeps the tip after it leaves the band, for 15 minutes
   expect(lastTip()).toBeNull()
 })
 
+test('a long tip and headline wrap or are cut inside the band, never widen it', async ($, on) => {
+  model(on, `${'Divide la tarea en pasos pequeños antes de seguir con register.tsx; '.repeat(3)}`.trim())
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 20_000, window: 200_000, percent: 10 }, rateLimits: [] } }))
+  const { clock } = await tipEngine($, on)
+  await $.tool.call({ tool: 'Bash', command: `npm run build -- ${'--flag '.repeat(40)}` })
+  await finishTurn($)
+  await clock.settle()
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const tipText = await desk.find({ type: 'Text', text: /^💡 / })
+  expect(tipText?.props.wrap).toBe('wrap')
+  for (const box of await desk.findAll({ type: 'Box' })) {
+    if (box.props.flexDirection === 'column') expect(box.props.minWidth).toBe(0)
+  }
+  // the usage bars scale to the room the band has
+  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
+  expect(bars).toBeDefined()
+  expect(bars?.props.width).toBeUndefined()
+  await desk.unmount()
+})
+
 test('SKIP or an empty reply shows nothing', async ($, on) => {
   let reply: ModelCompleteResult = { isAnswered: true, text: 'SKIP', usage: USAGE }
   let calls = 0

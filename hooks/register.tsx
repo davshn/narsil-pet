@@ -5,7 +5,7 @@ import type { Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, parse, prompt, remember } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
-import { NO_USAGE, hasUsage, levelColor, textBar, usageOf, usageRows, usageBox, usageSummary, usageSvg } from './usage'
+import { NO_USAGE, hasUsage, levelColor, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
 // bugs. She swims while Claude works, dozes while it waits, leaps out of the
@@ -697,7 +697,7 @@ export const register: Register = on => {
           </Box>
           {shown ? (
             <Box flexDirection="row" gap={1}>
-              <Text dimColor wrap="truncate-end">
+              <Text dimColor wrap="wrap">
                 {`💡 ${shown.text}`}
               </Text>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
@@ -725,7 +725,8 @@ export const register: Register = on => {
         {/* Not isInteractive: the desktop's interactive frame shows no embedded
             images, the art's PNGs among them; drawn as an image, it does. */}
         <Svg source={sprite(state.mood)} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
-        <Box flexDirection="column">
+        {/* minWidth 0: long text wraps or is cut inside the band, never widens it. */}
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Box flexDirection="row" gap={1}>
             <Text bold color={color}>
               ● {label}
@@ -735,15 +736,19 @@ export const register: Register = on => {
           <Text bold wrap="truncate-end">
             {title}
           </Text>
-          <Text dimColor>{state.line}</Text>
+          <Text dimColor wrap="truncate-end">
+            {state.line}
+          </Text>
           {shown ? (
-            <Box flexDirection="row" gap={1} alignItems="center">
-              <Text wrap="truncate-end">{`💡 ${shown.text}`}</Text>
+            <Box flexDirection="row" gap={1} alignItems="flex-start" minWidth={0}>
+              <Box flexShrink={1} minWidth={0}>
+                <Text wrap="wrap">{`💡 ${shown.text}`}</Text>
+              </Box>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>
           ) : null}
           {meters.length > 0 ? (
-            <Svg source={usageSvg(meters)} alt={usageSummary(meters)} {...usageBox(meters)} />
+            <Svg source={usageSvg(meters)} alt={usageSummary(meters)} />
           ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
