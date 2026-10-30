@@ -272,7 +272,9 @@ test('a finished turn gives a tip about it, under the headline and in the window
     expect(await bandTip($, surface)).toBeDefined()
   }
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: `💡 ${TIP}` })).toBeDefined()
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => t.text)
+  const first = texts.findIndex(t => t.startsWith('💡 '))
+  expect(`${texts[first]} ${texts[first + 1]}`).toBe(`💡 ${TIP}`)
   await ui.unmount()
   const state = posts.filter(p => p.url.endsWith('/state')).at(-1)
   expect(state?.body.tip).toBe(TIP)
@@ -321,8 +323,18 @@ test('a long tip and headline wrap or are cut inside the band, never widen it', 
   await clock.settle()
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const tipText = await desk.find({ type: 'Text', text: /^💡 / })
-  expect(tipText?.props.wrap).toBe('wrap')
+  // the tip is broken into at most 3 short lines, each cut at the band's edge
+  const texts = await desk.findAll({ type: 'Text' })
+  const first = texts.findIndex(t => t.text.startsWith('💡 '))
+  const tipLines = texts.slice(first, first + 3)
+  for (const line of tipLines) {
+    expect(line.text.length).toBeLessThanOrEqual(60)
+    expect(line.props.wrap).toBe('truncate-end')
+  }
+  expect(tipLines[2]?.text.endsWith('…')).toBe(true)
+  expect(texts[first + 3]?.text.startsWith('Divide')).not.toBe(true)
+  const head = texts.find(t => t.text.startsWith('Narsil ha terminado'))
+  expect(head?.props.wrap).toBe('truncate-end')
   for (const box of await desk.findAll({ type: 'Box' })) {
     if (box.props.flexDirection === 'column') expect(box.props.minWidth).toBe(0)
   }

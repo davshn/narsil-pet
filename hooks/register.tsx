@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
-import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, parse, prompt, remember } from './advice'
+import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, prompt, remember } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import { NO_USAGE, hasUsage, levelColor, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
@@ -343,6 +343,15 @@ async function setUsage($: EngineInterface, next: Usage): Promise<void> {
   if (JSON.stringify(await read($, usage)) === JSON.stringify(next)) return
   await update($, usage, () => next)
   await pushOverlay($)
+}
+
+// The desktop band's tip lines, in characters: short enough to fit beside
+// Narsil in a narrow window, since the band's width cannot be read from here.
+const TIP_LINE = 60
+
+// The tip as the band draws it, '💡' ahead of its first line.
+function tipLines(text: string, width: number): string[] {
+  return lines(`💡 ${text}`, width)
 }
 
 // Narsil's tips. What she has seen of the work (advice.ts), and how often she
@@ -697,9 +706,13 @@ export const register: Register = on => {
           </Box>
           {shown ? (
             <Box flexDirection="row" gap={1}>
-              <Text dimColor wrap="wrap">
-                {`💡 ${shown.text}`}
-              </Text>
+              <Box flexDirection="column" flexShrink={1} minWidth={0}>
+                {tipLines(shown.text, Math.max(20, e.props.bodyColumns - 8)).map(line => (
+                  <Text dimColor wrap="truncate-end">
+                    {line}
+                  </Text>
+                ))}
+              </Box>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>
           ) : null}
@@ -741,8 +754,10 @@ export const register: Register = on => {
           </Text>
           {shown ? (
             <Box flexDirection="row" gap={1} alignItems="flex-start" minWidth={0}>
-              <Box flexShrink={1} minWidth={0}>
-                <Text wrap="wrap">{`💡 ${shown.text}`}</Text>
+              <Box flexDirection="column" flexShrink={1} minWidth={0}>
+                {tipLines(shown.text, TIP_LINE).map(line => (
+                  <Text wrap="truncate-end">{line}</Text>
+                ))}
               </Box>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>

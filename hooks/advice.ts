@@ -107,6 +107,30 @@ export function forkPrompt(recent: readonly string[]): string {
   }\nTu consejo:`
 }
 
+// A tip broken into lines of at most `width` characters, at most `max` of
+// them (the last one ending in … when it had to be cut). The band draws each
+// as a line of its own, so a long tip never runs past the band's edge.
+export function lines(text: string, width: number, max = 3): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    // A word longer than a line (a path, a URL) is cut into pieces.
+    for (let piece = word; piece; piece = piece.slice(width)) {
+      const chunk = piece.slice(0, width)
+      if (!line) line = chunk
+      else if (line.length + 1 + chunk.length <= width) line += ` ${chunk}`
+      else {
+        out.push(line)
+        line = chunk
+      }
+    }
+  }
+  if (line) out.push(line)
+  if (out.length <= max) return out
+  const last = out[max - 1]!
+  return [...out.slice(0, max - 1), `${last.length < width ? last : last.slice(0, width - 1)}…`]
+}
+
 // The reply as a tip, or null when there is nothing to show (SKIP, empty).
 export function parse(reply: string): string | null {
   const text = reply
