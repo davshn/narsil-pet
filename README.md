@@ -65,7 +65,13 @@ Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API 
 Tres minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos sacados de lo que se hizo ("Ejecuta los tests de register.tsx"). Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
 
 ### Subagentes
-Cada subagente en marcha aparece como una pequeña serpiente con su tarea (🐍 Revisar los tests), en la banda y en la ventana flotante, y desaparece cuando termina.
+Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y en la ventana flotante:
+
+- **Su tipo**, con un accesorio: 🐍🔍 Explore, 🐍📜 Plan, 🐍📖 claude-code-guide, 🐍🪞 fork, 🐍 general-purpose y 🐍✨ cualquier otro.
+- **Cuánto lleva** ("🐍🔍 Explorar el overlay · 4 min"). Si pasa 5 minutos sin usar ninguna herramienta, se pone amarillo con "sin actividad": puede estar atascado.
+- **Cómo terminó**, durante unos segundos: "✓ … · terminado en 1 min 20 s", "✗ … · falló" o "■ … · detenido".
+
+Si el subagente corría en segundo plano, Narsil además avisa con voz y en la ventana flotante cuando termina.
 
 ## Animaciones
 

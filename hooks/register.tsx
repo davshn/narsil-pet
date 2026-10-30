@@ -4,6 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Cache, Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
+import { TONE_COLOR, agentChip, liveRuns } from './agents'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -33,8 +34,10 @@ const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
 const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
-// The subagents running now, by their task, in the order they started.
+// The subagents running now, or just ended, in the order they started; and
+// their chips as the band and the window show them (agents.ts).
 const agents = atom({ plugin: 'narsil-pet', key: 'agents' } as const, [])
+const agentChips = atom({ plugin: 'narsil-pet', key: 'agentChips' } as const, [])
 // The prompt cache's clock while Claude waits for you, and the next steps
 // offered for the last turn.
 const cache = atom({ plugin: 'narsil-pet', key: 'cache' } as const, null)
@@ -316,7 +319,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     svg: sprite(s.mood),
     tip: (await read($, tip))?.text ?? null,
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
-    agents: await read($, agents),
+    agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
     steps: (await read($, steps))?.items ?? [],
   })
@@ -339,6 +342,7 @@ async function beat($: EngineInterface): Promise<void> {
   if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
   await tickCache($)
+  await refreshAgents($)
   await pushOverlay($)
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
@@ -671,6 +675,45 @@ async function adviceCommand($: EngineInterface, arg: string): Promise<string | 
   return undefined
 }
 
+// --- Subagents ---
+
+// Redraws the chips when what they say has changed, and lets the ended runs go.
+async function refreshAgents($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  const runs = await read($, agents)
+  const live = liveRuns(runs, now)
+  if (live.length !== runs.length) await update($, agents, () => live)
+  const next = live.map(r => {
+    const { text, tone } = agentChip(r, now)
+    return { text, color: TONE_COLOR[tone] }
+  })
+  if (JSON.stringify(next) === JSON.stringify(await read($, agentChips))) return
+  await update($, agentChips, () => next)
+  await pushOverlay($)
+}
+
+async function touchAgent($: EngineInterface, id: string): Promise<void> {
+  const now = await $.clock.now()
+  if (!(await read($, agents)).some(r => r.id === id && r.endedAt === undefined)) return
+  await update($, agents, runs => runs.map(r => (r.id === id ? { ...r, lastActiveAt: now } : r)))
+  await refreshAgents($)
+}
+
+// A subagent's own turn ended: how it went shows for a few seconds, and one
+// that ran in the background, while nobody watched it, is announced.
+async function endAgent($: EngineInterface, id: string, reason: string): Promise<void> {
+  const ending = (await read($, agents)).find(r => r.id === id && r.endedAt === undefined)
+  if (!ending) return
+  const now = await $.clock.now()
+  const outcome = reason === 'answer' ? 'done' : reason === 'aborted' ? 'stopped' : 'failed'
+  await update($, agents, runs => runs.map(r => (r.id === id ? { ...r, endedAt: now, outcome } : r)))
+  await refreshAgents($)
+  if (ending.isBackground) {
+    const { text } = agentChip({ ...ending, endedAt: now, outcome }, now)
+    await announce($, outcome === 'done' ? 'done' : 'error', 'Un subagente ha terminado', text, outcome === 'done' ? 'Un subagente ha terminado.' : 'Un subagente se ha detenido.')
+  }
+}
+
 // --- The prompt cache's clock and the next steps ---
 
 // How long the prompt cache lasts, in minutes: on a plan Claude Code keeps it
@@ -931,23 +974,8 @@ export const register: Register = on => {
     if (danger) $.ui.log(`⚠️ Narsil: comando sin vuelta atrás (${danger}): ${command.split('\n')[0]!.slice(0, 120)}`)
     await setMood($, mood, detail, danger ? `⚠️ Cuidado: ${danger} no tiene vuelta atrás.` : pick(mood))
     const isTest = TEST_COMMAND.test(command)
-    const task = e.tool === 'Agent' || e.tool === 'Task' ? (detail.replace(/^subagente: /, '') || 'tarea') : null
-    if (task !== null) {
-      await update($, agents, list => [...list, task])
-      await pushOverlay($)
-    }
-    let result: Awaited<ReturnType<typeof next>>
-    try {
-      result = await next(e)
-    } finally {
-      if (task !== null) {
-        await update($, agents, list => {
-          const at = list.indexOf(task)
-          return at < 0 ? list : [...list.slice(0, at), ...list.slice(at + 1)]
-        })
-        await pushOverlay($)
-      }
-    }
+    if (e.agentId !== undefined) await touchAgent($, e.agentId)
+    const result = await next(e)
     if (isTest && !result.isError) {
       await setMood($, mood, detail, areTestsFailing ? '¡Recuperados! Los tests vuelven a pasar.' : '¡Los tests pasan! 🎉')
       areTestsFailing = false
@@ -969,7 +997,10 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId !== undefined) return result
+    if (e.agentId !== undefined) {
+      await endAgent($, e.agentId, e.reason)
+      return result
+    }
     // Every request of the turn wrote the prompt cache; its clock starts now.
     await startCache($)
 
@@ -990,6 +1021,26 @@ export const register: Register = on => {
       await setMood($, 'failed', why)
       await announce($, 'error', 'Narsil se ha detenido', `El turno terminó con un error (${why}).`, 'Uy, Narsil se ha detenido por un error.')
     }
+
+    return result
+  })
+
+  // A subagent starts: one chip for it, with its task and type, until its own
+  // turn ends. Not the Agent tool call: one in the background returns at once.
+  on('agent.spawn', async ($, e, next) => {
+    const result = await next(e)
+    if ('deny' in result || e.isTeammate) return result
+    const now = await $.clock.now()
+    const started = {
+      id: result.agentId,
+      task: e.description.trim() || 'tarea',
+      type: e.subagentType,
+      startedAt: now,
+      lastActiveAt: now,
+      isBackground: e.background,
+    }
+    await update($, agents, runs => [...runs.filter(r => r.id !== started.id), started])
+    await refreshAgents($)
 
     return result
   })
@@ -1016,7 +1067,7 @@ export const register: Register = on => {
     const spent = await read($, usage)
     const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
     // A small serpent per running subagent, with its task.
-    const helpers = (await read($, agents)).slice(0, MAX_AGENTS_SHOWN)
+    const helpers = (await read($, agentChips)).slice(0, MAX_AGENTS_SHOWN)
     // The cache's clock while Claude waits, and the next steps on offer.
     const clockShown = await read($, cache)
     const offered = (await read($, steps))?.items ?? []
@@ -1059,8 +1110,8 @@ export const register: Register = on => {
               ))}
             </Box>
           ) : null}
-          {helpers.map((task, i) => (
-            <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
+          {helpers.map((chip, i) => (
+            <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
           ))}
           {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
           {offered.length > 0 ? (
@@ -1111,8 +1162,8 @@ export const register: Register = on => {
           ) : null}
           {helpers.length > 0 ? (
             <Box flexDirection="row" gap={2} flexWrap="wrap" minWidth={0}>
-              {helpers.map((task, i) => (
-                <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
+              {helpers.map((chip, i) => (
+                <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
               ))}
             </Box>
           ) : null}

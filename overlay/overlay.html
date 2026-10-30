@@ -141,13 +141,14 @@
       $('tip').textContent = focus.tip ? '💡 ' + focus.tip : ''
       $('tip').className = 'tip clamp' + (focus.tip ? ' shown' : '')
       $('tip').title = focus.tip || ''
-      // A small serpent per running subagent, with its task.
+      // A small serpent per subagent: its task, type and time, or how it ended.
       $('agents').replaceChildren(
-        ...(focus.agents || []).map(task => {
+        ...(focus.agents || []).map(agent => {
           const chip = document.createElement('span')
           chip.className = 'agent'
-          chip.textContent = '🐍 ' + task
-          chip.title = task
+          chip.textContent = agent.text
+          chip.title = agent.text
+          chip.style.color = agent.color
           return chip
         }),
       )

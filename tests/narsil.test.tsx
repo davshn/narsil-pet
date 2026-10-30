@@ -3,6 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
 import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
+import { agentChip } from '../hooks/agents'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -760,33 +761,6 @@ test('a dangerous command is flagged before it runs, and an ordinary one is not'
   expect(seenLines[4]).not.toContain('Cuidado')
 })
 
-test('each running subagent shows with its task, and leaves when it is done', async ($, on) => {
-  const posts = engine(on)
-  let release = () => undefined as void
-  const gate = new Promise<void>(resolve => (release = resolve))
-  on('tool.call', async (_, e) => {
-    if (e.tool === 'Agent') await gate
-    return { result: {} }
-  })
-
-  const first = $.tool.call({ tool: 'Agent', description: 'Map the overlay', prompt: '' } as never)
-  const second = $.tool.call({ tool: 'Agent', description: 'Review the tests', prompt: '' } as never)
-  await new Promise(resolve => setTimeout(resolve, 50))
-
-  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: '🐍 Map the overlay' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '🐍 Review the tests' })).toBeDefined()
-  await ui.unmount()
-  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual(['Map the overlay', 'Review the tests'])
-
-  release()
-  await Promise.all([first, second])
-  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^🐍/ })).toBeUndefined()
-  await ui.unmount()
-  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual([])
-})
-
 test('Narsil moves visibly in every state', () => {
   const moods = ['greeting', 'idle', 'thinking', 'talking', 'reading', 'searching', 'writing', 'running', 'asking', 'scared', 'celebrating', 'failed'] as const
   for (const mood of moods) {
@@ -1008,4 +982,74 @@ test('the next-steps prompt asks for short actionable steps in neutral wording',
   expect(STEPS_SYSTEM).toContain('lenguaje neutro')
   expect(parseSteps('- Uno\n2) Dos\n\n3. Tres\n4. Cuatro')).toEqual(['Uno', 'Dos', 'Tres'])
   expect(parseSteps('SKIP')).toEqual([])
+})
+// The engine with a clock the test moves, where every spawn starts the
+// subagent `ids` names next.
+async function agentEngine($: Engine, on: On, ids: string[]) {
+  let n = 0
+  on('agent.spawn', () => ({ model: 'haiku', agentId: ids[n++] ?? `a${n}` }))
+  return tipEngine($, on)
+}
+
+const spawn = ($: Engine, description: string, subagentType = 'general-purpose') =>
+  $.agent.spawn({ prompt: description, description, subagentType })
+
+const agentDone = ($: Engine, agentId: string, reason: 'answer' | 'aborted' | 'error' = 'answer', durationMs = 80_000) =>
+  $.turn.complete({ reason, answer: 'hecho', durationMs, isAborted: reason === 'aborted', turnId: `${agentId}-turn`, agentId } as never)
+
+const chips = async ($: Engine, surface: 'terminal' | 'desktop' = 'desktop') =>
+  (await bandTexts($, surface)).filter(t => /^(🐍|✓|✗|■)/.test(t))
+
+test('each subagent shows its type, how long it has run, and when it has gone quiet', async ($, on) => {
+  const { posts, clock } = await agentEngine($, on, ['a1', 'a2'])
+  await spawn($, 'Map the overlay', 'Explore')
+  await spawn($, 'Review the tests')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    expect(await chips($, surface)).toEqual(['🐍🔍 Map the overlay', '🐍 Review the tests'])
+  }
+
+  await clock.advance(2 * MINUTE)
+  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · 2 min', '🐍 Review the tests · 2 min'])
+  // The explorer reads a file: it is busy, the reviewer is not.
+  await $.tool.call({ tool: 'Read', file_path: 'C:/repo/overlay.html', agentId: 'a1' } as never)
+  await clock.advance(4 * MINUTE)
+  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · 6 min', '🐍 Review the tests · 6 min · sin actividad'])
+
+  const sent = posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents as { text: string; color: string }[]
+  expect(sent.map(a => a.text)).toEqual(['🐍🔍 Map the overlay · 6 min', '🐍 Review the tests · 6 min · sin actividad'])
+  expect(sent[1]?.color).toBe('#F5B400')
+})
+
+test('a finished subagent stays a few seconds with how it ended, then leaves', async ($, on) => {
+  const { posts, clock } = await agentEngine($, on, ['a1', 'a2', 'a3'])
+  await spawn($, 'Map the overlay', 'Plan')
+  await spawn($, 'Review the tests')
+  await spawn($, 'Write the docs')
+  await clock.advance(80_000)
+
+  await agentDone($, 'a1')
+  await agentDone($, 'a2', 'error')
+  await agentDone($, 'a3', 'aborted')
+  expect(await chips($)).toEqual([
+    '✓ Map the overlay · terminado en 1 min 20 s',
+    '✗ Review the tests · falló',
+    '■ Write the docs · detenido',
+  ])
+  const sent = posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents as { color: string }[]
+  expect(sent.map(a => a.color)).toEqual(['#22B573', '#F0435A', '#8A90A6'])
+
+  await clock.advance(12_000)
+  expect(await chips($)).toEqual([])
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual([])
+  // The main conversation is still where it was: a subagent's end is not hers.
+  expect(posts.some(p => p.url.endsWith('/event'))).toBe(false)
+})
+
+test('the subagent chips show each type with its own mark', () => {
+  const at = { id: 'x', task: 'Tarea', startedAt: 0, lastActiveAt: 0, isBackground: false }
+  expect(agentChip({ ...at, type: 'Explore' }, 0).text).toBe('🐍🔍 Tarea')
+  expect(agentChip({ ...at, type: 'Plan' }, 0).text).toBe('🐍📜 Tarea')
+  expect(agentChip({ ...at, type: 'claude-code-guide' }, 0).text).toBe('🐍📖 Tarea')
+  expect(agentChip({ ...at, type: 'general-purpose' }, 0).text).toBe('🐍 Tarea')
+  expect(agentChip({ ...at, type: 'mi-agente' }, 0).text).toBe('🐍✨ Tarea')
 })
