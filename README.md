@@ -79,6 +79,9 @@ Si un mismo paso falla 3 veces seguidas en un turno (por ejemplo `npm test`, aun
 ### Permisos que esperan
 Si un permiso, una pregunta o un plan llevan 2 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
 
+### Experiencia
+Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada vez que los tests pasan y 3 por cada subagente que termina bien. Del nivel 1 al 2 hacen falta 100 XP, del 2 al 3 otros 200, y así sucesivamente. El nivel ("⭐ Nivel 3 · 120/300 XP") aparece en la banda y en la ventana flotante, y Narsil celebra cada nivel nuevo. La experiencia se guarda entre sesiones y la suman todas las conversaciones abiertas.
+
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno.
 
@@ -140,6 +143,7 @@ La ventana flotante necesita, además:
 | `/narsil consejos voz` | Dice en voz alta, o no, los consejos de fin de turno. |
 | `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
 | `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
+| `/narsil nivel` | Muestra el nivel y la experiencia de Narsil, y cómo se gana. |
 | `/narsil resumen` | Resume la sesión: turnos, archivos editados, comandos, fallos, subagentes y contexto. |
 
 ## Sistemas compatibles

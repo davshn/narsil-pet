@@ -7,6 +7,8 @@ import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, 
 import { TONE_COLOR, agentChip, liveRuns } from './agents'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
+import type { XpReason } from './xp'
+import { XP_GAIN, XP_KEY, levelOf, xpLabel, xpOf } from './xp'
 import { IDLE_SUMMARY_MS, NUDGE_AFTER_MS, addFile, emptyStats, loopWarning, nudgeText, summaryText } from './watch'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
@@ -45,6 +47,8 @@ const cache = atom({ plugin: 'narsil-pet', key: 'cache' } as const, null)
 const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
 // What the session has done so far, for its summary (watch.ts).
 const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
+// Narsil's experience, kept across sessions in the store (xp.ts).
+const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -325,6 +329,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
     steps: (await read($, steps))?.items ?? [],
+    xp: xpLabel(await read($, xp)),
   })
   await $.http
     .fetch(`${OVERLAY}/state`, {
@@ -712,6 +717,7 @@ async function endAgent($: EngineInterface, id: string, reason: string): Promise
   const outcome = reason === 'answer' ? 'done' : reason === 'aborted' ? 'stopped' : 'failed'
   await update($, agents, runs => runs.map(r => (r.id === id ? { ...r, endedAt: now, outcome } : r)))
   await refreshAgents($)
+  if (outcome === 'done') await gainXp($, 'agent')
   if (ending.isBackground) {
     const { text } = agentChip({ ...ending, endedAt: now, outcome }, now)
     await announce($, outcome === 'done' ? 'done' : 'error', 'Un subagente ha terminado', text, outcome === 'done' ? 'Un subagente ha terminado.' : 'Un subagente se ha detenido.')
@@ -856,6 +862,22 @@ async function tickWatch($: EngineInterface): Promise<void> {
   }
 }
 
+// --- Experience ---
+
+// Narsil gains experience. The store is read again first: another open
+// conversation may have added to it since. A new level is celebrated.
+async function gainXp($: EngineInterface, reason: XpReason): Promise<void> {
+  const before = xpOf(await $.store.get(XP_KEY).catch(() => read($, xp)))
+  const after = before + XP_GAIN[reason]
+  await $.store.set(XP_KEY, after).catch(() => undefined)
+  await update($, xp, () => after)
+  const { level } = levelOf(after)
+  if (level > levelOf(before).level) {
+    $.ui.log(`⭐ Narsil ha subido al nivel ${level}.`)
+    await setMood($, current, (await read($, pet)).detail, `¡He subido al nivel ${level}! ⭐`)
+  }
+}
+
 // `/narsil pasos …` and `/narsil cache …`; undefined for any other words.
 async function stepsCommand($: EngineInterface, arg: string): Promise<string | undefined> {
   if (arg === 'pasos on' || arg === 'pasos off') {
@@ -879,7 +901,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -891,6 +913,8 @@ export const register: Register = on => {
     sessionTitle = basename(await $.session.cwd().catch(() => e.cwd))
     // The stats survive a reload of the mod: only a new session starts them.
     if (!(await read($, stats))) await bumpStats($, s => s)
+    const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
+    await update($, xp, () => earned)
     // A new conversation: Narsil is happy to see you.
     await setMood($, 'greeting')
 
@@ -912,6 +936,7 @@ export const register: Register = on => {
     const stepped = await stepsCommand($, arg)
     if (stepped !== undefined) return { text: stepped }
     if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
+    if (arg === 'nivel') return { text: `Narsil: ${xpLabel(await read($, xp))}. Gano experiencia con cada turno terminado, cada vez que los tests pasan y con cada subagente que termina bien.` }
     const change: Record<string, Partial<Prefs>> = {
       ocultar: { isHidden: true },
       mostrar: { isHidden: false },
@@ -955,7 +980,7 @@ export const register: Register = on => {
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
-          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen',
+          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
@@ -1071,6 +1096,7 @@ export const register: Register = on => {
     if (isTest && !result.isError) {
       await setMood($, mood, detail, areTestsFailing ? '¡Recuperados! Los tests vuelven a pasar.' : '¡Los tests pasan! 🎉')
       areTestsFailing = false
+      await gainXp($, 'tests')
     }
     if (result.isError) {
       if (isTest) areTestsFailing = true
@@ -1101,6 +1127,7 @@ export const register: Register = on => {
     if (e.reason === 'answer') {
       const took = duration(e.durationMs)
       await setMood($, 'celebrating', `en ${took}`)
+      await gainXp($, 'turn')
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
@@ -1180,6 +1207,7 @@ export const register: Register = on => {
     // The cache's clock while Claude waits, and the next steps on offer.
     const clockShown = await read($, cache)
     const offered = (await read($, steps))?.items ?? []
+    const level = xpLabel(await read($, xp))
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -1222,6 +1250,7 @@ export const register: Register = on => {
           {helpers.map((chip, i) => (
             <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
           ))}
+          <Text dimColor>{level}</Text>
           {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
           {offered.length > 0 ? (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
@@ -1249,6 +1278,7 @@ export const register: Register = on => {
               ● {label}
             </Text>
             <Text dimColor>· Narsil</Text>
+            <Text dimColor>{`· ${level}`}</Text>
           </Box>
           <Text bold wrap="truncate-end">
             {title}

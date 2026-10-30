@@ -79,6 +79,7 @@
     <div class="tip clamp" id="tip" title="Consejo de Narsil"></div>
     <div class="agents" id="agents"></div>
     <div class="cache" id="cache"></div>
+    <div class="cache" id="xp"></div>
     <div class="steps" id="steps" title="Próximos pasos: vuelve a la conversación para elegir uno"></div>
   </div>
   <div class="usage" id="usage"></div>
@@ -154,6 +155,7 @@
       )
       // The prompt cache's clock, and the next steps Narsil offers.
       $('cache').textContent = focus.cache || ''
+      $('xp').textContent = focus.xp || ''
       $('steps').replaceChildren(
         ...(focus.steps || []).map(text => {
           const step = document.createElement('div')

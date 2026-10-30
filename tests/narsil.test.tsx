@@ -5,6 +5,7 @@ import type { ModelCompleteResult, On } from 'claude-code'
 import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
 import { agentChip } from '../hooks/agents'
 import { emptyStats, summaryText } from '../hooks/watch'
+import { levelOf, xpLabel, xpOf } from '../hooks/xp'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -46,7 +47,10 @@ function engine(
   let isUp = !isOverlayDown
   const uname = { windows: 'MINGW64_NT-10.0', mac: 'Darwin', linux: 'Linux' }[os]
   on('store.get', (_, e) => ({ value: e.key === 'overlayToken' ? 'secret-token' : store[e.key] }))
-  on('store.set', () => ({ value: undefined }))
+  on('store.set', (_, e) => {
+    store[e.key] = e.value
+    return { value: undefined }
+  })
   on('env.get', (_, e) => ({
     value: e.name === 'CLAUDE_CODE_HOST_SESSION_ID' ? 'local_abc-123' : e.name === 'OS' && os === 'windows' ? 'Windows_NT' : undefined,
   }))
@@ -790,12 +794,13 @@ test('in the light theme the glow and halo are fainter, so her pale body keeps i
 
 // --- Each system's own voice, notifications and floating window ---
 
-const NO_WINDOW = { prefs: { isHidden: false, isMuted: false, isFloating: false } }
+// A fresh store each time: the test engine keeps what the mod writes to it.
+const noWindow = () => ({ prefs: { isHidden: false, isMuted: false, isFloating: false } })
 const scriptOf = (r: Ran) => r.env.NARSIL_SCRIPT ?? ''
 
 test('on macOS Narsil speaks and notifies with its own scripts, detached, never PowerShell', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'mac', runs, store: NO_WINDOW })
+  engine(on, null, { os: 'mac', runs, store: noWindow() })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
@@ -814,7 +819,7 @@ test('on macOS Narsil speaks and notifies with its own scripts, detached, never 
 
 test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'mac', runs, store: NO_WINDOW })
+  engine(on, null, { os: 'mac', runs, store: noWindow() })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const answer = await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
@@ -842,7 +847,7 @@ test('with the window on but down, an event starts it again and shows there, nev
 
 test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'windows', runs, store: NO_WINDOW })
+  engine(on, null, { os: 'windows', runs, store: noWindow() })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
@@ -857,7 +862,7 @@ test('on Windows Narsil still speaks and starts the window through PowerShell', 
 
 test('on another system Narsil runs none of her scripts', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'linux', runs, store: NO_WINDOW })
+  engine(on, null, { os: 'linux', runs, store: noWindow() })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
@@ -1187,4 +1192,65 @@ test('the summary names three files at most, and counts subagents and context', 
     '📋 Sesión de 1 h 5 min: 1 turno (30 s de trabajo) · 4 archivos editados (a, b, c…) · 2 comandos, 1 fallo · 1 subagente · contexto 40 %.',
   )
   expect(summaryText(emptyStats(0), 0, null)).toBe('📋 Sesión de 0 min: 0 turnos · ningún archivo editado · 0 comandos, 0 fallos.')
+})
+
+// --- Experience ---
+
+test('Narsil keeps her experience across sessions, and celebrates a new level', async ($, on) => {
+  model(on, 'SKIP')
+  const store: Record<string, unknown> = { xp: 95 }
+  const { posts } = await tipEngine($, on, { store })
+  expect(await bandTexts($, 'terminal')).toContain('⭐ Nivel 1 · 95/100 XP')
+  expect(await bandTexts($, 'desktop')).toContain('· ⭐ Nivel 1 · 95/100 XP')
+
+  await finishTurn($)
+
+  expect(store.xp).toBe(105)
+  expect(await bandTexts($, 'desktop')).toContain('· ⭐ Nivel 2 · 5/200 XP')
+  expect(await bandTexts($, 'desktop')).toContain('¡He subido al nivel 2! ⭐')
+  expect(posts.filter(p => p.url.endsWith('/state')).pop()?.body.xp).toBe('⭐ Nivel 2 · 5/200 XP')
+  const asked = await $.command.run({ command: 'narsil', args: 'nivel', ...TYPED })
+  expect(asked.text).toMatch(/^Narsil: ⭐ Nivel 2 · 5\/200 XP\. /)
+})
+
+test('passing tests and finished subagents earn experience; failures and stopped turns do not', async ($, on) => {
+  model(on, 'SKIP')
+  let shouldFail = false
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
+  on('agent.spawn', () => ({ model: 'haiku', agentId: 'a1' }))
+  const store: Record<string, unknown> = {}
+  await tipEngine($, on, { store, hasTools: false })
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  expect(store.xp).toBe(5)
+  shouldFail = true
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await $.turn.start({ text: 'para', turnId: 'stop' })
+  await $.turn.complete({ reason: 'aborted', answer: '', durationMs: 1000, isAborted: true, turnId: 'stop' })
+  expect(store.xp).toBe(5)
+
+  await spawn($, 'Explorar', 'Explore')
+  await agentDone($, 'a1')
+  expect(store.xp).toBe(8)
+})
+
+test('another conversation’s experience is added to, never overwritten', async ($, on) => {
+  model(on, 'SKIP')
+  const store: Record<string, unknown> = { xp: 10 }
+  await tipEngine($, on, { store })
+  store.xp = 50
+  await finishTurn($)
+  expect(store.xp).toBe(60)
+})
+
+test('levels need 100, 200, 300 XP more each, and odd stored values count as none', () => {
+  expect(levelOf(0)).toEqual({ level: 1, into: 0, needed: 100 })
+  expect(levelOf(99).level).toBe(1)
+  expect(levelOf(100)).toEqual({ level: 2, into: 0, needed: 200 })
+  expect(levelOf(300)).toEqual({ level: 3, into: 0, needed: 300 })
+  expect(xpLabel(420)).toBe('⭐ Nivel 3 · 120/300 XP')
+  expect(xpOf('12')).toBe(0)
+  expect(xpOf(-5)).toBe(0)
+  expect(xpOf(Number.NaN)).toBe(0)
+  expect(xpOf(12.7)).toBe(12)
 })
