@@ -73,7 +73,15 @@
 </div>
 <script>
   const $ = id => document.getElementById(id)
-  const LABEL = { working: 'TRABAJANDO', idle: 'PARADA', waiting: 'TE NECESITA', done: 'TERMINADO', error: 'ERROR' }
+  const LABEL = { working: 'TRABAJANDO', idle: 'PARADA', waiting: 'TE NECESITA', done: 'TERMINADA', error: 'ERROR' }
+  // A count agrees in number: "1 parada", "2 paradas", "2 te necesitan".
+  const COUNT = {
+    working: ['trabajando', 'trabajando'],
+    idle: ['parada', 'paradas'],
+    waiting: ['te necesita', 'te necesitan'],
+    done: ['terminada', 'terminadas'],
+    error: ['con error', 'con error'],
+  }
   const ORDER = ['working', 'waiting', 'error', 'done', 'idle']
   let shownSvg = null
   let focusId = null
@@ -126,7 +134,7 @@
     $('event-title').textContent = event ? event.title : ''
     $('event-text').textContent = event ? event.text : ''
 
-    const counted = ORDER.filter(s => summary[s] > 0).map(s => summary[s] + ' ' + LABEL[s].toLowerCase())
+    const counted = ORDER.filter(s => summary[s] > 0).map(s => summary[s] + ' ' + COUNT[s][summary[s] === 1 ? 0 : 1])
     $('summary').textContent = summary.total > 1 ? summary.total + ' conversaciones: ' + counted.join(' · ') : ''
 
     $('list').replaceChildren(

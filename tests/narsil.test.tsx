@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
+import { SYSTEM } from '../hooks/advice'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -192,10 +193,26 @@ test('the open conversations are counted by state', async ($, on) => {
 
   const answer = await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
 
-  expect(JSON.stringify(answer)).toContain('4 conversaciones abiertas: 2 trabajando · 1 terminado · 1 parada')
+  expect(JSON.stringify(answer)).toContain('4 conversaciones abiertas: 2 trabajando · 1 terminada · 1 parada')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: '4 conversaciones abiertas: 2 trabajando · 1 terminado · 1 parada' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '4 conversaciones abiertas: 2 trabajando · 1 terminada · 1 parada' })).toBeDefined()
   await ui.unmount()
+})
+
+test('the counts agree in number with how many conversations each holds', async ($, on) => {
+  engine(on, { working: 1, idle: 2, waiting: 2, done: 2, error: 2, total: 9 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
+
+  expect(JSON.stringify(answer)).toContain(
+    '9 conversaciones abiertas: 1 trabajando · 2 te necesitan · 2 con error · 2 terminadas · 2 paradas',
+  )
+})
+
+test('the advice prompt keeps the feminine for Narsil and neutral wording for the person', () => {
+  expect(SYSTEM).toContain('en femenino')
+  expect(SYSTEM).toContain('lenguaje neutro')
 })
 
 test('/narsil estado tells which surfaces asked to draw the band, and which never did', async ($, on) => {

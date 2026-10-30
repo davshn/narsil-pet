@@ -40,8 +40,18 @@ const STATUS_LABEL: Record<Status, string> = {
   working: 'TRABAJANDO',
   idle: 'PARADA',
   waiting: 'TE NECESITA',
-  done: 'TERMINADO',
+  done: 'TERMINADA',
   error: 'ERROR',
+}
+
+// How a count of conversations in each state reads, agreeing in number:
+// "1 parada", "2 paradas", "2 te necesitan".
+const COUNT_LABEL: Record<Status, readonly [one: string, many: string]> = {
+  working: ['trabajando', 'trabajando'],
+  idle: ['parada', 'paradas'],
+  waiting: ['te necesita', 'te necesitan'],
+  done: ['terminada', 'terminadas'],
+  error: ['con error', 'con error'],
 }
 
 // One plain sentence that says exactly what Claude is doing now.
@@ -139,7 +149,7 @@ function fleetSummary(f: Fleet | null): string {
   if (!f || f.total < 2) return ''
   const parts = (['working', 'waiting', 'error', 'done', 'idle'] as const)
     .filter(s => f[s] > 0)
-    .map(s => `${f[s]} ${STATUS_LABEL[s].toLowerCase()}`)
+    .map(s => `${f[s]} ${COUNT_LABEL[s][f[s] === 1 ? 0 : 1]}`)
   return `${f.total} conversaciones abiertas: ${parts.join(' · ')}`
 }
 
