@@ -438,6 +438,78 @@ test('prefs stored before tips existed get the tip defaults', async ($, on) => {
   expect(JSON.stringify(answer)).toContain('Consejos activados (como mucho uno cada 10 min)')
 })
 
+// --- How much Claude has spent ---
+
+const NOW = 1_000_000
+const IN_2H05 = new Date(NOW + 125 * MINUTE).toISOString()
+const IN_3D = new Date(NOW + (3 * 24 * 60 + 4 * 60) * MINUTE).toISOString()
+
+const MEASURED = {
+  context: { tokens: 84_000, window: 200_000, percent: 42 },
+  rateLimits: [
+    { kind: 'five_hour', percentUsed: 18, resetsAt: IN_2H05 },
+    { kind: 'seven_day', percentUsed: 91, resetsAt: IN_3D },
+  ],
+  changed: ['context', 'rateLimits'] as const,
+}
+
+function measured(on: On): void {
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+}
+
+test('the band shows bars for the context, the 5-hour window and the week', async ($, on) => {
+  const posts = engine(on)
+  measured(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
+  expect(bars?.props.alt).toBe('Uso: contexto 42 % (84k / 200k), 5 horas 18 % (reinicia en 2 h 05 min), semana 91 % (reinicia en 3 d 4 h)')
+  expect(bars?.props.isInteractive).toBeUndefined()
+  // Green while there is room, red past 85 %.
+  expect(String(bars?.props.source)).toContain('#22B573')
+  expect(String(bars?.props.source)).toContain('#F0435A')
+  await desk.unmount()
+
+  const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: '████░░░░░░' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: ' 42 %' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: ' 91 %' })).toBeDefined()
+  await term.unmount()
+
+  const state = posts.filter(p => p.url.endsWith('/state')).at(-1)
+  expect((state?.body.usage as unknown[]).length).toBe(3)
+})
+
+test('with no reading yet, no bars are drawn', async ($, on) => {
+  engine(on)
+  measured(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.session.measure({ context: { window: 200_000 }, rateLimits: [], changed: ['context'] })
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
+  await desk.unmount()
+  const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: /%$/ })).toBeUndefined()
+  await term.unmount()
+})
+
+test('off a plan, only the context bar shows, read when the session starts', async ($, on) => {
+  engine(on)
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 150_000, window: 200_000, percent: 75 }, rateLimits: [] } }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
+  expect(bars?.props.alt).toBe('Uso: contexto 75 % (150k / 200k)')
+  expect(String(bars?.props.source)).toContain('#F5B400')
+  await desk.unmount()
+})
+
 test('Narsil moves visibly in every state', () => {
   const moods = ['greeting', 'idle', 'thinking', 'talking', 'reading', 'searching', 'writing', 'running', 'asking', 'scared', 'celebrating', 'failed'] as const
   for (const mood of moods) {

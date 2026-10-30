@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Fleet, Mood, Pet, Prefs, Status } from '../types'
+import type { Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, parse, prompt, remember } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
+import { NO_USAGE, hasUsage, levelColor, textBar, usageOf, usageRows, usageBox, usageSummary, usageSvg } from './usage'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
 // bugs. She swims while Claude works, dozes while it waits, leaps out of the
@@ -27,6 +28,8 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 // Narsil's tip on show, if any: under the headline and in the window.
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
+// What the session has spent: context window, 5-hour and weekly limits.
+const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -235,6 +238,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     line: s.line,
     svg: sprite(s.mood),
     tip: (await read($, tip))?.text ?? null,
+    usage: usageRows(await read($, usage), await $.clock.now()).map(r => ({ ...r, color: levelColor(r.percent) })),
   })
   await $.http
     .fetch(`${OVERLAY}/state`, {
@@ -328,6 +332,12 @@ async function setMood($: EngineInterface, mood: Mood, detail = ''): Promise<voi
   current = mood
   const next: Pet = { mood, line: pick(mood), detail }
   await update($, pet, () => next)
+  await pushOverlay($)
+}
+
+async function setUsage($: EngineInterface, next: Usage): Promise<void> {
+  if (JSON.stringify(await read($, usage)) === JSON.stringify(next)) return
+  await update($, usage, () => next)
   await pushOverlay($)
 }
 
@@ -478,6 +488,8 @@ export const register: Register = on => {
       await update($, prefs, p => ({ ...p, ...saved }))
     }
     hostSession = (await $.env.get('CLAUDE_CODE_HOST_SESSION_ID').catch(() => undefined)) ?? ''
+    const spent = await $.session.usage().catch(() => undefined)
+    if (spent) await setUsage($, usageOf(spent))
     sessionTitle = basename(await $.session.cwd().catch(() => e.cwd))
     // A new conversation: Narsil is happy to see you.
     await setMood($, 'greeting')
@@ -544,6 +556,13 @@ export const register: Register = on => {
     await $.store.set(PREFS_KEY, saved).catch(() => undefined)
 
     return { text: `Narsil: hecho (${arg}).` }
+  })
+
+  // The engine measures after each turn and when a limit moves a point.
+  on('session.measure', async ($, e, next) => {
+    await setUsage($, usageOf(e))
+
+    return next(e)
   })
 
   on('turn.start', async ($, e, next) => {
@@ -652,6 +671,8 @@ export const register: Register = on => {
     const title = headline(state.mood, state.detail)
     const others = fleetSummary(await read($, fleet))
     const shown = await read($, tip)
+    const spent = await read($, usage)
+    const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now()) : []
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -674,6 +695,17 @@ export const register: Register = on => {
                 {`💡 ${shown.text}`}
               </Text>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
+            </Box>
+          ) : null}
+          {meters.length > 0 ? (
+            <Box flexDirection="row" gap={2}>
+              {meters.map(m => (
+                <Box key={`usage-${m.key}`} flexDirection="row">
+                  <Text dimColor>{`${m.label} `}</Text>
+                  <Text color={levelColor(m.percent)}>{textBar(m.percent)}</Text>
+                  <Text bold color={levelColor(m.percent)}>{` ${Math.round(m.percent)} %`}</Text>
+                </Box>
+              ))}
             </Box>
           ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
@@ -703,6 +735,9 @@ export const register: Register = on => {
               <Text wrap="truncate-end">{`💡 ${shown.text}`}</Text>
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>
+          ) : null}
+          {meters.length > 0 ? (
+            <Svg source={usageSvg(meters)} alt={usageSummary(meters)} {...usageBox(meters)} />
           ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>

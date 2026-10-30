@@ -19,7 +19,7 @@ public static class NarsilWin {
 
 $port = $env:NARSIL_PORT
 $width = 330
-$height = 390
+$height = 450
 $client = New-Object System.Net.WebClient
 $client.Encoding = [System.Text.Encoding]::UTF8
 $claude = [IntPtr]::Zero

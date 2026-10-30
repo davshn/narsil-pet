@@ -35,8 +35,19 @@ export type Tip = { text: string; kind: string; at: number }
 // The open conversations, by state, as the floating window counts them.
 export type Fleet = Record<Status, number> & { total: number }
 
+// One limit's fill, 0 to 100, and when its window starts over (ISO 8601).
+export type Meter = { percent: number; resetsAt?: string }
+
+// What this session has spent: the context window (null until the first
+// response) and the account's 5-hour and weekly windows (null off a plan).
+export type Usage = {
+  context: { percent: number; tokens: number; window: number } | null
+  fiveHour: Meter | null
+  week: Meter | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage }
   }
 }
