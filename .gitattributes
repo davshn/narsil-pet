@@ -1,0 +1,2 @@
+# macOS runs these with /bin/sh: a CRLF line ending would break them.
+*.sh text eol=lf

@@ -22,18 +22,28 @@ const BAND = {
 const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } } as const
 
 type Posted = { url: string; token?: string; body: Record<string, unknown> }
+type Ran = { argv: readonly string[]; env: Record<string, string> }
 
 // Stands in for the engine and the floating window: records what the mod
-// posts, and answers /summary with `summary`.
+// posts and runs, and answers /summary with `summary`. `os` is the system
+// the session runs on, as the environment and `uname` tell it.
 function engine(
   on: On,
   summary: Record<string, number> | null = null,
-  { hasClock = true, store = {} }: { hasClock?: boolean; store?: Record<string, unknown> } = {},
+  {
+    hasClock = true,
+    store = {},
+    os = 'windows',
+    runs = [],
+  }: { hasClock?: boolean; store?: Record<string, unknown>; os?: 'windows' | 'mac' | 'linux'; runs?: Ran[] } = {},
 ): Posted[] {
   const posts: Posted[] = []
+  const uname = { windows: 'MINGW64_NT-10.0', mac: 'Darwin', linux: 'Linux' }[os]
   on('store.get', (_, e) => ({ value: e.key === 'overlayToken' ? 'secret-token' : store[e.key] }))
   on('store.set', () => ({ value: undefined }))
-  on('env.get', (_, e) => ({ value: e.name === 'CLAUDE_CODE_HOST_SESSION_ID' ? 'local_abc-123' : undefined }))
+  on('env.get', (_, e) => ({
+    value: e.name === 'CLAUDE_CODE_HOST_SESSION_ID' ? 'local_abc-123' : e.name === 'OS' && os === 'windows' ? 'Windows_NT' : undefined,
+  }))
   on('session.cwd', () => ({ value: 'C:/Proyectos/landing' }))
   on('command.register', () => ({ value: { command: 'narsil' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -44,7 +54,11 @@ function engine(
     const isSummary = e.url.endsWith('/summary')
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text: isSummary ? JSON.stringify(summary) : '' } }
   })
-  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', (_, e) => {
+    runs.push({ argv: e.argv, env: e.init?.env ?? {} })
+    const stdout = e.argv[0] === 'uname' ? `${uname}\n` : ''
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   // the test engine has no clock: answer its calls here
   if (hasClock) {
     on('clock.now', () => ({ value: 1_000_000 }))
@@ -613,4 +627,53 @@ test('in the light theme the glow and halo are fainter, so her pale body keeps i
   const halos = svg.match(/<circle class="halo"[^>]*>/g) ?? []
   expect(halos.length).toBe(2)
   expect(halos.filter(h => h.includes('fill-opacity=".55"')).length).toBe(1)
+})
+
+// --- Each system's own voice, notifications and floating window ---
+
+const NO_WINDOW = { prefs: { isHidden: false, isMuted: false, isFloating: false } }
+const scriptOf = (r: Ran) => r.env.NARSIL_SCRIPT ?? ''
+
+test('on macOS Narsil speaks and notifies with its own scripts, detached, never PowerShell', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'mac', runs, store: NO_WINDOW })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
+
+  const launched = runs.filter(r => r.argv[0] === '/bin/sh' && r.argv[1] === '-c')
+  for (const r of launched) {
+    expect(r.argv[2]).toBe('nohup /bin/sh "$NARSIL_SCRIPT" </dev/null >/dev/null 2>&1 &')
+  }
+  const voice = launched.find(r => scriptOf(r).endsWith('/overlay/speak.sh'))
+  expect(voice?.env.NARSIL_TEXT).toBe('Hola, soy Narsil. Así sonaré cuando termine.')
+  const toast = launched.find(r => scriptOf(r).endsWith('/overlay/toast.sh'))
+  expect(toast?.env.NARSIL_TITLE).toBe('Narsil · Así te avisaré')
+  expect(toast?.env.NARSIL_TEXT).toBe('Haz clic para volver a esta conversación.')
+  expect(runs.some(r => r.argv[0] === 'powershell.exe')).toBe(false)
+})
+
+test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'windows', runs, store: NO_WINDOW })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
+  await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
+
+  const powershell = runs.filter(r => r.argv[0] === 'powershell.exe')
+  expect(powershell.some(r => scriptOf(r).endsWith('\\overlay\\speak.ps1'))).toBe(true)
+  expect(powershell.some(r => scriptOf(r).endsWith('\\overlay\\toast.ps1'))).toBe(true)
+  expect(powershell.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
+  expect(runs.some(r => r.argv[0] === '/bin/sh')).toBe(false)
+})
+
+test('on another system Narsil runs none of her scripts', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'linux', runs, store: NO_WINDOW })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
+
+  expect(runs.filter(r => r.argv[0] !== 'uname')).toEqual([])
 })

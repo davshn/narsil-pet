@@ -147,8 +147,38 @@ function fleetSummary(f: Fleet | null): string {
 // returns at once: it outlives the hook, the turn and a reload of this module,
 // which a $.clock timer does not. Its text travels in the environment, which
 // the started process inherits, never in argv.
-async function launch($: EngineInterface, script: string, env: Record<string, string>): Promise<boolean> {
-  const file = `${$.plugin.root.replace(/\//g, '\\')}\\overlay\\${script}`
+// Which system the session runs on: Windows (overlay/*.ps1), macOS
+// (overlay/*.sh) or another, where Narsil keeps to the band, the engine's
+// voice and its notifications. Asked once.
+type Platform = 'windows' | 'mac' | 'other'
+let platform: Platform | null = null
+
+async function platformOf($: EngineInterface): Promise<Platform> {
+  if (platform) return platform
+  if ((await $.env.get('OS').catch(() => undefined)) === 'Windows_NT') return (platform = 'windows')
+  try {
+    const { stdout } = await $.process.run(['uname', '-s'], { timeoutMs: 5000 })
+    const name = stdout.trim()
+    platform = name === 'Darwin' ? 'mac' : /^(MINGW|MSYS|CYGWIN)/.test(name) ? 'windows' : 'other'
+  } catch {
+    // No uname at all: Windows without a POSIX shell.
+    platform = 'windows'
+  }
+  return platform
+}
+
+// `name` is the script's name without its suffix (`speak`, `toast`).
+async function launch($: EngineInterface, name: string, env: Record<string, string>): Promise<boolean> {
+  const os = await platformOf($)
+  if (os === 'mac') {
+    // Detached, its output nowhere, so $.process.run returns at once.
+    return run($, ['/bin/sh', '-c', 'nohup /bin/sh "$NARSIL_SCRIPT" </dev/null >/dev/null 2>&1 &'], {
+      ...env,
+      NARSIL_SCRIPT: `${$.plugin.root}/overlay/${name}.sh`,
+    })
+  }
+  if (os !== 'windows') return false
+  const file = `${$.plugin.root.replace(/\//g, '\\')}\\overlay\\${name}.ps1`
   return powershell(
     $,
     "Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('\"' + $env:NARSIL_SCRIPT + '\"')",
@@ -156,21 +186,22 @@ async function launch($: EngineInterface, script: string, env: Record<string, st
   )
 }
 
-async function powershell($: EngineInterface, script: string, env: Record<string, string>): Promise<boolean> {
+async function run($: EngineInterface, argv: string[], env: Record<string, string>): Promise<boolean> {
   try {
-    const { exitCode } = await $.process.run(
-      ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-      { env, timeoutMs: 60_000 },
-    )
+    const { exitCode } = await $.process.run(argv, { env, timeoutMs: 60_000 })
     return exitCode === 0
   } catch {
     return false
   }
 }
 
+async function powershell($: EngineInterface, script: string, env: Record<string, string>): Promise<boolean> {
+  return run($, ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], env)
+}
+
 async function speak($: EngineInterface, text: string): Promise<void> {
-  // Windows first, so a Spanish voice is chosen when one is installed.
-  if (await launch($, 'speak.ps1', { NARSIL_TEXT: text })) return
+  // The mod's own script first, so a Spanish voice is chosen when one is installed.
+  if (await launch($, 'speak', { NARSIL_TEXT: text })) return
   void $.audio.speak(text).catch(() => undefined)
 }
 
@@ -284,8 +315,9 @@ async function notify($: EngineInterface, title: string, text: string): Promise<
   } catch {
     // no notification channel: the mod's own script below
   }
-  // Clicking the Windows notification opens this conversation too.
-  await launch($, 'toast.ps1', { NARSIL_TITLE: title, NARSIL_TEXT: text, NARSIL_LINK: conversationLink() })
+  // The system's own notification (overlay/toast.*); on Windows, clicking it
+  // opens this conversation too.
+  await launch($, 'toast', { NARSIL_TITLE: title, NARSIL_TEXT: text, NARSIL_LINK: conversationLink() })
 }
 
 type EventKind = 'done' | 'question' | 'error'
@@ -303,7 +335,7 @@ async function postEvent($: EngineInterface, kind: EventKind, title: string, tex
   }
 }
 
-// What needs you: Narsil's window pops up (a Windows notification when the
+// What needs you: Narsil's window pops up (a system notification when the
 // window is off or down) and, unless muted, she says it aloud.
 async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false): Promise<void> {
   const { isMuted, isFloating } = await read($, prefs)
@@ -557,7 +589,7 @@ export const register: Register = on => {
         return { text: 'Narsil: ventana flotante activada (aparece con Claude minimizado o cuando algo te espera).' }
       }
       await stopOverlay($)
-      return { text: 'Narsil: ventana flotante desactivada (los avisos irán como notificación de Windows).' }
+      return { text: 'Narsil: ventana flotante desactivada (los avisos irán como notificación del sistema).' }
     }
     const patch = change[arg]
     if (!patch) {
