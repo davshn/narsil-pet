@@ -1,0 +1,6 @@
+{
+  "name": "narsil",
+  "description": "Narsil, a chibi sea-serpent mascot for Claude Code",
+  "owner": { "name": "Davshn" },
+  "plugins": [{ "name": "narsil-pet", "source": "./" }]
+}
