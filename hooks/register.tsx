@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Cache, Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
+import type { Cache, Fleet, Mood, Pet, Prefs, Stats, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns } from './agents'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
+import { IDLE_SUMMARY_MS, NUDGE_AFTER_MS, addFile, emptyStats, loopWarning, nudgeText, summaryText } from './watch'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
@@ -42,6 +43,8 @@ const agentChips = atom({ plugin: 'narsil-pet', key: 'agentChips' } as const, []
 // offered for the last turn.
 const cache = atom({ plugin: 'narsil-pet', key: 'cache' } as const, null)
 const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
+// What the session has done so far, for its summary (watch.ts).
+const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -342,6 +345,7 @@ async function beat($: EngineInterface): Promise<void> {
   if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
   await tickCache($)
+  await tickWatch($)
   await refreshAgents($)
   await pushOverlay($)
   try {
@@ -597,7 +601,7 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
 }
 
 // 'context': the /compact suggestion, which is not the model's.
-async function showTip($: EngineInterface, text: string, kind: TipKind | 'context'): Promise<void> {
+async function showTip($: EngineInterface, text: string, kind: TipKind | 'context' | 'loop' | 'summary'): Promise<void> {
   remember(recentTips, text, RECENT_TIPS)
   const at = await $.clock.now()
   await update($, tip, () => ({ text, kind, at }))
@@ -796,6 +800,62 @@ async function pickStep($: EngineInterface, step: string): Promise<void> {
   await pushOverlay($)
 }
 
+// --- Loops, a permission left waiting, and the session's summary ---
+
+// How many times in a row each step (tool and what it was on) has failed this
+// turn, and the loops already warned about: each once a turn.
+let failStreaks = new Map<string, number>()
+let loopsWarned = new Set<string>()
+// What waits for you now, a permission or a question, since when, and whether
+// Narsil has already insisted.
+let waiting: { since: number; what: string; isNudged: boolean } | null = null
+// The finished turn (its cache clock's start) already summed up.
+let summarizedFor: number | null = null
+
+async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
+  const now = await $.clock.now()
+  await update($, stats, s => change(s ?? emptyStats(now)))
+}
+
+function warnLoop($: EngineInterface, key: string, text: string | null): void {
+  if (!text || loopsWarned.has(key)) return
+  loopsWarned.add(key)
+  void (async () => {
+    await showTip($, text, 'loop')
+    await announce($, 'question', 'Narsil ve un bucle', text, 'Narsil cree que esto se está repitiendo.')
+  })().catch(() => undefined)
+}
+
+async function startWaiting($: EngineInterface, what: string): Promise<void> {
+  waiting = { since: await $.clock.now(), what, isNudged: false }
+}
+
+function stopWaiting(): void {
+  waiting = null
+}
+
+async function summarize($: EngineInterface): Promise<string> {
+  const now = await $.clock.now()
+  const s = (await read($, stats)) ?? emptyStats(now)
+  return summaryText(s, now, (await read($, usage)).context?.percent ?? null)
+}
+
+// On every heartbeat: insist once on what has waited too long, and sum the
+// session up once it has been quiet for a while after a turn.
+async function tickWatch($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  if (waiting && !waiting.isNudged && now - waiting.since >= NUDGE_AFTER_MS) {
+    waiting.isNudged = true
+    const text = nudgeText(waiting.what, now - waiting.since)
+    void announce($, 'question', 'Narsil sigue esperando', text, 'Narsil sigue esperándote.', true).catch(() => undefined)
+  }
+  const c = await read($, cache)
+  if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0) {
+    summarizedFor = c.at
+    await showTip($, await summarize($), 'summary')
+  }
+}
+
 // `/narsil pasos …` and `/narsil cache …`; undefined for any other words.
 async function stepsCommand($: EngineInterface, arg: string): Promise<string | undefined> {
   if (arg === 'pasos on' || arg === 'pasos off') {
@@ -819,7 +879,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>]',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -829,6 +889,8 @@ export const register: Register = on => {
     const spent = await $.session.usage().catch(() => undefined)
     if (spent) await setUsage($, usageOf(spent))
     sessionTitle = basename(await $.session.cwd().catch(() => e.cwd))
+    // The stats survive a reload of the mod: only a new session starts them.
+    if (!(await read($, stats))) await bumpStats($, s => s)
     // A new conversation: Narsil is happy to see you.
     await setMood($, 'greeting')
 
@@ -849,6 +911,7 @@ export const register: Register = on => {
     if (advice !== undefined) return { text: advice }
     const stepped = await stepsCommand($, arg)
     if (stepped !== undefined) return { text: stepped }
+    if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
     const change: Record<string, Partial<Prefs>> = {
       ocultar: { isHidden: true },
       mostrar: { isHidden: false },
@@ -892,7 +955,7 @@ export const register: Register = on => {
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
-          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>]',
+          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
@@ -917,6 +980,9 @@ export const register: Register = on => {
       failuresByTool = new Map()
       failuresThisTurn = 0
       triedThisTurn = new Set()
+      failStreaks = new Map()
+      loopsWarned = new Set()
+      stopWaiting()
       await update($, cache, () => null)
       await update($, steps, () => null)
       await setMood($, 'thinking')
@@ -952,6 +1018,7 @@ export const register: Register = on => {
     const isDecided = result.decision !== undefined || e.permission_mode === 'bypassPermissions'
     if (!isDecided && !ASKING_TOOLS.has(e.tool_name)) {
       await setMood($, 'asking', `pide permiso para usar ${e.tool_name}`)
+      await startWaiting($, `pide permiso para usar ${e.tool_name}.`)
       await announceQuestion($, `Pide permiso para usar ${e.tool_name}.`)
     }
 
@@ -963,19 +1030,44 @@ export const register: Register = on => {
       const isPlan = e.tool === 'ExitPlanMode'
       await setMood($, 'asking', isPlan ? 'tiene un plan para que lo apruebes' : 'tiene una pregunta para ti')
       await announceQuestion($, isPlan ? 'Tiene un plan para que lo apruebes.' : 'Tiene una pregunta para ti.')
-      return next(e)
+      await startWaiting($, isPlan ? 'tiene un plan para que lo apruebes.' : 'tiene una pregunta para ti.')
+      try {
+        return await next(e)
+      } finally {
+        stopWaiting()
+      }
     }
+    // Another step started: whatever waited has been answered.
+    stopWaiting()
     const mood = MOOD_BY_TOOL[e.tool] ?? 'running'
     const detail = describeCall(e.tool, e)
     remember(seen.calls, { tool: e.tool, detail }, MAX_CALLS)
-    if (WRITING_TOOLS.has(e.tool)) seen.touched.set(detail, (seen.touched.get(detail) ?? 0) + 1)
-    const command = SHELL_TOOLS.has(e.tool) && typeof (e as { command?: unknown }).command === 'string' ? (e as { command: string }).command : ''
+    const isShell = SHELL_TOOLS.has(e.tool)
+    if (WRITING_TOOLS.has(e.tool)) {
+      const edits = (seen.touched.get(detail) ?? 0) + 1
+      seen.touched.set(detail, edits)
+      await bumpStats($, s => addFile(s, detail))
+      warnLoop($, `edit:${detail}`, loopWarning(detail, 0, edits))
+    }
+    if (isShell) await bumpStats($, s => ({ ...s, commands: s.commands + 1 }))
+    const command = isShell && typeof (e as { command?: unknown }).command === 'string' ? (e as { command: string }).command : ''
     const danger = dangerOf(command)
     if (danger) $.ui.log(`⚠️ Narsil: comando sin vuelta atrás (${danger}): ${command.split('\n')[0]!.slice(0, 120)}`)
     await setMood($, mood, detail, danger ? `⚠️ Cuidado: ${danger} no tiene vuelta atrás.` : pick(mood))
     const isTest = TEST_COMMAND.test(command)
     if (e.agentId !== undefined) await touchAgent($, e.agentId)
     const result = await next(e)
+    // The same step failing again and again, with other work in between, is
+    // a loop; one success of it starts its count over.
+    const step = `${e.tool}:${detail}`
+    if (result.isError) {
+      const streak = (failStreaks.get(step) ?? 0) + 1
+      failStreaks.set(step, streak)
+      await bumpStats($, s => ({ ...s, failures: s.failures + 1 }))
+      warnLoop($, `fail:${step}`, loopWarning(isShell ? `El comando «${detail}»` : `${e.tool} sobre ${detail}`, streak, 0))
+    } else {
+      failStreaks.delete(step)
+    }
     if (isTest && !result.isError) {
       await setMood($, mood, detail, areTestsFailing ? '¡Recuperados! Los tests vuelven a pasar.' : '¡Los tests pasan! 🎉')
       areTestsFailing = false
@@ -1001,6 +1093,8 @@ export const register: Register = on => {
       await endAgent($, e.agentId, e.reason)
       return result
     }
+    stopWaiting()
+    await bumpStats($, s => ({ ...s, turns: s.turns + 1, workedMs: s.workedMs + (e.durationMs ?? 0) }))
     // Every request of the turn wrote the prompt cache; its clock starts now.
     await startCache($)
 
@@ -1040,9 +1134,24 @@ export const register: Register = on => {
       isBackground: e.background,
     }
     await update($, agents, runs => [...runs.filter(r => r.id !== started.id), started])
+    await bumpStats($, s => ({ ...s, agents: s.agents + 1 }))
     await refreshAgents($)
 
     return result
+  })
+
+  // A permission answered, either way: nothing waits any more.
+  on('classic.PostToolUse', async ($, e, next) => {
+    stopWaiting()
+    return next(e)
+  })
+  on('classic.PostToolUseFailure', async ($, e, next) => {
+    stopWaiting()
+    return next(e)
+  })
+  on('classic.PermissionDenied', async ($, e, next) => {
+    stopWaiting()
+    return next(e)
   })
 
   on('session.attach', async ($, e, next) => {

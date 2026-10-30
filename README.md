@@ -73,6 +73,15 @@ Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y e
 
 Si el subagente corría en segundo plano, Narsil además avisa con voz y en la ventana flotante cuando termina.
 
+### Detector de bucles
+Si un mismo paso falla 3 veces seguidas en un turno (por ejemplo `npm test`, aunque haya ediciones entre medias) o un mismo archivo se edita 6 veces en un turno, Narsil avisa una sola vez: "Esto se está repitiendo: ¿lo replanteamos?". El aviso aparece como consejo en la banda y en la ventana flotante. Si ese paso sale bien una vez, la cuenta vuelve a empezar.
+
+### Permisos que esperan
+Si un permiso, una pregunta o un plan llevan 2 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
+
+### Resumen de la sesión
+`/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno.
+
 ## Animaciones
 
 Narsil tiene una animación para cada momento, dibujada para el modo claro y para el modo oscuro. La banda usa la que corresponde al tema de tu sistema.
@@ -131,6 +140,7 @@ La ventana flotante necesita, además:
 | `/narsil consejos voz` | Dice en voz alta, o no, los consejos de fin de turno. |
 | `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
 | `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
+| `/narsil resumen` | Resume la sesión: turnos, archivos editados, comandos, fallos, subagentes y contexto. |
 
 ## Sistemas compatibles
 

@@ -4,6 +4,7 @@ import type { ModelCompleteResult, On } from 'claude-code'
 
 import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
 import { agentChip } from '../hooks/agents'
+import { emptyStats, summaryText } from '../hooks/watch'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -1052,4 +1053,138 @@ test('the subagent chips show each type with its own mark', () => {
   expect(agentChip({ ...at, type: 'claude-code-guide' }, 0).text).toBe('🐍📖 Tarea')
   expect(agentChip({ ...at, type: 'general-purpose' }, 0).text).toBe('🐍 Tarea')
   expect(agentChip({ ...at, type: 'mi-agente' }, 0).text).toBe('🐍✨ Tarea')
+})
+
+// --- Loops, a permission left waiting, and the session's summary ---
+
+// The tip the floating window was last sent, whole.
+function windowTip(posts: Posted[]): unknown {
+  return posts.filter(p => p.url.endsWith('/state')).pop()?.body.tip
+}
+
+function events(posts: Posted[], title: string): Posted[] {
+  return posts.filter(p => p.url.endsWith('/event') && p.body.title === title)
+}
+
+test('the same command failing three times in a row is warned about once, as a loop', async ($, on) => {
+  model(on, 'SKIP')
+  let shouldFail = true
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
+  const { posts, clock } = await tipEngine($, on, { hasTools: false })
+  await $.turn.start({ text: 'arregla los tests', turnId: 'loop' })
+
+  for (let i = 0; i < 2; i++) {
+    shouldFail = true
+    await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+    shouldFail = false
+    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
+  }
+  await clock.settle()
+  expect(events(posts, 'Narsil ve un bucle')).toHaveLength(0)
+
+  shouldFail = true
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+  const warned = events(posts, 'Narsil ve un bucle')
+  expect(warned).toHaveLength(1)
+  expect(warned[0]!.body.kind).toBe('question')
+  expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 3 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
+  expect(windowTip(posts)).toBe(warned[0]!.body.text)
+})
+
+test('a success starts the count over, and a new turn too', async ($, on) => {
+  model(on, 'SKIP')
+  let shouldFail = true
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
+  const { posts, clock } = await tipEngine($, on, { hasTools: false })
+  await $.turn.start({ text: 'arregla', turnId: 'a' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  shouldFail = false
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  shouldFail = true
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await $.turn.start({ text: 'otra vez', turnId: 'b' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+
+  expect(events(posts, 'Narsil ve un bucle')).toHaveLength(0)
+})
+
+test('the same file edited six times in one turn is warned about as a loop', async ($, on) => {
+  model(on, 'SKIP')
+  const { posts, clock } = await tipEngine($, on)
+  await $.turn.start({ text: 'arregla', turnId: 'edits' })
+  for (let i = 0; i < 7; i++) {
+    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
+  }
+  await clock.settle()
+
+  const warned = events(posts, 'Narsil ve un bucle')
+  expect(warned).toHaveLength(1)
+  expect(warned[0]!.body.text).toBe('app.ts lleva 6 ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?')
+})
+
+test('a permission left waiting two minutes is insisted on once, even while you look', async ($, on) => {
+  model(on, 'SKIP')
+  on('classic.PermissionRequest', () => ({}))
+  const { posts, clock } = await tipEngine($, on)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm i' }, permission_mode: 'default' })
+
+  await clock.advance(MINUTE + 50_000)
+  await clock.settle()
+  expect(events(posts, 'Narsil sigue esperando')).toHaveLength(0)
+
+  await clock.advance(12_000)
+  await clock.settle()
+  await clock.advance(10 * MINUTE)
+  await clock.settle()
+  const nudged = events(posts, 'Narsil sigue esperando')
+  expect(nudged).toHaveLength(1)
+  expect(nudged[0]!.body.kind).toBe('question')
+  expect(nudged[0]!.body.force).toBe(true)
+  expect(nudged[0]!.body.text).toBe('Sigue esperándote desde hace 2 min: pide permiso para usar Bash.')
+})
+
+test('a permission or question answered in time is not insisted on', async ($, on) => {
+  model(on, 'SKIP')
+  on('classic.PermissionRequest', () => ({}))
+  on('classic.PostToolUse', () => ({}))
+  const { posts, clock } = await tipEngine($, on)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm i' }, permission_mode: 'default' })
+  await clock.advance(MINUTE)
+  await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: {}, tool_use_id: 'x' } as never)
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  await clock.advance(5 * MINUTE)
+  await clock.settle()
+
+  expect(events(posts, 'Narsil sigue esperando')).toHaveLength(0)
+})
+
+test('/narsil resumen sums the session up, and so does a 30-minute pause after a turn', async ($, on) => {
+  model(on, 'SKIP')
+  const { posts, clock } = await tipEngine($, on)
+  await finishTurn($, 'C:/repo/a.ts')
+  await $.tool.call({ tool: 'Bash', command: 'npm test' })
+  await finishTurn($, 'C:/repo/b.ts')
+
+  const asked = await $.command.run({ command: 'narsil', args: 'resumen', ...TYPED })
+  expect(asked.text).toBe('Narsil: 📋 Sesión de 0 min: 2 turnos (1 min 24 s de trabajo) · 2 archivos editados (a.ts, b.ts) · 1 comando, 0 fallos.')
+
+  await clock.advance(29 * MINUTE)
+  await clock.settle()
+  expect(String(windowTip(posts) ?? '')).not.toContain('📋')
+  await clock.advance(MINUTE + 2000)
+  await clock.settle()
+  expect(windowTip(posts)).toBe('📋 Sesión de 30 min: 2 turnos (1 min 24 s de trabajo) · 2 archivos editados (a.ts, b.ts) · 1 comando, 0 fallos.')
+})
+
+test('the summary names three files at most, and counts subagents and context', () => {
+  const stats = { ...emptyStats(0), turns: 1, workedMs: 30_000, files: ['a', 'b', 'c', 'd'], commands: 2, failures: 1, agents: 1 }
+  expect(summaryText(stats, 65 * MINUTE, 40.4)).toBe(
+    '📋 Sesión de 1 h 5 min: 1 turno (30 s de trabajo) · 4 archivos editados (a, b, c…) · 2 comandos, 1 fallo · 1 subagente · contexto 40 %.',
+  )
+  expect(summaryText(emptyStats(0), 0, null)).toBe('📋 Sesión de 0 min: 0 turnos · ningún archivo editado · 0 comandos, 0 fallos.')
 })

@@ -74,8 +74,22 @@ export type AgentChip = { text: string; color: string }
 // The next steps offered for the turn that ended at `at`.
 export type Steps = { at: number; items: readonly string[] }
 
+// What the session has done since it started: its turns and the time they
+// took, the files edited (by name, up to a limit; the rest counted), the
+// commands run, the steps that failed and the subagents started.
+export type Stats = {
+  startedAt: number
+  turns: number
+  workedMs: number
+  files: readonly string[]
+  moreFiles: number
+  commands: number
+  failures: number
+  agents: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null }
   }
 }
