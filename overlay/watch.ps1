@@ -25,6 +25,9 @@ $client.Encoding = [System.Text.Encoding]::UTF8
 $claude = [IntPtr]::Zero
 $narsil = [IntPtr]::Zero
 $misses = 0
+# The screen Claude was last seen on, while not minimized: a minimized window
+# sits off every screen, so it is remembered from before.
+$screen = $null
 
 # Optional trace for debugging: set NARSIL_LOG to a file path.
 function Trace($text) {
@@ -49,6 +52,7 @@ while ($true) {
     if ([NarsilWin]::IsIconic($claude) -or -not [NarsilWin]::IsWindowVisible($claude)) { $state = 'min' }
     elseif ([NarsilWin]::GetForegroundWindow() -eq $claude) { $state = 'fg' }
     else { $state = 'bg' }
+    if ($state -ne 'min') { $screen = [System.Windows.Forms.Screen]::FromHandle($claude) }
   }
 
   try {
@@ -66,7 +70,8 @@ while ($true) {
     $line = $line.Trim()
     if ($line) { Trace "claude=$state narsil=$narsil -> $line" }
     if ($line -eq 'show' -and $narsil -ne [IntPtr]::Zero) {
-      $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+      # On Claude's own screen, else the main one.
+      $area = $(if ($screen) { $screen } else { [System.Windows.Forms.Screen]::PrimaryScreen }).WorkingArea
       # HWND_TOPMOST; SWP_SHOWWINDOW | SWP_NOACTIVATE: on top, without stealing focus
       [NarsilWin]::SetWindowPos($narsil, [IntPtr](-1), $area.Right - $width - 16, $area.Bottom - $height - 16, $width, $height, 0x50) | Out-Null
     } elseif ($line -eq 'hide' -and $narsil -ne [IntPtr]::Zero) {
