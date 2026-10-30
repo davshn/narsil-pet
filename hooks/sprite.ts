@@ -9,7 +9,8 @@ import type { Art } from './art'
 //   - the whole picture bobs, leaps or shakes (CSS transforms);
 //   - the body undulates under an animated displacement filter (SVG);
 //   - a second copy, masked to the head, nods or tilts on its own, sharp;
-//   - effects around her: the state's glow, ring or halo, bubbles, props.
+//   - effects around her: the state's glow, a pulsing aura, ring or halo,
+//     bubbles, water rings and a wave, confetti when done, props.
 
 export function statusOf(mood: Mood): Status {
   switch (mood) {
@@ -84,11 +85,11 @@ const LAYOUT: Record<string, Layout> = {
 const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
 
 const MOTION: Record<Status, { swim: number; swimSeconds: number }> = {
-  working: { swim: 2.6, swimSeconds: 1.6 },
-  idle: { swim: 1.1, swimSeconds: 6 },
-  waiting: { swim: 1.4, swimSeconds: 3 },
-  done: { swim: 2.2, swimSeconds: 1.2 },
-  error: { swim: 2, swimSeconds: 0.5 },
+  working: { swim: 4.6, swimSeconds: 1.2 },
+  idle: { swim: 2, swimSeconds: 5 },
+  waiting: { swim: 2.6, swimSeconds: 2.2 },
+  done: { swim: 3.6, swimSeconds: 0.9 },
+  error: { swim: 3.4, swimSeconds: 0.4 },
 }
 
 const STYLE = `
@@ -96,24 +97,36 @@ const STYLE = `
 @media (prefers-color-scheme: dark){:root{--edge:#9FB7E0;--gold:#E9A93A;--water:#5FA6E6;--card:#F4F6FF}}
 .th-oscuro{display:none}
 @media (prefers-color-scheme: dark){.th-claro{display:none}.th-oscuro{display:inline}}
-.enter{transform-box:fill-box;transform-origin:50% 100%;animation:enter .45s cubic-bezier(.3,1.6,.5,1) 1}
-.s-working .whole{animation:bob 1.4s ease-in-out infinite}
-.s-idle .whole{animation:bob 5.5s ease-in-out infinite}
-.m-idle .whole{filter:saturate(.94)}
-.s-waiting .whole{animation:bob 2.2s ease-in-out infinite}
-.s-done .whole{animation:leap .7s ease-in-out 4}
-.s-error .whole{animation:shake .16s linear infinite}
-.glow-working{filter:drop-shadow(0 0 1.6px rgba(59,139,255,.75))}
-.glow-waiting{filter:drop-shadow(0 0 2px rgba(245,180,0,.85))}
-.glow-done{filter:drop-shadow(0 0 2px rgba(34,181,115,.8))}
-.glow-error{filter:drop-shadow(0 0 2px rgba(240,67,90,.85))}
+.enter{transform-box:fill-box;transform-origin:50% 100%;animation:enter .6s cubic-bezier(.3,1.7,.5,1) 1}
+.whole{transform-box:fill-box;transform-origin:50% 100%}
+.s-working .whole{animation:swim 1.2s ease-in-out infinite}
+.m-thinking .whole{animation:ponder 2.4s ease-in-out infinite}
+.m-scared .whole{animation:jolt .5s ease-out 2,swim 1.2s ease-in-out 1s infinite}
+.s-idle .whole{animation:breathe 4.2s ease-in-out infinite}
+.m-idle .whole{filter:saturate(.9)}
+.m-greeting .whole{animation:hop .9s cubic-bezier(.3,0,.4,1) 3,breathe 4.2s ease-in-out 2.7s infinite}
+.s-waiting .whole{animation:hop 1s cubic-bezier(.3,0,.4,1) infinite}
+.s-done .whole{animation:leap .85s ease-in-out 6}
+.s-error .whole{animation:shake .14s linear infinite}
+.glow-working{filter:drop-shadow(0 0 2.4px rgba(59,139,255,.85))}
+.glow-waiting{filter:drop-shadow(0 0 3px rgba(245,180,0,.95))}
+.glow-done{filter:drop-shadow(0 0 3px rgba(34,181,115,.9))}
+.glow-error{filter:drop-shadow(0 0 3px rgba(240,67,90,.95))}
+.aura{transform-box:fill-box;transform-origin:center;animation:aura 1.6s ease-in-out infinite}
+.s-error .aura{animation-duration:.5s}
 .head{transform-box:view-box}
-.s-working .head{animation:nod 1.4s ease-in-out infinite}
-.s-idle .head{animation:doze 5.5s ease-in-out infinite}
-.s-waiting .head{animation:tilt 1.3s ease-in-out infinite}
-.s-done .head{animation:nod .7s ease-in-out 4}
-.bub{animation:rise 3.6s ease-in infinite;opacity:0}
-.s-working .bub{animation-duration:1.5s}.s-idle .bub{animation-duration:6.5s}
+.s-working .head{animation:nod 1.2s ease-in-out infinite}
+.m-thinking .head{animation:tilt 2.4s ease-in-out infinite}
+.s-idle .head{animation:doze 4.2s ease-in-out infinite}
+.s-waiting .head{animation:tilt 1s ease-in-out infinite}
+.s-done .head{animation:nod .42s ease-in-out 12}
+.bub{animation:rise 3s ease-in infinite;opacity:0}
+.s-working .bub{animation-duration:1.3s}.s-idle .bub{animation-duration:5.5s}.s-done .bub{animation-duration:1s}
+.ripple{transform-box:fill-box;transform-origin:center;animation:ripple 2.4s ease-out infinite;opacity:0}
+.s-working .ripple{animation-duration:1.4s}.s-done .ripple{animation-duration:.85s}.s-idle .ripple{animation-duration:4.2s}
+.wave{animation:wave 2.6s linear infinite}
+.s-working .wave{animation-duration:1.3s}.s-idle .wave{animation-duration:6s}
+.confetti{transform-box:fill-box;transform-origin:center;animation:confetti 1.4s ease-in infinite;opacity:0}
 .ring{transform-box:fill-box;transform-origin:center;animation:spin 1.2s linear infinite}
 .halo{transform-box:fill-box;transform-origin:center;animation:pulse 1.1s ease-in-out infinite}
 .pop{transform-box:fill-box;transform-origin:center;animation:pop .55s ease-in-out infinite alternate}
@@ -125,14 +138,22 @@ const STYLE = `
 .code{stroke-dasharray:30;animation:draw 1.6s linear infinite}
 .cur{animation:cur 1s steps(1) infinite}
 .flash{animation:flash .9s ease-out 1;opacity:0}
-@keyframes enter{0%{transform:scale(.86);opacity:.4}100%{transform:scale(1);opacity:1}}
-@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2.5px)}}
-@keyframes leap{0%,100%{transform:translateY(0) scale(1,1)}15%{transform:translateY(0) scale(1.04,.95)}50%{transform:translateY(-13px) scale(.97,1.04)}}
-@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
-@keyframes nod{0%,100%{transform:rotate(-2.5deg)}50%{transform:rotate(2.5deg)}}
-@keyframes doze{0%,100%{transform:rotate(-1deg) translateY(.5px)}50%{transform:rotate(3deg) translateY(1.5px)}}
-@keyframes tilt{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(4deg) translateY(-1px)}}
-@keyframes rise{0%{transform:translateY(0);opacity:0}15%{opacity:.9}100%{transform:translateY(-70px);opacity:0}}
+@keyframes enter{0%{transform:scale(.7) translateY(10px);opacity:.2}100%{transform:scale(1);opacity:1}}
+@keyframes swim{0%,100%{transform:translate(0,0) rotate(-3deg)}25%{transform:translate(2px,-5px) rotate(0)}50%{transform:translate(0,-7px) rotate(3deg)}75%{transform:translate(-2px,-3px) rotate(0)}}
+@keyframes ponder{0%,100%{transform:translateY(0) rotate(0)}30%{transform:translateY(-4px) rotate(-4deg)}70%{transform:translateY(-2px) rotate(3deg)}}
+@keyframes breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(-4px) scale(.985,1.035)}}
+@keyframes hop{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(1.08,.9)}40%{transform:translateY(-12px) scale(.95,1.07)}62%{transform:translateY(0) scale(1.05,.94)}78%{transform:translateY(-3px) scale(1,1)}}
+@keyframes leap{0%,100%{transform:translateY(0) rotate(0) scale(1,1)}14%{transform:translateY(0) scale(1.1,.88)}48%{transform:translateY(-26px) rotate(-10deg) scale(.94,1.08)}70%{transform:translateY(-6px) rotate(6deg)}86%{transform:translateY(0) scale(1.06,.93)}}
+@keyframes shake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-4px) rotate(-2.5deg)}75%{transform:translateX(4px) rotate(2.5deg)}}
+@keyframes jolt{0%{transform:translate(0,0) rotate(0)}20%{transform:translate(-5px,-6px) rotate(-6deg)}45%{transform:translate(4px,0) rotate(4deg)}70%{transform:translate(-2px,-2px) rotate(-2deg)}100%{transform:none}}
+@keyframes aura{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}
+@keyframes nod{0%,100%{transform:rotate(-4.5deg)}50%{transform:rotate(4.5deg) translateY(1px)}}
+@keyframes doze{0%,100%{transform:rotate(-1.5deg) translateY(.5px)}50%{transform:rotate(5deg) translateY(2.5px)}}
+@keyframes tilt{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(6deg) translateY(-1.5px)}}
+@keyframes rise{0%{transform:translate(0,0) scale(.6);opacity:0}15%{opacity:.95}50%{transform:translate(3px,-40px) scale(1)}100%{transform:translate(-2px,-84px) scale(1.25);opacity:0}}
+@keyframes ripple{0%{transform:scale(.3);opacity:.75}100%{transform:scale(1.6);opacity:0}}
+@keyframes wave{from{transform:translateX(0)}to{transform:translateX(-24px)}}
+@keyframes confetti{0%{transform:translate(0,0) rotate(0);opacity:0}10%{opacity:1}100%{transform:translate(var(--dx),46px) rotate(320deg);opacity:0}}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes pulse{0%,100%{transform:scale(.88);opacity:.3}50%{transform:scale(1.08);opacity:.7}}
 @keyframes pop{from{transform:scale(.88)}to{transform:scale(1.1)}}
@@ -197,6 +218,7 @@ function picture(mood: Mood, status: Status, theme: Theme): string {
   const glow = status === 'idle' ? '' : ` glow-${status}`
   return (
     `<g class="th-${theme}">` +
+    (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura)"/>`) +
     badge(mood, status, at.headX, at.headY) +
     `<g class="enter"><g class="whole${glow}">` +
     `<g filter="url(#swim)"><use href="#art-${id}"/></g>` +
@@ -207,15 +229,39 @@ function picture(mood: Mood, status: Status, theme: Theme): string {
 }
 
 function bubbles(): string {
-  const at: Array<[number, number, number]> = [
-    [30, 112, 0],
-    [58, 114, 1.2],
-    [22, 108, 2.1],
-    [66, 110, 0.6],
+  const at: Array<[number, number, number, number]> = [
+    [30, 112, 0, 2.2],
+    [58, 114, 1.2, 2.8],
+    [22, 108, 2.1, 1.6],
+    [66, 110, 0.6, 2],
+    [44, 116, 1.7, 3.2],
+    [14, 114, 0.9, 1.8],
+    [74, 116, 2.5, 2.4],
   ]
   return at
-    .map(([x, y, d]) => `<circle class="bub" style="animation-delay:${d}s" cx="${x}" cy="${y}" r="2" fill="none" stroke="var(--water)" stroke-width="1.1"/>`)
+    .map(([x, y, d, r]) => `<circle class="bub" style="animation-delay:${d}s" cx="${x}" cy="${y}" r="${r}" fill="rgba(124,198,242,.18)" stroke="var(--water)" stroke-width="1.2"/>`)
     .join('')
+}
+
+// The water she swims in: rings spreading where she meets it, and a wave.
+function water(): string {
+  const rings = [0, 0.8, 1.6]
+    .map(d => `<ellipse class="ripple" style="animation-delay:${d}s" cx="${BOX.centerX}" cy="116" rx="30" ry="5" fill="none" stroke="var(--water)" stroke-width="1.4"/>`)
+    .join('')
+  let wave = 'M-24 116'
+  for (let x = -24; x < 174; x += 12) wave += ` q3 -3 6 0 t6 0`
+  return `${rings}<path class="wave" d="${wave}" fill="none" stroke="var(--water)" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>`
+}
+
+// A burst of confetti when a job is done.
+function confetti(): string {
+  const colors = ['#FF6B9A', '#FFD166', '#06D6A0', '#4CC9F0', '#B388FF']
+  return Array.from({ length: 12 }, (_, i) => {
+    const x = 18 + ((i * 37) % 120)
+    const dx = ((i * 17) % 30) - 15
+    const delay = r1((i * 0.13) % 1.4)
+    return `<rect class="confetti" style="animation-delay:${delay}s;--dx:${dx}px" x="${x}" y="${-10 + ((i * 7) % 14)}" width="4" height="2.4" rx=".6" fill="${colors[i % colors.length]}"/>`
+  }).join('')
 }
 
 // What says the state at a glance, around her head.
@@ -274,6 +320,7 @@ function props(mood: Mood, status: Status): string {
       .map(([x, y, d]) => `<path class="spark" style="animation-delay:${d}s" d="M${x} ${y - 5} l1.4 3.6 l3.6 1.4 l-3.6 1.4 l-1.4 3.6 l-1.4 -3.6 l-3.6 -1.4 l3.6 -1.4 z" fill="var(--gold)"/>`)
       .join('')
     return (
+      confetti() +
       sparks +
       `<circle cx="110" cy="52" r="13" fill="${STATUS_COLOR.done}"/>` +
       `<path d="M104 52 l4.4 4.4 l8 -8.6" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>`
@@ -339,9 +386,10 @@ export function sprite(mood: Mood): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
-    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme)).join('')}</defs>` +
+    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient><radialGradient id="aura"><stop offset="0" stop-color="${STATUS_COLOR[status]}" stop-opacity=".5"/><stop offset=".6" stop-color="${STATUS_COLOR[status]}" stop-opacity=".22"/><stop offset="1" stop-color="${STATUS_COLOR[status]}" stop-opacity="0"/></radialGradient>${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme)).join('')}</defs>` +
     `<style>${STYLE}</style>` +
     `<g class="s-${status} m-${mood}">` +
+    water() +
     THEMES.map(theme => picture(mood, status, theme)).join('') +
     bubbles() +
     props(mood, status) +

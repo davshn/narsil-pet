@@ -437,3 +437,20 @@ test('prefs stored before tips existed get the tip defaults', async ($, on) => {
   expect(JSON.stringify(answer)).toContain('la voz apagada')
   expect(JSON.stringify(answer)).toContain('Consejos activados (como mucho uno cada 10 min)')
 })
+
+test('Narsil moves visibly in every state', () => {
+  const moods = ['greeting', 'idle', 'thinking', 'talking', 'reading', 'searching', 'writing', 'running', 'asking', 'scared', 'celebrating', 'failed'] as const
+  for (const mood of moods) {
+    const svg = sprite(mood)
+    // the water she swims in, and bubbles rising through it
+    expect(svg).toContain('class="ripple"')
+    expect(svg.match(/class="bub"/g)?.length).toBe(7)
+  }
+  // a whole-body motion of its own for each state, far larger than a bob
+  expect(sprite('writing')).toContain('@keyframes swim{')
+  expect(sprite('writing')).toMatch(/translate\(0,-7px\) rotate\(3deg\)/)
+  expect(sprite('celebrating')).toMatch(/translateY\(-26px\) rotate\(-10deg\)/)
+  expect(sprite('celebrating').match(/class="confetti"/g)?.length).toBe(12)
+  expect(sprite('asking')).toContain('class="aura"')
+  expect(sprite('idle')).not.toContain('class="aura"')
+})
