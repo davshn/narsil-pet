@@ -42,6 +42,9 @@
   .meter .fill { height: 100%; border-radius: 4px; transition: width .6s ease-out; }
   .meter .pct { font-weight: 700; text-align: right; }
   .summary { font-size: 11px; color: var(--dim); text-align: center; }
+  .agents { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
+  .agents:empty { display: none; }
+  .agent { max-width: 100%; padding: 2px 8px; border-radius: 9px; background: var(--row); color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
   .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
   .row:hover { background: var(--row-hover); }
@@ -66,6 +69,7 @@
     <div class="headline clamp" id="headline">Narsil se está despertando…</div>
     <div class="line clamp" id="line"></div>
     <div class="tip clamp" id="tip" title="Consejo de Narsil"></div>
+    <div class="agents" id="agents"></div>
   </div>
   <div class="usage" id="usage"></div>
   <div class="summary" id="summary"></div>
@@ -127,6 +131,16 @@
       $('tip').textContent = focus.tip ? '💡 ' + focus.tip : ''
       $('tip').className = 'tip clamp' + (focus.tip ? ' shown' : '')
       $('tip').title = focus.tip || ''
+      // A small serpent per running subagent, with its task.
+      $('agents').replaceChildren(
+        ...(focus.agents || []).map(task => {
+          const chip = document.createElement('span')
+          chip.className = 'agent'
+          chip.textContent = '🐍 ' + task
+          chip.title = task
+          return chip
+        }),
+      )
       drawUsage(focus.usage || [])
     }
     $('card').className = 'card' + (event ? ' has-event' : '') + (focus && focus.tip ? ' has-tip' : '')

@@ -38,23 +38,54 @@ function tokensLabel(n: number): string {
   return n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M` : `${Math.round(n / 1000)}k`
 }
 
-// How long until a window starts over: "2 h 05 min", "3 d 4 h".
-export function resetIn(resetsAt: string | undefined, now: number): string {
-  const at = resetsAt ? Date.parse(resetsAt) : NaN
-  if (Number.isNaN(at)) return ''
-  const minutes = Math.max(0, Math.round((at - now) / 60_000))
+// A span of minutes as people read it: "13 min", "2 h 05 min", "3 d 4 h".
+export function minutesLabel(minutes: number): string {
   if (minutes >= 24 * 60) return `${Math.floor(minutes / 1440)} d ${Math.floor((minutes % 1440) / 60)} h`
   if (minutes >= 60) return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} min`
   return `${minutes} min`
 }
 
+// How long until a window starts over.
+export function resetIn(resetsAt: string | undefined, now: number): string {
+  const at = resetsAt ? Date.parse(resetsAt) : NaN
+  if (Number.isNaN(at)) return ''
+  return minutesLabel(Math.max(0, Math.round((at - now) / 60_000)))
+}
+
+// One reading of the context window's fill, and when it was taken.
+export type ContextSample = { at: number; percent: number }
+
+const BURN_WINDOW_MS = 15 * 60_000
+// Past this, an estimate is too far off to be worth showing.
+export const MAX_ESTIMATE_MINUTES = 120
+
+// Minutes until the context window fills, at the pace of the last 15 minutes;
+// null with less than a minute of readings, or when it is not growing.
+export function minutesToFull(samples: readonly ContextSample[], now: number): number | null {
+  const recent = samples.filter(s => now - s.at <= BURN_WINDOW_MS)
+  const first = recent[0]
+  const last = recent.at(-1)
+  if (!first || !last) return null
+  const minutes = (last.at - first.at) / 60_000
+  if (minutes < 1 || last.percent <= first.percent) return null
+  const perMinute = (last.percent - first.percent) / minutes
+  return Math.max(0, Math.round((100 - last.percent) / perMinute))
+}
+
 export type UsageRow = { key: 'context' | 'fiveHour' | 'week'; label: string; percent: number; note: string }
 
 // The bars to draw, in order, each with what it says beside its percentage.
-export function usageRows(u: Usage, now: number): UsageRow[] {
+// `toFull`: minutes until the context fills (minutesToFull), when known.
+export function usageRows(u: Usage, now: number, toFull: number | null = null): UsageRow[] {
   const rows: UsageRow[] = []
   if (u.context) {
-    rows.push({ key: 'context', label: 'Contexto', percent: u.context.percent, note: `${tokensLabel(u.context.tokens)} / ${tokensLabel(u.context.window)}` })
+    const fill = toFull !== null && toFull <= MAX_ESTIMATE_MINUTES ? ` · lleno en ~${minutesLabel(toFull)}` : ''
+    rows.push({
+      key: 'context',
+      label: 'Contexto',
+      percent: u.context.percent,
+      note: `${tokensLabel(u.context.tokens)} / ${tokensLabel(u.context.window)}${fill}`,
+    })
   }
   if (u.fiveHour) {
     const reset = resetIn(u.fiveHour.resetsAt, now)
@@ -80,7 +111,8 @@ const BAR = { labelWidth: 58, width: 150, rowHeight: 17 }
 
 // The size the bars are drawn at, in CSS pixels.
 export function usageBox(rows: readonly UsageRow[]): { width: number; height: number } {
-  return { width: BAR.labelWidth + BAR.width + 160, height: rows.length * BAR.rowHeight }
+  // room for the longest note, "120k / 200k · lleno en ~2 h 05 min"
+  return { width: BAR.labelWidth + BAR.width + 250, height: rows.length * BAR.rowHeight }
 }
 
 // The bars as one small SVG for the desktop band: drawn as an image there,

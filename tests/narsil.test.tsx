@@ -640,6 +640,142 @@ test('off a plan, only the context bar shows, read when the session starts', asy
   await desk.unmount()
 })
 
+// A clock the test moves: `at(minutes)` sets it that far past NOW.
+function movingClock(on: On): (minutes: number) => void {
+  let now = NOW
+  on('clock.now', () => ({ value: now }))
+  on('clock.after', () => ({ value: undefined }))
+  on('clock.every', () => ({ value: undefined }))
+  on('clock.sleep', () => ({ value: undefined }))
+  return minutes => {
+    now = NOW + minutes * MINUTE
+  }
+}
+
+const contextAt = (percent: number) => ({
+  context: { tokens: percent * 2000, window: 200_000, percent },
+  rateLimits: [],
+  changed: ['context' as const],
+})
+
+test('the context bar tells when it will fill, and Narsil suggests /compact once when it is near', async ($, on) => {
+  const posts = engine(on, null, { hasClock: false })
+  const at = movingClock(on)
+  measured(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.session.measure(contextAt(50))
+  at(5)
+  await $.session.measure(contextAt(60))
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
+  // 2 % a minute: the remaining 40 % in 20 min
+  expect(bars?.props.alt).toBe('Uso: contexto 60 % (120k / 200k · lleno en ~20 min)')
+  await desk.unmount()
+  expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
+
+  at(10)
+  await $.session.measure(contextAt(72))
+  at(11)
+  await $.session.measure(contextAt(74))
+
+  const nudges = new Set(posts.map(p => p.body.tip).filter(t => String(t).includes('/compact')))
+  expect([...nudges]).toEqual(['El contexto va al 72 % y se llenará en ~13 min: es buen momento para /compact.'])
+})
+
+test('a context that is not growing shows no estimate and no nudge', async ($, on) => {
+  const posts = engine(on, null, { hasClock: false })
+  const at = movingClock(on)
+  measured(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.session.measure(contextAt(40))
+  at(5)
+  await $.session.measure(contextAt(20))
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
+  expect(bars?.props.alt).toBe('Uso: contexto 20 % (40k / 200k)')
+  await desk.unmount()
+  expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
+})
+
+// --- Reactions to what Claude runs ---
+
+test('tests that pass are cheered, and failing ones are noticed until they pass again', async ($, on) => {
+  engine(on)
+  let shouldFail = true
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
+  const lineShown = async (text: string) => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const found = await ui.find({ type: 'Text', text })
+    await ui.unmount()
+    return found !== undefined
+  }
+
+  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  expect(await lineShown('Los tests fallan; vamos a ver por qué.')).toBe(true)
+
+  shouldFail = false
+  await $.tool.call({ tool: 'Bash', command: 'npm test -- --watch=false' })
+  expect(await lineShown('¡Recuperados! Los tests vuelven a pasar.')).toBe(true)
+
+  await $.tool.call({ tool: 'Bash', command: 'pytest -q' })
+  expect(await lineShown('¡Los tests pasan! 🎉')).toBe(true)
+
+  await $.tool.call({ tool: 'Bash', command: 'npm run build' })
+  expect(await lineShown('¡Los tests pasan! 🎉')).toBe(false)
+})
+
+test('a dangerous command is flagged before it runs, and an ordinary one is not', async ($, on) => {
+  const posts = engine(on)
+  const seenLines: string[] = []
+  on('tool.call', () => {
+    seenLines.push(String(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.line))
+    return { result: {} }
+  })
+
+  for (const command of ['rm -rf build', 'git push --force origin main', 'git reset --hard HEAD~1', 'Remove-Item -Recurse -Force dist']) {
+    await $.tool.call({ tool: 'Bash', command })
+  }
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main' })
+
+  expect(seenLines.slice(0, 4)).toEqual([
+    '⚠️ Cuidado: rm -rf no tiene vuelta atrás.',
+    '⚠️ Cuidado: git push --force no tiene vuelta atrás.',
+    '⚠️ Cuidado: git reset --hard no tiene vuelta atrás.',
+    '⚠️ Cuidado: Remove-Item -Recurse -Force no tiene vuelta atrás.',
+  ])
+  expect(seenLines[4]).not.toContain('Cuidado')
+})
+
+test('each running subagent shows with its task, and leaves when it is done', async ($, on) => {
+  const posts = engine(on)
+  let release = () => undefined as void
+  const gate = new Promise<void>(resolve => (release = resolve))
+  on('tool.call', async (_, e) => {
+    if (e.tool === 'Agent') await gate
+    return { result: {} }
+  })
+
+  const first = $.tool.call({ tool: 'Agent', description: 'Map the overlay', prompt: '' } as never)
+  const second = $.tool.call({ tool: 'Agent', description: 'Review the tests', prompt: '' } as never)
+  await new Promise(resolve => setTimeout(resolve, 50))
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: '🐍 Map the overlay' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '🐍 Review the tests' })).toBeDefined()
+  await ui.unmount()
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual(['Map the overlay', 'Review the tests'])
+
+  release()
+  await Promise.all([first, second])
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^🐍/ })).toBeUndefined()
+  await ui.unmount()
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual([])
+})
+
 test('Narsil moves visibly in every state', () => {
   const moods = ['greeting', 'idle', 'thinking', 'talking', 'reading', 'searching', 'writing', 'running', 'asking', 'scared', 'celebrating', 'failed'] as const
   for (const mood of moods) {

@@ -5,7 +5,8 @@ import type { Fleet, Mood, Pet, Prefs, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, prompt, remember } from './advice'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
-import { NO_USAGE, hasUsage, levelColor, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
+import type { ContextSample } from './usage'
+import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
 // bugs. She swims while Claude works, dozes while it waits, leaps out of the
@@ -30,6 +31,8 @@ const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
 const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
+// The subagents running now, by their task, in the order they started.
+const agents = atom({ plugin: 'narsil-pet', key: 'agents' } as const, [])
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -103,6 +106,30 @@ const LINES: Record<Mood, readonly string[]> = {
 
 // Tools that stop and wait for the person.
 const ASKING_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell'])
+
+// A command that runs a project's tests.
+const TEST_COMMAND =
+  /\b(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test|(?:go|cargo|dotnet|mvn|gradle|gradlew|deno|mix)\s+test|claude\s+plugin\s+test|python3?\s+-m\s+(?:pytest|unittest)|vitest|jest|pytest|mocha|phpunit|rspec)\b/
+
+// Commands that cannot be taken back, by the name Narsil warns with.
+const DANGEROUS_COMMANDS: readonly (readonly [name: string, pattern: RegExp])[] = [
+  ['rm -rf', /\brm\s+(?:-[a-zA-Z]*(?:[rR]f|f[rR])[a-zA-Z]*|-[rR]\s+-f|-f\s+-[rR])\b/],
+  ['git push --force', /\bgit\s+push\b[^|;&\n]*\s(?:--force(?!-with-lease)|-f)\b/],
+  ['git reset --hard', /\bgit\s+reset\s+--hard\b/],
+  ['git clean -f', /\bgit\s+clean\s+-[a-zA-Z]*f/],
+  ['git branch -D', /\bgit\s+branch\s+-D\b/],
+  ['Remove-Item -Recurse -Force', /\bRemove-Item\b(?=[^|;\n]*-Recurse\b)(?=[^|;\n]*-Force\b)/i],
+  ['DROP', /\bdrop\s+(?:table|database|schema)\b/i],
+  ['chmod -R 777', /\bchmod\s+-R\s+777\b/],
+  ['mkfs', /\bmkfs(?:\.\w+)?\b/],
+  ['dd', /\bdd\s+[^|;\n]*\bof=\/dev\//],
+  ['descargar y ejecutar', /\b(?:curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\b[^|\n]*\|\s*(?:sh|bash|zsh|iex|Invoke-Expression)\b/i],
+]
+
+function dangerOf(command: string): string | null {
+  return DANGEROUS_COMMANDS.find(([, pattern]) => pattern.test(command))?.[0] ?? null
+}
 
 const MOOD_BY_TOOL: Record<string, Mood> = {
   Read: 'reading',
@@ -282,7 +309,8 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     line: s.line,
     svg: sprite(s.mood),
     tip: (await read($, tip))?.text ?? null,
-    usage: usageRows(await read($, usage), await $.clock.now()).map(r => ({ ...r, color: levelColor(r.percent) })),
+    usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
+    agents: await read($, agents),
   })
   await $.http
     .fetch(`${OVERLAY}/state`, {
@@ -388,6 +416,9 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   await spoken
 }
 
+// The last test run failed: the next one that passes is a recovery.
+let areTestsFailing = false
+
 // One tool can raise both a permission ask and its own question.
 let lastQuestionAt = 0
 
@@ -411,9 +442,10 @@ function duration(ms: number): string {
 // Mirrors the stored mood so the streaming hook writes only on a change.
 let current: Mood = 'idle'
 
-async function setMood($: EngineInterface, mood: Mood, detail = ''): Promise<void> {
+// `line`: Narsil's own aside, when the moment calls for a given one.
+async function setMood($: EngineInterface, mood: Mood, detail = '', line = pick(mood)): Promise<void> {
   current = mood
-  const next: Pet = { mood, line: pick(mood), detail }
+  const next: Pet = { mood, line, detail }
   await update($, pet, () => next)
   await pushOverlay($)
 }
@@ -447,13 +479,46 @@ async function surfaceReport($: EngineInterface): Promise<string> {
 
 async function setUsage($: EngineInterface, next: Usage): Promise<void> {
   if (JSON.stringify(await read($, usage)) === JSON.stringify(next)) return
+  if (next.context) await trackContext($, next.context.percent)
   await update($, usage, () => next)
   await pushOverlay($)
+}
+
+// How fast the context window fills: its readings, the estimate they give,
+// and whether Narsil has already suggested /compact for this fill. Module
+// variables: a reload starts them over.
+const MAX_SAMPLES = 30
+const NUDGE_AT = 70
+const NUDGE_ALWAYS_AT = 85
+const NUDGE_WITHIN_MINUTES = 20
+// Below this the context was compacted or cleared: a new fill, a new nudge.
+const NUDGE_RESET_BELOW = 50
+let contextSamples: ContextSample[] = []
+let contextToFull: number | null = null
+let isCompactNudged = false
+
+async function trackContext($: EngineInterface, percent: number): Promise<void> {
+  const now = await $.clock.now()
+  const last = contextSamples.at(-1)
+  // It shrank: compacted or cleared, so the old pace means nothing now.
+  if (last && percent < last.percent) contextSamples = []
+  if (percent < NUDGE_RESET_BELOW) isCompactNudged = false
+  remember(contextSamples, { at: now, percent }, MAX_SAMPLES)
+  contextToFull = minutesToFull(contextSamples, now)
+
+  const isNear = contextToFull !== null && contextToFull <= NUDGE_WITHIN_MINUTES
+  if (isCompactNudged || percent < NUDGE_AT || !(isNear || percent >= NUDGE_ALWAYS_AT)) return
+  if (!(await read($, prefs)).isAdviceOn) return
+  isCompactNudged = true
+  const when = contextToFull !== null ? ` y se llenará en ~${minutesLabel(contextToFull)}` : ''
+  await showTip($, `El contexto va al ${Math.round(percent)} %${when}: es buen momento para /compact.`, 'context')
 }
 
 // The desktop band's tip lines, in characters: short enough to fit beside
 // Narsil in a narrow window, since the band's width cannot be read from here.
 const TIP_LINE = 60
+// Subagents listed in the band at most; the window lists as many.
+const MAX_AGENTS_SHOWN = 6
 
 // The tip as the band draws it, '💡' ahead of its first line.
 function tipLines(text: string, width: number): string[] {
@@ -518,7 +583,8 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
   }
 }
 
-async function showTip($: EngineInterface, text: string, kind: TipKind): Promise<void> {
+// 'context': the /compact suggestion, which is not the model's.
+async function showTip($: EngineInterface, text: string, kind: TipKind | 'context'): Promise<void> {
   remember(recentTips, text, RECENT_TIPS)
   const at = await $.clock.now()
   await update($, tip, () => ({ text, kind, at }))
@@ -746,10 +812,35 @@ export const register: Register = on => {
     const detail = describeCall(e.tool, e)
     remember(seen.calls, { tool: e.tool, detail }, MAX_CALLS)
     if (WRITING_TOOLS.has(e.tool)) seen.touched.set(detail, (seen.touched.get(detail) ?? 0) + 1)
-    await setMood($, mood, detail)
-    const result = await next(e)
+    const command = SHELL_TOOLS.has(e.tool) && typeof (e as { command?: unknown }).command === 'string' ? (e as { command: string }).command : ''
+    const danger = dangerOf(command)
+    if (danger) $.ui.log(`⚠️ Narsil: comando sin vuelta atrás (${danger}): ${command.split('\n')[0]!.slice(0, 120)}`)
+    await setMood($, mood, detail, danger ? `⚠️ Cuidado: ${danger} no tiene vuelta atrás.` : pick(mood))
+    const isTest = TEST_COMMAND.test(command)
+    const task = e.tool === 'Agent' || e.tool === 'Task' ? (detail.replace(/^subagente: /, '') || 'tarea') : null
+    if (task !== null) {
+      await update($, agents, list => [...list, task])
+      await pushOverlay($)
+    }
+    let result: Awaited<ReturnType<typeof next>>
+    try {
+      result = await next(e)
+    } finally {
+      if (task !== null) {
+        await update($, agents, list => {
+          const at = list.indexOf(task)
+          return at < 0 ? list : [...list.slice(0, at), ...list.slice(at + 1)]
+        })
+        await pushOverlay($)
+      }
+    }
+    if (isTest && !result.isError) {
+      await setMood($, mood, detail, areTestsFailing ? '¡Recuperados! Los tests vuelven a pasar.' : '¡Los tests pasan! 🎉')
+      areTestsFailing = false
+    }
     if (result.isError) {
-      await setMood($, 'scared', e.tool)
+      if (isTest) areTestsFailing = true
+      await setMood($, 'scared', e.tool, isTest ? 'Los tests fallan; vamos a ver por qué.' : pick('scared'))
       const error = 'text' in result && typeof result.text === 'string' ? result.text : ''
       remember(seen.failures, { tool: e.tool, error: error.slice(0, 200) }, MAX_FAILURES)
       const sameTool = (failuresByTool.get(e.tool) ?? 0) + 1
@@ -807,7 +898,9 @@ export const register: Register = on => {
     const kept = await read($, tip)
     const shown = kept && !kept.isFaded ? kept : null
     const spent = await read($, usage)
-    const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now()) : []
+    const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
+    // A small serpent per running subagent, with its task.
+    const helpers = (await read($, agents)).slice(0, MAX_AGENTS_SHOWN)
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -847,6 +940,9 @@ export const register: Register = on => {
               ))}
             </Box>
           ) : null}
+          {helpers.map((task, i) => (
+            <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
+          ))}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
       )
@@ -884,6 +980,13 @@ export const register: Register = on => {
           ) : null}
           {meters.length > 0 ? (
             <Svg source={usageSvg(meters)} alt={usageSummary(meters)} />
+          ) : null}
+          {helpers.length > 0 ? (
+            <Box flexDirection="row" gap={2} flexWrap="wrap" minWidth={0}>
+              {helpers.map((task, i) => (
+                <Text key={`agent-${i}`} dimColor wrap="truncate-end">{`🐍 ${task}`}</Text>
+              ))}
+            </Box>
           ) : null}
           {others ? <Text dimColor>{others}</Text> : null}
         </Box>
