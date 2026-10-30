@@ -1,19 +1,29 @@
 // Narsil's floating window: a tiny local server that the mod pushes state and
-// events to, an Edge app window that draws them, and a keeper (watch.ps1) that
-// shows the window only while Claude is minimized or an event waits for you.
+// events to, a browser app window that draws them, and a keeper that shows the
+// window only while Claude is minimized or an event waits for you. On Windows
+// the window is Edge's and the keeper is watch.ps1; on macOS it is a Chromium
+// browser's (start.sh finds one) and the keeper runs here, in Node.
 // It shuts itself (and the window) down when Claude stops sending heartbeats
-// or the window is closed.
+// or, on Windows, the window is closed.
 'use strict'
 
 const http = require('http')
 const fs = require('fs')
+const os = require('os')
 const path = require('path')
 const { spawn, execFile } = require('child_process')
 
+const isMac = process.platform === 'darwin'
 const port = Number(process.env.NARSIL_PORT || 47190)
 const token = process.env.NARSIL_TOKEN || ''
 const edge = process.env.NARSIL_EDGE || ''
-const profile = path.join(process.env.LOCALAPPDATA || process.env.TEMP || __dirname, 'narsil-overlay')
+// macOS: the browser's .app bundle, opened with `open` so it starts behind.
+const browserApp = process.env.NARSIL_BROWSER_APP || ''
+const profile = isMac
+  ? path.join(os.homedir(), 'Library', 'Application Support', 'narsil-overlay')
+  : path.join(process.env.LOCALAPPDATA || process.env.TEMP || __dirname, 'narsil-overlay')
+const WINDOW_SIZE = '--window-size=330,450'
+const LINK = /^claude:\/\/code\/continue\?session=local_[A-Za-z0-9-]{1,64}&source=desktop_action$/
 
 const HEARTBEAT_TIMEOUT_MS = 30_000
 // A "done" note leaves by itself; a question or an error waits for you.
@@ -67,6 +77,11 @@ function conversationLink(sessionId) {
 }
 
 function killWindow(done) {
+  if (isMac) {
+    // Every process of the window's own browser profile, helpers included.
+    execFile('pkill', ['-f', `--user-data-dir=${profile}`], () => done())
+    return
+  }
   execFile('powershell.exe', [...POWERSHELL, path.join(__dirname, 'kill.ps1')], { env: { ...process.env, NARSIL_PROFILE: profile } }, () => done())
 }
 
@@ -78,23 +93,22 @@ function quit() {
   setTimeout(() => process.exit(0), 5000).unref()
 }
 
+const BROWSER_ARGS = [
+  `--app=http://127.0.0.1:${port}/`,
+  `--user-data-dir=${profile}`,
+  WINDOW_SIZE,
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-features=Translate',
+  // it is hidden most of the time and must still update at once
+  '--disable-background-timer-throttling',
+  '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows',
+]
+
 function openWindow() {
-  const child = spawn(
-    edge,
-    [
-      `--app=http://127.0.0.1:${port}/`,
-      `--user-data-dir=${profile}`,
-      '--window-size=330,450',
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-features=Translate',
-      // it is hidden most of the time and must still update at once
-      '--disable-background-timer-throttling',
-      '--disable-renderer-backgrounding',
-      '--disable-backgrounding-occluded-windows',
-    ],
-    { detached: true, stdio: 'ignore' },
-  )
+  if (isMac) return keepMac()
+  const child = spawn(edge, BROWSER_ARGS, { detached: true, stdio: 'ignore' })
   // The first process of a private profile is the window's own: when it
   // exits, the person closed the window.
   child.on('exit', () => setTimeout(quit, 1500))
@@ -130,6 +144,44 @@ function tick(claudeState, hasWindow) {
   for (const url of pendingOpens) lines.push(`open ${url}`)
   pendingOpens = []
   return lines.join('\n')
+}
+
+// macOS keeper. It reads which app is in front with lsappinfo, which needs no
+// permission: Claude in front is "fg"; running behind another app counts as
+// "min", since a Mac window is rarely minimized; not running is "gone".
+// Hiding another app's window would need the accessibility permission, so
+// the window is opened behind the app in use (open -g) when wanted and closed
+// when not; its browser profile remembers where you put it.
+const MAC_TICK_MS = 700
+
+function macClaudeState(done) {
+  execFile('/bin/sh', ['-c', 'lsappinfo info -only name "$(lsappinfo front)"'], { timeout: 2000 }, (err, out) => {
+    const front = err ? '' : (/="([^"]*)"/.exec(String(out)) || [])[1] || ''
+    if (front === 'Claude') return done('fg')
+    execFile('pgrep', ['-x', 'Claude'], { timeout: 2000 }, notRunning => done(notRunning ? 'gone' : 'min'))
+  })
+}
+
+function showMacWindow() {
+  execFile('open', ['-g', '-n', '-a', browserApp, '--args', ...BROWSER_ARGS], () => undefined)
+}
+
+function keepMac() {
+  if (!browserApp) return
+  let isBusy = false
+  setInterval(() => {
+    if (isBusy || isQuitting) return
+    isBusy = true
+    macClaudeState(state => {
+      isBusy = false
+      for (const line of tick(state, true).split('\n')) {
+        if (line === 'show') showMacWindow()
+        else if (line === 'hide') killWindow(() => undefined)
+        // Only ever a Claude Code conversation link, checked when queued too.
+        else if (line.startsWith('open ') && LINK.test(line.slice(5))) execFile('open', [line.slice(5)], () => undefined)
+      }
+    })
+  }, MAC_TICK_MS)
 }
 
 function readBody(req) {

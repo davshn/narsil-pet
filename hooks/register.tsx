@@ -225,7 +225,14 @@ async function isOverlayUp($: EngineInterface): Promise<boolean> {
 }
 
 async function startOverlay($: EngineInterface): Promise<void> {
-  if (await isOverlayUp($)) return
+  const os = await platformOf($)
+  if (os === 'other' || (await isOverlayUp($))) return
+  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
+  if (os === 'mac') {
+    // start.sh finds Node and a Chromium browser and starts the server behind.
+    await run($, ['/bin/sh', `${$.plugin.root}/overlay/start.sh`], env)
+    return
+  }
   const root = $.plugin.root.replace(/\//g, '\\')
   const script = [
     "$edge = @(\"${env:ProgramFiles(x86)}\\Microsoft\\Edge\\Application\\msedge.exe\", \"$env:ProgramFiles\\Microsoft\\Edge\\Application\\msedge.exe\") | Where-Object { Test-Path $_ } | Select-Object -First 1",
@@ -235,11 +242,7 @@ async function startOverlay($: EngineInterface): Promise<void> {
     '$env:NARSIL_EDGE = $edge',
     'Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList (\'"\' + $env:NARSIL_SERVER + \'"\')',
   ].join('; ')
-  await powershell($, script, {
-    NARSIL_TOKEN: await overlayToken($),
-    NARSIL_PORT: '47190',
-    NARSIL_SERVER: `${root}\\overlay\\server.cjs`,
-  })
+  await powershell($, script, { ...env, NARSIL_SERVER: `${root}\\overlay\\server.cjs` })
 }
 
 // The desktop app's id of this conversation (`local_…`), what its

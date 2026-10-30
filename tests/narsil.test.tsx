@@ -653,6 +653,19 @@ test('on macOS Narsil speaks and notifies with its own scripts, detached, never 
   expect(runs.some(r => r.argv[0] === 'powershell.exe')).toBe(false)
 })
 
+test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'mac', runs, store: NO_WINDOW })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
+
+  expect(JSON.stringify(answer)).toContain('ventana flotante activada')
+  const start = runs.find(r => r.argv[0] === '/bin/sh' && String(r.argv[1]).endsWith('/overlay/start.sh'))
+  expect(start?.env.NARSIL_TOKEN).toBe('secret-token')
+  expect(start?.env.NARSIL_PORT).toBe('47190')
+})
+
 test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
   const runs: Ran[] = []
   engine(on, null, { os: 'windows', runs, store: NO_WINDOW })
@@ -674,6 +687,7 @@ test('on another system Narsil runs none of her scripts', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
+  await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
 
   expect(runs.filter(r => r.argv[0] !== 'uname')).toEqual([])
 })
