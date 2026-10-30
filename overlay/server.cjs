@@ -40,7 +40,9 @@ const POWERSHELL = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass
 // One entry per open conversation, as its own mod reports it.
 const sessions = new Map()
 let event = null
-let claude = 'fg'
+// Unknown until the keeper's first report: an event that started the server
+// shows at once, and the first report clears it if you are looking at Claude.
+let claude = 'unknown'
 let lastBeat = Date.now()
 let lastAnswer = null
 let pendingOpens = []

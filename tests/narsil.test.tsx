@@ -24,9 +24,10 @@ const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: fals
 type Posted = { url: string; token?: string; body: Record<string, unknown> }
 type Ran = { argv: readonly string[]; env: Record<string, string> }
 
-// Stands in for the engine and the floating window: records what the mod
-// posts and runs, and answers /summary with `summary`. `os` is the system
-// the session runs on, as the environment and `uname` tell it.
+// Stands in for the engine and the floating window: records what the window
+// receives and what the mod runs, and answers /summary with `summary`. `os` is
+// the system the session runs on, as the environment and `uname` tell it.
+// `isOverlayDown`: the window is not running until the mod starts its server.
 function engine(
   on: On,
   summary: Record<string, number> | null = null,
@@ -35,9 +36,11 @@ function engine(
     store = {},
     os = 'windows',
     runs = [],
-  }: { hasClock?: boolean; store?: Record<string, unknown>; os?: 'windows' | 'mac' | 'linux'; runs?: Ran[] } = {},
+    isOverlayDown = false,
+  }: { hasClock?: boolean; store?: Record<string, unknown>; os?: 'windows' | 'mac' | 'linux'; runs?: Ran[]; isOverlayDown?: boolean } = {},
 ): Posted[] {
   const posts: Posted[] = []
+  let isUp = !isOverlayDown
   const uname = { windows: 'MINGW64_NT-10.0', mac: 'Darwin', linux: 'Linux' }[os]
   on('store.get', (_, e) => ({ value: e.key === 'overlayToken' ? 'secret-token' : store[e.key] }))
   on('store.set', () => ({ value: undefined }))
@@ -48,14 +51,18 @@ function engine(
   on('command.register', () => ({ value: { command: 'narsil' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('http.fetch', (_, e) => {
+    if (!isUp) return { value: { status: 503, ok: false, headers: {}, text: '' } }
     if (e.init?.method === 'POST' && e.init.body) {
       posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: JSON.parse(e.init.body) })
     }
     const isSummary = e.url.endsWith('/summary')
-    return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text: isSummary ? JSON.stringify(summary) : '' } }
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && isOverlayDown ? 'narsil' : ''
+    return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
     runs.push({ argv: e.argv, env: e.init?.env ?? {} })
+    // the window's server, started through PowerShell or start.sh
+    if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) isUp = true
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -64,6 +71,7 @@ function engine(
     on('clock.now', () => ({ value: 1_000_000 }))
     on('clock.after', () => ({ value: undefined }))
     on('clock.every', () => ({ value: undefined }))
+    on('clock.sleep', () => ({ value: undefined }))
   }
   return posts
 }
@@ -676,6 +684,21 @@ test('on macOS the floating window starts through start.sh with the overlay toke
   const start = runs.find(r => r.argv[0] === '/bin/sh' && String(r.argv[1]).endsWith('/overlay/start.sh'))
   expect(start?.env.NARSIL_TOKEN).toBe('secret-token')
   expect(start?.env.NARSIL_PORT).toBe('47190')
+})
+
+test('with the window on but down, an event starts it again and shows there, never as a notification', async ($, on) => {
+  const runs: Ran[] = []
+  const posts = engine(on, null, { os: 'windows', runs, isOverlayDown: true })
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+
+  expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
+  const asked = posts.find(p => p.url.endsWith('/event'))
+  expect(asked?.body.kind).toBe('question')
+  expect(asked?.body.title).toBe('Narsil te necesita')
+  expect(runs.some(r => scriptOf(r).endsWith('toast.ps1'))).toBe(false)
 })
 
 test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {

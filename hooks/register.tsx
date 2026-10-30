@@ -338,16 +338,46 @@ async function postEvent($: EngineInterface, kind: EventKind, title: string, tex
   }
 }
 
-// What needs you: Narsil's window pops up (a system notification when the
-// window is off or down) and, unless muted, she says it aloud.
+// The floating window quits by itself after 30 s without heartbeats, or when
+// you close it. An event that needs it starts it again, at most once a minute,
+// and waits up to OVERLAY_WAIT_MS for it to listen.
+const OVERLAY_RESTART_MS = 60_000
+const OVERLAY_WAIT_MS = 3000
+let lastOverlayStart = Number.NEGATIVE_INFINITY
+
+async function ensureOverlay($: EngineInterface): Promise<boolean> {
+  if (await isOverlayUp($)) return true
+  const now = await $.clock.now()
+  if (now - lastOverlayStart < OVERLAY_RESTART_MS) return false
+  lastOverlayStart = now
+  await startOverlay($)
+  for (let waited = 0; waited < OVERLAY_WAIT_MS; waited += 300) {
+    if (await isOverlayUp($)) {
+      await pushOverlay($)
+      return true
+    }
+    await $.clock.sleep(300).catch(() => undefined)
+  }
+  return false
+}
+
+// What needs you: Narsil's window pops up and, unless muted, she says it
+// aloud. With the window on, the window is the only place it shows (started
+// again when it is down), never a system notification as well; with the
+// window off, a system notification is.
 async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false): Promise<void> {
   const { isMuted, isFloating } = await read($, prefs)
-  const isShown = isFloating && (await postEvent($, kind, title, text, force))
-  await Promise.all([
-    isMuted ? Promise.resolve() : speak($, voice),
-    isShown ? Promise.resolve() : notify($, `Narsil · ${title}`, text),
-  ])
+  const spoken = isMuted ? Promise.resolve() : speak($, voice)
+  if (isFloating) {
+    if (!(await postEvent($, kind, title, text, force)) && (await ensureOverlay($))) {
+      await postEvent($, kind, title, text, force)
+    }
+  } else {
+    await notify($, `Narsil · ${title}`, text)
+  }
+  await spoken
 }
+
 // One tool can raise both a permission ask and its own question.
 let lastQuestionAt = 0
 
