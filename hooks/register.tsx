@@ -277,8 +277,13 @@ async function stopOverlay($: EngineInterface): Promise<void> {
 }
 
 async function notify($: EngineInterface, title: string, text: string): Promise<void> {
-  const sent = await $.ui.notify(text, { title }).catch(() => ({ isSent: false as const }))
-  if (sent.isSent) return
+  // try, not .catch: where the host has no notify at all the call throws
+  // before it returns a promise.
+  try {
+    if ((await $.ui.notify(text, { title })).isSent) return
+  } catch {
+    // no notification channel: the mod's own script below
+  }
   // Clicking the Windows notification opens this conversation too.
   await launch($, 'toast.ps1', { NARSIL_TITLE: title, NARSIL_TEXT: text, NARSIL_LINK: conversationLink() })
 }
@@ -548,7 +553,7 @@ export const register: Register = on => {
       await $.store.set(PREFS_KEY, saved).catch(() => undefined)
       if (saved.isFloating) {
         await startOverlay($)
-        void pushOverlay($)
+        await pushOverlay($)
         return { text: 'Narsil: ventana flotante activada (aparece con Claude minimizado o cuando algo te espera).' }
       }
       await stopOverlay($)
