@@ -94,15 +94,15 @@ const LAYOUT: Record<string, Layout> = {
   'etapa2/base-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
   'etapa2/trabajando-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
   'etapa2/trabajando-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
-  'etapa2/parada-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
+  'etapa2/parada-claro': { headX: 0.3, headY: 0.3, neckY: 0.41 },
   'etapa2/parada-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
   'etapa2/necesita-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
   'etapa2/necesita-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
-  'etapa2/terminado-claro': { headX: 0.3, headY: 0.26, neckY: 0.36 },
+  'etapa2/terminado-claro': { headX: 0.3, headY: 0.3, neckY: 0.4 },
   'etapa2/terminado-oscuro': { headX: 0.38, headY: 0.18, neckY: 0.27 },
-  'etapa2/error-claro': { headX: 0.32, headY: 0.26, neckY: 0.36 },
+  'etapa2/error-claro': { headX: 0.3, headY: 0.3, neckY: 0.4 },
   'etapa2/error-oscuro': { headX: 0.4, headY: 0.18, neckY: 0.27 },
-  'etapa2/hola-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
+  'etapa2/hola-claro': { headX: 0.32, headY: 0.26, neckY: 0.36 },
   'etapa2/hola-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
   // stage 3
   'etapa3/base-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
@@ -119,6 +119,14 @@ const LAYOUT: Record<string, Layout> = {
   'etapa3/parada-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
   'etapa3/terminado-claro': { headX: 0.25, headY: 0.2, neckY: 0.28 },
   'etapa3/error-claro': { headX: 0.25, headY: 0.2, neckY: 0.28 },
+  // stage 4
+  'etapa4/base-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.38 },
+  'etapa4/hola-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.38 },
+  'etapa4/trabajando-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
+  'etapa4/necesita-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
+  'etapa4/parada-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
+  'etapa4/terminado-oscuro': { headX: 0.3, headY: 0.27, neckY: 0.34 },
+  'etapa4/error-oscuro': { headX: 0.25, headY: 0.27, neckY: 0.34 },
 }
 const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
 

@@ -33,7 +33,7 @@ public static class Cutout {
   static bool IsFrame(int argb) {
     int r = (argb >> 16) & 255, g = (argb >> 8) & 255, b = argb & 255;
     int max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b));
-    return min >= 200 && max - min <= 12;
+    return min >= 120 && max - min <= 12;
   }
 
   // The kinds of square a painted checkerboard alternates: 1 clear,
