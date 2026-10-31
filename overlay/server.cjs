@@ -264,10 +264,15 @@ const server = http.createServer(async (req, res) => {
     const before = sessions.get(id)
     const isChanged = !before || before.mood !== data.mood || before.headline !== data.headline || before.tip !== data.tip || JSON.stringify(before.usage) !== JSON.stringify(data.usage) || JSON.stringify(before.agents) !== JSON.stringify(data.agents) || before.cache !== data.cache || before.xp !== data.xp || JSON.stringify(before.steps) !== JSON.stringify(data.steps)
     const now = Date.now()
-    sessions.set(id, { ...data, sessionId: id, at: now, changedAt: isChanged || !before ? now : before.changedAt })
+    // The drawing comes only when it changes: the one before stays meanwhile.
+    const svg = typeof data.svg === 'string' ? data.svg : before && before.svg
+    const isRedrawn = !!before && svg !== before.svg
+    sessions.set(id, { ...data, svg, sessionId: id, at: now, changedAt: isChanged || isRedrawn || !before ? now : before.changedAt })
     lastBeat = now
     // Heartbeats that change nothing are not sent on to the page.
-    if (isChanged) broadcast()
+    if (isChanged || isRedrawn) broadcast()
+    // A server that started after this conversation's last drawing asks for it.
+    if (!svg) return send(200, 'text/plain', 'need-svg')
     return send(204, 'text/plain', '')
   }
   if (url.pathname === '/event') {

@@ -315,12 +315,18 @@ function conversationLink(): string {
     : ''
 }
 
+// The drawing the window's server last got from this conversation: it is
+// sent again only when it changes, or when the server says it has none (it
+// restarted), not with every heartbeat.
+let sentSvg = ''
+
 async function pushOverlay($: EngineInterface): Promise<void> {
   const { isFloating } = await read($, prefs)
   if (!isFloating) return
   const s = await read($, pet)
   const status = statusOf(s.mood)
-  const body = JSON.stringify({
+  const svg = sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined)
+  const state = {
     sessionId: hostSession,
     title: sessionTitle,
     mood: s.mood,
@@ -328,21 +334,33 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     statusLabel: STATUS_LABEL[status],
     headline: headline(s.mood, s.detail),
     line: s.line,
-    svg: sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined),
     tip: await read($, tip).then(t => (t && !t.isWindowed ? t.text : null)),
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
-  })
-  await $.http
-    .fetch(`${OVERLAY}/state`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-narsil-token': await overlayToken($) },
-      body,
-    })
-    .catch(() => undefined)
+  }
+  const send = async (withSvg: boolean): Promise<string | null> => {
+    try {
+      const reply = await $.http.fetch(`${OVERLAY}/state`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-narsil-token': await overlayToken($) },
+        body: JSON.stringify(withSvg ? { ...state, svg } : state),
+      })
+      return reply.ok ? reply.text : null
+    } catch {
+      return null
+    }
+  }
+  const withSvg = svg !== sentSvg
+  const reply = await send(withSvg)
+  if (reply === null) {
+    sentSvg = ''
+    return
+  }
+  if (withSvg) sentSvg = svg
+  else if (reply === 'need-svg' && (await send(true)) !== null) sentSvg = svg
 }
 
 // The heartbeat: keep the window in sync, and learn how many conversations

@@ -42,7 +42,16 @@ function engine(
     os = 'windows',
     runs = [],
     isOverlayDown = false,
-  }: { hasClock?: boolean; store?: Record<string, unknown>; os?: 'windows' | 'mac' | 'linux'; runs?: Ran[]; isOverlayDown?: boolean } = {},
+    stateReply = () => '',
+  }: {
+    hasClock?: boolean
+    store?: Record<string, unknown>
+    os?: 'windows' | 'mac' | 'linux'
+    runs?: Ran[]
+    isOverlayDown?: boolean
+    // what the window's server answers a pushed state
+    stateReply?: (body: Record<string, unknown>) => string
+  } = {},
 ): Posted[] {
   const posts: Posted[] = []
   let isUp = !isOverlayDown
@@ -69,6 +78,7 @@ function engine(
       posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: JSON.parse(e.init.body) })
     }
     const isSummary = e.url.endsWith('/summary')
+    if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
     const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && isOverlayDown ? 'narsil' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
@@ -335,9 +345,19 @@ async function tipEngine(
     hasPlan = false,
     os = 'linux',
     runs = [],
-  }: { store?: Record<string, unknown>; hasTools?: boolean; everyMinutes?: number; hasSteps?: boolean; hasPlan?: boolean; os?: 'windows' | 'mac' | 'linux'; runs?: Ran[] } = {},
+    stateReply,
+  }: {
+    store?: Record<string, unknown>
+    hasTools?: boolean
+    everyMinutes?: number
+    hasSteps?: boolean
+    hasPlan?: boolean
+    os?: 'windows' | 'mac' | 'linux'
+    runs?: Ran[]
+    stateReply?: (body: Record<string, unknown>) => string
+  } = {},
 ) {
-  const posts = engine(on, null, { hasClock: false, store, os, runs })
+  const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply })
   const clock = mock.clock(on, { now: 1_000_000 })
   if (hasTools) on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -1409,6 +1429,49 @@ test('only the last 20 conversations keep their counts, and an odd stored value 
   expect(kept).not.toContain('stats:old-0')
   expect(store.xp).toBe(20)
   expect((store['stats:conv-new'] as { turns: number }).turns).toBe(1)
+})
+
+const states = (posts: Posted[]) => posts.filter(p => p.url.endsWith('/state')).map(p => p.body)
+
+test('the drawing goes to the floating window only when it changes', async ($, on) => {
+  model(on, 'SKIP')
+  const { posts, clock } = await tipEngine($, on)
+  const first = states(posts).length
+  expect(String(states(posts).at(-1)?.svg).startsWith('<svg')).toBe(true)
+
+  // heartbeats with nothing new to draw carry no drawing
+  await clock.advance(6000)
+  await clock.settle()
+  const beats = states(posts).slice(first)
+  expect(beats.length).toBeGreaterThan(1)
+  for (const beat of beats) expect(beat.svg).toBeUndefined()
+
+  // a new state does
+  await finishTurn($)
+  expect(states(posts).some(s => String(s.svg).includes('class="confetti"'))).toBe(true)
+})
+
+test('a window that lost the drawing (its server restarted) gets it again at once', async ($, on) => {
+  model(on, 'SKIP')
+  let hasDrawing = true
+  const { posts, clock } = await tipEngine($, on, {
+    stateReply: body => {
+      if (body.svg) hasDrawing = true
+      return hasDrawing ? '' : 'need-svg'
+    },
+  })
+  hasDrawing = false
+  const before = states(posts).length
+
+  await clock.advance(2000)
+  await clock.settle()
+
+  const sent = states(posts).slice(before)
+  // the heartbeat without it, told it is missing, and the drawing right after
+  expect(sent.length).toBeGreaterThanOrEqual(2)
+  expect(sent[0]?.svg).toBeUndefined()
+  expect(String(sent[1]?.svg).startsWith('<svg')).toBe(true)
+  expect(hasDrawing).toBe(true)
 })
 
 test('the summary names three files at most, and counts subagents and context', () => {

@@ -553,9 +553,25 @@ function celebration(milestone: Milestone): string {
   return rings + stars + banner(`NIVEL ${milestone.level}`)
 }
 
+// The drawings made lately, by what they show: a drawing is some 100 KB, and
+// the band and the window ask for the same one again and again.
+const DRAWN_KEPT = 8
+const drawn = new Map<string, string>()
+
 // Stage: how grown she is, 1 (the hatchling) to 5 (see stageOf in xp.ts).
 // Milestone: a new level or stage to celebrate over her state, if any.
 export function sprite(mood: Mood, stage = 1, milestone?: Milestone): string {
+  const key = [mood, stage, milestone?.kind, milestone?.level, milestone?.stage].join('|')
+  const kept = drawn.get(key)
+  if (kept !== undefined) return kept
+  const svg = draw(mood, stage, milestone)
+  drawn.set(key, svg)
+  // The oldest leaves first: a Map keeps the order its keys were set in.
+  if (drawn.size > DRAWN_KEPT) drawn.delete(drawn.keys().next().value!)
+  return svg
+}
+
+function draw(mood: Mood, stage: number, milestone?: Milestone): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
