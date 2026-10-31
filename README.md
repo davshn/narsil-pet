@@ -24,7 +24,7 @@ Es un mod de Claude Code de **código abierto**, publicado bajo la licencia [GPL
 ## Funcionalidades
 
 ### Estado de un vistazo
-Una banda encima del prompt muestra a Narsil con una postura y una animación propias de cada estado, una frase que dice exactamente qué hace Claude ("Narsil está editando: register.tsx") y un comentario suyo. Los estados son:
+Una banda encima del prompt muestra a Narsil con una postura y una animación propias de cada estado, una frase que dice exactamente qué hace Claude ("Estoy editando: register.tsx") y un comentario suyo. Los estados son:
 
 | Estado | Cuándo |
 | --- | --- |

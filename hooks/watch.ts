@@ -35,7 +35,7 @@ export function loopWarning(what: string, failStreak: number, edits: number): st
 }
 
 export function nudgeText(what: string, waitedMs: number): string {
-  return `Sigue esperándote desde hace ${took(waitedMs)}: ${what}`
+  return `Sigo esperándote desde hace ${took(waitedMs)}: ${what}`
 }
 
 function plural(n: number, one: string, many: string): string {

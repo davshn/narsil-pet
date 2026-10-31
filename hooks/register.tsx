@@ -84,27 +84,27 @@ function headline(mood: Mood, detail: string): string {
     case 'greeting':
       return 'Conversación nueva, lista para empezar'
     case 'idle':
-      return detail ? `Narsil está parada (${detail})` : 'Narsil está parada, esperando tu mensaje'
+      return detail ? `Estoy parada (${detail})` : 'Estoy parada, esperando tu mensaje'
     case 'thinking':
-      return detail ? `Narsil está pensando (${detail})` : 'Narsil está pensando qué hacer'
+      return detail ? `Estoy pensando (${detail})` : 'Estoy pensando qué hacer'
     case 'talking':
-      return 'Narsil está escribiendo la respuesta'
+      return 'Estoy escribiendo la respuesta'
     case 'reading':
-      return `Narsil está leyendo${what}`
+      return `Estoy leyendo${what}`
     case 'searching':
-      return `Narsil está buscando${what}`
+      return `Estoy buscando${what}`
     case 'writing':
-      return `Narsil está editando${what}`
+      return `Estoy editando${what}`
     case 'running':
-      return `Narsil está ejecutando${what}`
+      return `Estoy ejecutando${what}`
     case 'asking':
-      return `Narsil te necesita${what}`
+      return `Te necesito${what}`
     case 'scared':
-      return `Ha fallado un paso (${detail}); Narsil sigue trabajando`
+      return `Ha fallado un paso (${detail}); sigo trabajando`
     case 'celebrating':
-      return detail ? `Narsil ha terminado (${detail})` : 'Narsil ha terminado'
+      return detail ? `He terminado (${detail})` : 'He terminado'
     case 'failed':
-      return `Narsil se ha detenido por un error${what}`
+      return `Me he detenido por un error${what}`
   }
 }
 
@@ -454,12 +454,12 @@ async function announceQuestion($: EngineInterface, text: string): Promise<void>
   const now = await $.clock.now()
   if (now - lastQuestionAt < 3000) return
   lastQuestionAt = now
-  await announce($, 'question', 'Narsil te necesita', text, 'Te necesito.')
+  await announce($, 'question', 'Te necesito', text, 'Te necesito.')
 }
 
 function summary(answer: string, took: string): string {
   const first = answer.replace(/[#*_`>]/g, '').split('\n').map(l => l.trim()).find(Boolean) ?? ''
-  return first ? `Ha terminado (${took}): ${first.slice(0, 120)}` : `Ha terminado (${took}).`
+  return first ? `He terminado (${took}): ${first.slice(0, 120)}` : `He terminado (${took}).`
 }
 
 function duration(ms: number): string {
@@ -886,7 +886,7 @@ function warnLoop($: EngineInterface, key: string, text: string | null): void {
   if (!text || loopsWarned.has(key)) return
   loopsWarned.add(key)
   void (async () => {
-    await announce($, 'question', 'Narsil ve un bucle', text, 'Creo que esto se está repitiendo.')
+    await announce($, 'question', 'Veo un bucle', text, 'Creo que esto se está repitiendo.')
     await showTip($, text, 'loop')
   })().catch(() => undefined)
 }
@@ -912,7 +912,7 @@ async function tickWatch($: EngineInterface): Promise<void> {
   if (waiting && !waiting.isNudged && now - waiting.since >= NUDGE_AFTER_MS) {
     waiting.isNudged = true
     const text = nudgeText(waiting.what, now - waiting.since)
-    void announce($, 'question', 'Narsil sigue esperando', text, 'Sigo esperándote.', true).catch(() => undefined)
+    void announce($, 'question', 'Sigo esperándote', text, 'Sigo esperándote.', true).catch(() => undefined)
   }
   const c = await read($, cache)
   if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0) {
@@ -1112,9 +1112,9 @@ export const register: Register = on => {
     // A settings hook already answered it: nobody is asked.
     const isDecided = result.decision !== undefined || e.permission_mode === 'bypassPermissions'
     if (!isDecided && !ASKING_TOOLS.has(e.tool_name)) {
-      await setMood($, 'asking', `pide permiso para usar ${e.tool_name}`)
-      await startWaiting($, `pide permiso para usar ${e.tool_name}.`)
-      await announceQuestion($, `Pide permiso para usar ${e.tool_name}.`)
+      await setMood($, 'asking', `pido permiso para usar ${e.tool_name}`)
+      await startWaiting($, `pido permiso para usar ${e.tool_name}.`)
+      await announceQuestion($, `Pido permiso para usar ${e.tool_name}.`)
     }
 
     return result
@@ -1123,9 +1123,9 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     if (ASKING_TOOLS.has(e.tool)) {
       const isPlan = e.tool === 'ExitPlanMode'
-      await setMood($, 'asking', isPlan ? 'tiene un plan para que lo apruebes' : 'tiene una pregunta para ti')
+      await setMood($, 'asking', isPlan ? 'tengo un plan para que lo apruebes' : 'tengo una pregunta para ti')
       await announceQuestion($, isPlan ? 'Tiene un plan para que lo apruebes.' : 'Tiene una pregunta para ti.')
-      await startWaiting($, isPlan ? 'tiene un plan para que lo apruebes.' : 'tiene una pregunta para ti.')
+      await startWaiting($, isPlan ? 'tengo un plan para que lo apruebes.' : 'tengo una pregunta para ti.')
       try {
         return await next(e)
       } finally {
@@ -1201,7 +1201,7 @@ export const register: Register = on => {
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
-      await announce($, 'done', 'Narsil ha terminado', summary(e.answer, took), 'Ya está, ya terminé.')
+      await announce($, 'done', 'He terminado', summary(e.answer, took), 'Ya está, ya terminé.')
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 400)
       tipLater($, 'review')
@@ -1210,7 +1210,7 @@ export const register: Register = on => {
     } else {
       const why = e.reason === 'refusal' ? 'no pudo responder' : 'fallo de la API'
       await setMood($, 'failed', why)
-      await announce($, 'error', 'Narsil se ha detenido', `El turno terminó con un error (${why}).`, 'Uy, me detuve por un error.')
+      await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, 'Uy, me detuve por un error.')
     }
 
     return result

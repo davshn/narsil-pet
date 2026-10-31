@@ -108,19 +108,19 @@ test('working says exactly what Narsil does, and a failed step keeps her working
   await $.tool.call({ tool: 'Read', file_path: 'C:/repo/src/app.ts' })
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TRABAJANDO/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Narsil está leyendo: app.ts' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Estoy leyendo: app.ts' })).toBeDefined()
   await ui.unmount()
 
   await $.tool.call({ tool: 'Bash', command: 'npm test' })
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'Narsil está ejecutando: npm test' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Estoy ejecutando: npm test' })).toBeDefined()
   await ui.unmount()
 
   shouldFail = true
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await term.find({ type: 'Text', text: /TRABAJANDO/ })).toBeDefined()
-  expect(await term.find({ type: 'Text', text: /Ha fallado un paso \(Bash\); Narsil sigue trabajando/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /Ha fallado un paso \(Bash\); sigo trabajando/ })).toBeDefined()
   await term.unmount()
 })
 
@@ -136,7 +136,7 @@ test('each state change is pushed to the floating window with its token and sess
   expect(last?.body.sessionId).toBe('local_abc-123')
   expect(last?.body.title).toBe('landing')
   expect(last?.body.status).toBe('working')
-  expect(last?.body.headline).toBe('Narsil está editando: a.ts')
+  expect(last?.body.headline).toBe('Estoy editando: a.ts')
   expect(String(last?.body.svg).startsWith('<svg')).toBe(true)
 })
 
@@ -152,7 +152,7 @@ test('a question from Claude pops up with the conversation it belongs to', async
   expect(asked?.body.sessionId).toBe('local_abc-123')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Narsil te necesita: tiene una pregunta para ti' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Te necesito: tengo una pregunta para ti' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -165,7 +165,7 @@ test('a permission dialog you must answer pops up as a question', async ($, on) 
 
   const asked = posts.find(p => p.url.endsWith('/event'))
   expect(asked?.body.kind).toBe('question')
-  expect(asked?.body.text).toBe('Pide permiso para usar Bash.')
+  expect(asked?.body.text).toBe('Pido permiso para usar Bash.')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeDefined()
   await ui.unmount()
@@ -289,12 +289,12 @@ test('Narsil names herself, never Claude, in what she says and shows', async ($,
   await $.tool.call({ tool: 'Grep', pattern: 'TODO' } as never)
 
   const event = posts.find(p => p.url.endsWith('/event'))
-  expect(event?.body.title).toBe('Narsil te necesita')
+  expect(event?.body.title).toBe('Te necesito')
   for (const post of posts.filter(p => p.url.endsWith('/state'))) {
     expect(String(post.body.headline)).not.toContain('Claude')
   }
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: 'Narsil está buscando: "TODO"' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Estoy buscando: "TODO"' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -500,7 +500,7 @@ test('a long tip and headline wrap or are cut inside the band, never widen it', 
   }
   expect(tipLines[2]?.text.endsWith('…')).toBe(true)
   expect(texts[first + 3]?.text.startsWith('Divide')).not.toBe(true)
-  const head = texts.find(t => t.text.startsWith('Narsil ha terminado'))
+  const head = texts.find(t => t.text.startsWith('He terminado'))
   expect(head?.props.wrap).toBe('truncate-end')
   for (const box of await desk.findAll({ type: 'Box' })) {
     if (box.props.flexDirection === 'column') expect(box.props.minWidth).toBe(0)
@@ -1000,7 +1000,7 @@ test('with the window on but down, an event starts it again and shows there, nev
   expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
   const asked = posts.find(p => p.url.endsWith('/event'))
   expect(asked?.body.kind).toBe('question')
-  expect(asked?.body.title).toBe('Narsil te necesita')
+  expect(asked?.body.title).toBe('Te necesito')
   expect(runs.some(r => scriptOf(r).endsWith('toast.ps1'))).toBe(false)
 })
 
@@ -1244,13 +1244,13 @@ test('the same command failing three times in a row is warned about once, as a l
     await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
   }
   await clock.settle()
-  expect(events(posts, 'Narsil ve un bucle')).toHaveLength(0)
+  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
 
   shouldFail = true
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await clock.settle()
-  const warned = events(posts, 'Narsil ve un bucle')
+  const warned = events(posts, 'Veo un bucle')
   expect(warned).toHaveLength(1)
   expect(warned[0]!.body.kind).toBe('question')
   expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 3 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
@@ -1274,7 +1274,7 @@ test('a success starts the count over, and a new turn too', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await clock.settle()
 
-  expect(events(posts, 'Narsil ve un bucle')).toHaveLength(0)
+  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
 })
 
 test('the same file edited six times in one turn is warned about as a loop', async ($, on) => {
@@ -1286,7 +1286,7 @@ test('the same file edited six times in one turn is warned about as a loop', asy
   }
   await clock.settle()
 
-  const warned = events(posts, 'Narsil ve un bucle')
+  const warned = events(posts, 'Veo un bucle')
   expect(warned).toHaveLength(1)
   expect(warned[0]!.body.text).toBe('app.ts lleva 6 ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?')
 })
@@ -1299,17 +1299,17 @@ test('a permission left waiting two minutes is insisted on once, even while you 
 
   await clock.advance(MINUTE + 50_000)
   await clock.settle()
-  expect(events(posts, 'Narsil sigue esperando')).toHaveLength(0)
+  expect(events(posts, 'Sigo esperándote')).toHaveLength(0)
 
   await clock.advance(12_000)
   await clock.settle()
   await clock.advance(10 * MINUTE)
   await clock.settle()
-  const nudged = events(posts, 'Narsil sigue esperando')
+  const nudged = events(posts, 'Sigo esperándote')
   expect(nudged).toHaveLength(1)
   expect(nudged[0]!.body.kind).toBe('question')
   expect(nudged[0]!.body.force).toBe(true)
-  expect(nudged[0]!.body.text).toBe('Sigue esperándote desde hace 2 min: pide permiso para usar Bash.')
+  expect(nudged[0]!.body.text).toBe('Sigo esperándote desde hace 2 min: pido permiso para usar Bash.')
 })
 
 test('a permission or question answered in time is not insisted on', async ($, on) => {
@@ -1324,7 +1324,7 @@ test('a permission or question answered in time is not insisted on', async ($, o
   await clock.advance(5 * MINUTE)
   await clock.settle()
 
-  expect(events(posts, 'Narsil sigue esperando')).toHaveLength(0)
+  expect(events(posts, 'Sigo esperándote')).toHaveLength(0)
 })
 
 // Half an hour of beats: slow on a busy machine, hence the longer time.
