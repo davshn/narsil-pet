@@ -316,7 +316,8 @@ function model(on: On, reply: string | ModelCompleteResult = TIP): Asked[] {
 // own events answered beneath the plugin.
 // `hasSteps` keeps the next steps on; `hasPlan` reads a plan's limits.
 // `everyMinutes` shortens the throttle, so a test of several tips moves the
-// clock (and the 2-second heartbeat with it) only a little.
+// clock (and the 2-second heartbeat with it) only a little. macOS by default:
+// there tips show in the band and the window; on Windows, in their own window.
 async function tipEngine(
   $: Engine,
   on: On,
@@ -326,9 +327,11 @@ async function tipEngine(
     everyMinutes,
     hasSteps = false,
     hasPlan = false,
-  }: { store?: Record<string, unknown>; hasTools?: boolean; everyMinutes?: number; hasSteps?: boolean; hasPlan?: boolean } = {},
+    os = 'mac',
+    runs = [],
+  }: { store?: Record<string, unknown>; hasTools?: boolean; everyMinutes?: number; hasSteps?: boolean; hasPlan?: boolean; os?: 'windows' | 'mac'; runs?: Ran[] } = {},
 ) {
-  const posts = engine(on, null, { hasClock: false, store })
+  const posts = engine(on, null, { hasClock: false, store, os, runs })
   const clock = mock.clock(on, { now: 1_000_000 })
   if (hasTools) on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -359,6 +362,40 @@ async function bandTip($: Engine, surface: 'terminal' | 'desktop') {
   await ui.unmount()
   return found
 }
+
+test('on Windows a tip opens whole in its own window, and leaves the band and the floating window free', async ($, on) => {
+  model(on)
+  const runs: Ran[] = []
+  const { posts, clock } = await tipEngine($, on, { os: 'windows', runs })
+
+  await finishTurn($)
+  await clock.settle()
+
+  const opened = runs.filter(r => scriptOf(r).endsWith('\\overlay\\tip.ps1'))
+  expect(opened.length).toBe(1)
+  const env = opened[0]!.env
+  expect(env.NARSIL_TEXT).toBe(TIP)
+  expect(env.NARSIL_LINK).toBe('claude://code/continue?session=local_abc-123&source=desktop_action')
+  expect(env.NARSIL_STAGE).toBe('1')
+  expect(env.NARSIL_SECONDS).toBe('180')
+  expect(String(env.NARSIL_ASSETS).endsWith('\\assets')).toBe(true)
+  // the band and the floating window keep their room for the rest
+  for (const surface of ['terminal', 'desktop'] as const) expect(await bandTip($, surface)).toBeUndefined()
+  expect(windowTip(posts)).toBeNull()
+  // a tip asked for opens there too
+  await $.command.run({ command: 'narsil', args: 'consejo', ...TYPED })
+  expect(runs.filter(r => scriptOf(r).endsWith('\\overlay\\tip.ps1')).length).toBe(2)
+})
+
+test('the tip window opens with her stage, grown with her', async ($, on) => {
+  model(on)
+  const runs: Ran[] = []
+  // 3600 XP is level 9: stage 2
+  const { clock } = await tipEngine($, on, { os: 'windows', runs, store: { xp: 3600 } })
+  await finishTurn($)
+  await clock.settle()
+  expect(runs.find(r => scriptOf(r).endsWith('\\overlay\\tip.ps1'))?.env.NARSIL_STAGE).toBe('2')
+})
 
 test('a finished turn gives a tip about it, under the headline and in the window', async ($, on) => {
   const asked = model(on)
@@ -679,7 +716,8 @@ const contextAt = (percent: number) => ({
 })
 
 test('the context bar tells when it will fill, and Narsil suggests /compact once when it is near', async ($, on) => {
-  const posts = engine(on, null, { hasClock: false })
+  // macOS: the suggestion shows in the band (on Windows it opens in the tip window)
+  const posts = engine(on, null, { hasClock: false, os: 'mac' })
   const at = movingClock(on)
   measured(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })

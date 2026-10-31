@@ -328,7 +328,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     headline: headline(s.mood, s.detail),
     line: s.line,
     svg: sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined),
-    tip: (await read($, tip))?.text ?? null,
+    tip: await read($, tip).then(t => (t && !t.isWindowed ? t.text : null)),
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
@@ -611,11 +611,26 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
   }
 }
 
+// On Windows a tip opens whole in a window of its own (overlay/tip.ps1), above
+// the floating window or in a corner of Claude's screen, and closes by itself
+// once its time in the band would be up. True when it opened.
+async function openTipWindow($: EngineInterface, text: string): Promise<boolean> {
+  if ((await platformOf($)) !== 'windows') return false
+  return launch($, 'tip', {
+    NARSIL_TEXT: text,
+    NARSIL_LINK: conversationLink(),
+    NARSIL_STAGE: String(stageOf(levelOf(await read($, xp)).level)),
+    NARSIL_SECONDS: String(TIP_SHOWN_MS / 1000),
+    NARSIL_ASSETS: `${$.plugin.root.replace(/\//g, '\\')}\\assets`,
+  })
+}
+
 // 'context': the /compact suggestion, which is not the model's.
 async function showTip($: EngineInterface, text: string, kind: TipKind | 'context' | 'loop' | 'summary'): Promise<void> {
   remember(recentTips, text, RECENT_TIPS)
   const at = await $.clock.now()
-  await update($, tip, () => ({ text, kind, at }))
+  const isWindowed = await openTipWindow($, text)
+  await update($, tip, () => ({ text, kind, at, isWindowed }))
   $.ui.log(`💡 ${text}`)
   await pushOverlay($)
 }
@@ -1214,7 +1229,7 @@ export const register: Register = on => {
     const title = headline(state.mood, state.detail)
     const others = fleetSummary(await read($, fleet))
     const kept = await read($, tip)
-    const shown = kept && !kept.isFaded ? kept : null
+    const shown = kept && !kept.isFaded && !kept.isWindowed ? kept : null
     const spent = await read($, usage)
     const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
     // A small serpent per running subagent, with its task.

@@ -47,6 +47,8 @@ Narsil te avisa en voz alta, en español, cuando termina un turno, cuando una pr
 ### Consejos
 Consejos breves y concretos sobre el trabajo en curso, generados con Haiku: al terminar un turno, tras varios fallos seguidos o en un turno muy largo. Se le pide que mencione algo concreto (un archivo, un comando, un error) y que no invente datos. Con `/narsil consejo profundo` analiza la conversación completa. Las frecuencias son configurables y nunca frenan a Claude.
 
+En Windows cada consejo se abre completo en una ventanita propia con el icono de Narsil: encima de la ventana flotante si está a la vista y, si no, en la esquina del monitor donde está Claude. No te quita el foco, se cierra sola a los 3 minutos o cuando llega otro consejo, y tiene un botón para volver a la conversación. Así la banda y la ventana flotante dejan ese espacio para lo demás. En los demás sistemas, el consejo se muestra en la banda y en la ventana flotante.
+
 ### Uso del contexto y de los límites
 Barras con el uso de la ventana de contexto, del límite de 5 horas y del límite semanal, con el tiempo que falta para que se reinicien.
 
@@ -169,6 +171,7 @@ claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 ```
 
+- `overlay/tip.ps1`: la ventanita de los consejos en Windows.
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
