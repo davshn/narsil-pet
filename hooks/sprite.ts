@@ -104,6 +104,14 @@ const LAYOUT: Record<string, Layout> = {
   'etapa2/error-oscuro': { headX: 0.4, headY: 0.18, neckY: 0.27 },
   'etapa2/hola-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
   'etapa2/hola-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
+  // stage 3
+  'etapa3/base-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
+  'etapa3/hola-oscuro': { headX: 0.3, headY: 0.21, neckY: 0.28 },
+  'etapa3/trabajando-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
+  'etapa3/necesita-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
+  'etapa3/parada-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
+  'etapa3/terminado-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
+  'etapa3/error-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
 }
 const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
 
