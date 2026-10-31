@@ -82,6 +82,8 @@ Si un permiso, una pregunta o un plan llevan 2 minutos esperando tu respuesta, N
 ### Experiencia
 Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada vez que los tests pasan y 3 por cada subagente que termina bien. Del nivel 1 al 2 hacen falta 100 XP, del 2 al 3 otros 200, y así sucesivamente. El nivel ("⭐ Nivel 3 · 120/300 XP") aparece en la banda y en la ventana flotante, y Narsil celebra cada nivel nuevo. La experiencia se guarda entre sesiones y la suman todas las conversaciones abiertas.
 
+Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y las etapas 2 (desde el nivel 5), 3 (desde el 10), 4 (desde el 20) y 5 (desde el 35). Cuando cambia de etapa, lo anuncia y se dibuja más grande. `/narsil nivel` muestra el nivel y la etapa en la que está.
+
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno.
 
@@ -172,7 +174,7 @@ claude plugin test .
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
 - `tests/`: los tests.
 
-Los dibujos de `hooks/art.ts` se generan a partir de `assets/raw` con `tools/build-art.ps1`, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
+Los dibujos de `hooks/art.ts` se generan a partir de `assets/raw` con `tools/build-art.ps1`. La cría está en `assets/raw/<pose>-<claro|oscuro>.png` y cada etapa siguiente tiene su propia carpeta, `assets/raw/etapa2` a `assets/raw/etapa5`, con los mismos nombres. Si a una etapa le falta una pose, se usa su pose `base`. Si le faltan todas en un tema, se usa la etapa anterior, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
 
 ## Licencia
 

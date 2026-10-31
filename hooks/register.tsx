@@ -8,7 +8,7 @@ import { TONE_COLOR, agentChip, liveRuns } from './agents'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import type { XpReason } from './xp'
-import { XP_GAIN, XP_KEY, levelOf, xpLabel, xpOf } from './xp'
+import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 import { IDLE_SUMMARY_MS, NUDGE_AFTER_MS, addFile, emptyStats, loopWarning, nudgeText, summaryText } from './watch'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
@@ -323,7 +323,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     statusLabel: STATUS_LABEL[status],
     headline: headline(s.mood, s.detail),
     line: s.line,
-    svg: sprite(s.mood),
+    svg: sprite(s.mood, stageOf(levelOf(await read($, xp)).level)),
     tip: (await read($, tip))?.text ?? null,
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
@@ -872,9 +872,13 @@ async function gainXp($: EngineInterface, reason: XpReason): Promise<void> {
   await $.store.set(XP_KEY, after).catch(() => undefined)
   await update($, xp, () => after)
   const { level } = levelOf(after)
-  if (level > levelOf(before).level) {
-    $.ui.log(`⭐ Narsil ha subido al nivel ${level}.`)
-    await setMood($, current, (await read($, pet)).detail, `¡He subido al nivel ${level}! ⭐`)
+  const was = levelOf(before).level
+  if (level > was) {
+    // A new stage of her growth is told apart: she looks different from now on.
+    const stage = stageOf(level)
+    const grew = stage > stageOf(was)
+    $.ui.log(grew ? `🌊 Narsil ha crecido: nivel ${level}, etapa ${stage} de ${STAGES}.` : `⭐ Narsil ha subido al nivel ${level}.`)
+    await setMood($, current, (await read($, pet)).detail, grew ? `¡He crecido! Nivel ${level}, etapa ${stage} de ${STAGES} 🌊` : `¡He subido al nivel ${level}! ⭐`)
   }
 }
 
@@ -936,7 +940,10 @@ export const register: Register = on => {
     const stepped = await stepsCommand($, arg)
     if (stepped !== undefined) return { text: stepped }
     if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
-    if (arg === 'nivel') return { text: `Narsil: ${xpLabel(await read($, xp))}. Gano experiencia con cada turno terminado, cada vez que los tests pasan y con cada subagente que termina bien.` }
+    if (arg === 'nivel') {
+      const now = await read($, xp)
+      return { text: `Narsil: ${xpLabel(now)} · etapa ${stageOf(levelOf(now).level)} de ${STAGES}. Gano experiencia con cada turno terminado, cada vez que los tests pasan y con cada subagente que termina bien, y crezco en los niveles ${STAGE_FROM.slice(1).join(', ')}.` }
+    }
     const change: Record<string, Partial<Prefs>> = {
       ocultar: { isHidden: true },
       mostrar: { isHidden: false },
@@ -1207,7 +1214,8 @@ export const register: Register = on => {
     // The cache's clock while Claude waits, and the next steps on offer.
     const clockShown = await read($, cache)
     const offered = (await read($, steps))?.items ?? []
-    const level = xpLabel(await read($, xp))
+    const xpNow = await read($, xp)
+    const level = xpLabel(xpNow)
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -1270,7 +1278,7 @@ export const register: Register = on => {
       <Box flexDirection="row" alignItems="center" gap={2}>
         {/* Not isInteractive: the desktop's interactive frame shows no embedded
             images, the art's PNGs among them; drawn as an image, it does. */}
-        <Svg source={sprite(state.mood)} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
+        <Svg source={sprite(state.mood, stageOf(levelOf(xpNow).level))} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
         {/* minWidth 0: long text wraps or is cut inside the band, never widens it. */}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Box flexDirection="row" gap={1}>

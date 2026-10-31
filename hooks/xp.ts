@@ -28,6 +28,15 @@ export function levelOf(xp: number): Level {
   return { level, into: left, needed: level * PER_LEVEL }
 }
 
+// Narsil grows up in stages: the first level of each, from the hatchling
+// (stage 1) to the grown serpent (stage 5).
+export const STAGE_FROM = [1, 5, 10, 20, 35] as const
+export const STAGES = STAGE_FROM.length
+
+export function stageOf(level: number): number {
+  return STAGE_FROM.filter(from => level >= from).length || 1
+}
+
 // A stored value from any version, or none: a whole number of XP.
 export function xpOf(stored: unknown): number {
   return typeof stored === 'number' && Number.isFinite(stored) && stored > 0 ? Math.floor(stored) : 0

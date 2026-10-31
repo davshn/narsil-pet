@@ -48,13 +48,19 @@ const POSE: Record<Status, string> = {
 type Theme = 'claro' | 'oscuro'
 const THEMES: readonly Theme[] = ['claro', 'oscuro']
 
-// The picture of a mood in a theme, with the name of the pose it shows.
-function art(mood: Mood, theme: Theme): { pose: string; image: Art } {
+// The picture of a mood in a theme at a stage of her growth, with the name of
+// the pose it shows. A pose not drawn yet for her stage shows her base pose of
+// that stage, and a stage not drawn yet in a theme the one before it.
+function art(mood: Mood, theme: Theme, stage: number): { pose: string; image: Art } {
   const wanted = mood === 'greeting' ? 'hola' : POSE[statusOf(mood)]
   const other: Theme = theme === 'claro' ? 'oscuro' : 'claro'
-  for (const [pose, t] of [[wanted, theme], [wanted, other], ['base', theme], ['base', other]] as const) {
-    const image = ART[pose]?.[t]
-    if (image) return { pose: `${pose}-${t}`, image }
+  for (const t of [theme, other]) {
+    for (let s = stage; s >= 1; s--) {
+      for (const pose of [wanted, 'base']) {
+        const image = ART[s]?.[pose]?.[t]
+        if (image) return { pose: s === 1 ? `${pose}-${t}` : `etapa${s}/${pose}-${t}`, image }
+      }
+    }
   }
   throw new Error('hooks/art.ts holds no art: run tools/build-art.ps1')
 }
@@ -64,7 +70,8 @@ const BOX = { centerX: 44, top: 2, height: 116 }
 
 // Where each picture has her head (its center) and her neck (where the head
 // turns, and below which the head layer fades into the body), as fractions of
-// the picture: each pose holds its head somewhere else.
+// the picture: each pose holds its head somewhere else. A later stage is
+// keyed etapa<N>/<pose>-<theme>; one not measured yet takes the default.
 type Layout = { headX: number; headY: number; neckY: number }
 const LAYOUT: Record<string, Layout> = {
   'base-claro': { headX: 0.43, headY: 0.31, neckY: 0.46 },
@@ -208,8 +215,8 @@ function swimFilter(status: Status): string {
 // Her picture in one theme: the state's mark around her head, the body under
 // the swim filter, and the head again on top, sharp, turning about the neck.
 // Its definitions (pictureDefs) all go in the one root <defs>.
-function pictureDefs(mood: Mood, theme: Theme): string {
-  const { pose, image } = art(mood, theme)
+function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
+  const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
   // The head layer fades out below the neck, so it blends into the body.
@@ -221,8 +228,8 @@ function pictureDefs(mood: Mood, theme: Theme): string {
   )
 }
 
-function picture(mood: Mood, status: Status, theme: Theme): string {
-  const { pose, image } = art(mood, theme)
+function picture(mood: Mood, status: Status, theme: Theme, stage: number): string {
+  const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
   const glow = status === 'idle' ? '' : ` glow-${status}`
@@ -393,15 +400,16 @@ function props(mood: Mood, status: Status): string {
   }
 }
 
-export function sprite(mood: Mood): string {
+// Stage: how grown she is, 1 (the hatchling) to 5 (see stageOf in xp.ts).
+export function sprite(mood: Mood, stage = 1): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
-    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme)).join('')}</defs>` +
+    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme, stage)).join('')}</defs>` +
     `<style>${STYLE}</style>` +
     `<g class="s-${status} m-${mood}">` +
     water() +
-    THEMES.map(theme => picture(mood, status, theme)).join('') +
+    THEMES.map(theme => picture(mood, status, theme, stage)).join('') +
     bubbles() +
     props(mood, status) +
     `</g>` +

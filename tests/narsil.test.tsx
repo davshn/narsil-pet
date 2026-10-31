@@ -5,7 +5,8 @@ import type { ModelCompleteResult, On } from 'claude-code'
 import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
 import { agentChip } from '../hooks/agents'
 import { emptyStats, summaryText } from '../hooks/watch'
-import { levelOf, xpLabel, xpOf } from '../hooks/xp'
+import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
+import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
 
 const BAND = {
@@ -248,9 +249,11 @@ test('with one conversation, or no floating window, nothing is counted', async (
 test('every state is drawn from the art, light and dark, within the Svg size limit', () => {
   const moods = ['greeting', 'idle', 'thinking', 'talking', 'reading', 'searching', 'writing', 'running', 'asking', 'scared', 'celebrating', 'failed'] as const
   for (const mood of moods) {
-    const svg = sprite(mood)
-    expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
-    expect(svg.length).toBeLessThan(131072)
+    for (let stage = 1; stage <= 5; stage++) {
+      const svg = sprite(mood, stage)
+      expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+      expect(svg.length).toBeLessThan(131072)
+    }
   }
 })
 
@@ -1168,7 +1171,8 @@ test('a permission or question answered in time is not insisted on', async ($, o
   expect(events(posts, 'Narsil sigue esperando')).toHaveLength(0)
 })
 
-test('/narsil resumen sums the session up, and so does a 30-minute pause after a turn', async ($, on) => {
+// Half an hour of beats: slow on a busy machine, hence the longer time.
+test('/narsil resumen sums the session up, and so does a 30-minute pause after a turn', { timeoutMs: 15_000 }, async ($, on) => {
   model(on, 'SKIP')
   const { posts, clock } = await tipEngine($, on)
   await finishTurn($, 'C:/repo/a.ts')
@@ -1210,7 +1214,7 @@ test('Narsil keeps her experience across sessions, and celebrates a new level', 
   expect(await bandTexts($, 'desktop')).toContain('¡He subido al nivel 2! ⭐')
   expect(posts.filter(p => p.url.endsWith('/state')).pop()?.body.xp).toBe('⭐ Nivel 2 · 5/200 XP')
   const asked = await $.command.run({ command: 'narsil', args: 'nivel', ...TYPED })
-  expect(asked.text).toMatch(/^Narsil: ⭐ Nivel 2 · 5\/200 XP\. /)
+  expect(asked.text).toMatch(/^Narsil: ⭐ Nivel 2 · 5\/200 XP · etapa 1 de 5\. /)
 })
 
 test('passing tests and finished subagents earn experience; failures and stopped turns do not', async ($, on) => {
@@ -1241,6 +1245,36 @@ test('another conversation’s experience is added to, never overwritten', async
   store.xp = 50
   await finishTurn($)
   expect(store.xp).toBe(60)
+})
+
+test('Narsil grows at levels 5, 10, 20 and 35, and says so', async ($, on) => {
+  expect([1, 4, 5, 9, 10, 19, 20, 34, 35, 80].map(stageOf)).toEqual([1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
+  model(on, 'SKIP')
+  // 1000 XP is level 5.
+  const store: Record<string, unknown> = { xp: 995 }
+  await tipEngine($, on, { store })
+  await finishTurn($)
+  expect(await bandTexts($, 'desktop')).toContain('¡He crecido! Nivel 5, etapa 2 de 5 🌊')
+  const asked = await $.command.run({ command: 'narsil', args: 'nivel', ...TYPED })
+  expect(asked.text).toContain('· etapa 2 de 5.')
+  expect(asked.text).toContain('crezco en los niveles 5, 10, 20, 35.')
+})
+
+test('a stage draws its own art, its base pose where one is missing, and the stage before where a theme is', () => {
+  const drawn = { src: 'data:image/png;base64,ETAPA3', width: 100, height: 150 }
+  ART[3] = { base: { claro: drawn } }
+  try {
+    const grown = sprite('writing', 3)
+    // light: stage 3 has no working pose yet, so its base; dark: stage 1, as before
+    expect(grown).toContain('href="data:image/png;base64,ETAPA3"')
+    expect(grown).toContain(String(ART[1].trabajando.oscuro?.src))
+    expect(grown).not.toContain(String(ART[1].trabajando.claro?.src))
+    // stage 4 has none of its own, so it shows stage 3
+    expect(sprite('writing', 4)).toContain('ETAPA3')
+    expect(sprite('writing', 2)).toBe(sprite('writing'))
+  } finally {
+    delete ART[3]
+  }
 })
 
 test('levels need 100, 200, 300 XP more each, and odd stored values count as none', () => {
