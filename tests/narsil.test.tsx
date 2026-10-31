@@ -786,19 +786,13 @@ test('Narsil moves visibly in every state', () => {
   expect(sprite('idle')).not.toContain('class="aura"')
 })
 
-test('her head is drawn once: the wavy body stops at the neck, and the sharp head moves with it', () => {
-  for (const mood of ['writing', 'idle', 'asking', 'thinking', 'celebrating'] as const) {
+test('she is drawn once per theme, sharp, so no part of her shows twice', () => {
+  for (const mood of ['writing', 'idle', 'asking', 'thinking', 'celebrating', 'failed'] as const) {
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
-      for (const id of ['c', 'o']) {
-        // the body under the swim filter is masked to below the neck
-        expect(svg).toContain(`<mask id="body-${id}"`)
-        expect(svg).toContain(`<g filter="url(#swim)" mask="url(#body-${id})"><use href="#art-${id}"/></g>`)
-        expect(svg).toContain(`<g class="head" mask="url(#head-${id})"><use href="#art-${id}"/></g>`)
-      }
-      // and the head does not turn on its own, apart from the body
-      expect(svg).not.toMatch(/\.head\{animation|\.head\{[^}]*transform-origin/)
-      expect(svg).not.toMatch(/class="head" style=/)
+      for (const id of ['c', 'o']) expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
+      expect(svg).not.toContain('<mask')
+      expect(svg).not.toContain('feDisplacementMap')
     }
   }
 })

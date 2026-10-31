@@ -5,10 +5,9 @@ import type { Art } from './art'
 // Narsil, a chibi sea serpent, drawn from painted art (hooks/art.ts, made by
 // tools/build-art.ps1): one pose per state, a light and a dark version of
 // each, the theme picked by the viewer's color scheme. A PNG has no parts to
-// move, so the life comes from layers over one image:
-//   - the whole picture bobs, leaps or shakes (CSS transforms);
-//   - below the neck the body undulates; above it, the head stays sharp (two
-//     copies of the picture, each masked to its part, so she shows once);
+// move, so the life comes from around one sharp image, drawn once (a second,
+// warped copy shows through as a double):
+//   - the whole picture swims, bobs, leaps or shakes (CSS transforms);
 //   - effects around her: the state's glow, a pulsing aura, ring or halo,
 //     bubbles, water rings and a wave, confetti when done, props.
 
@@ -68,97 +67,88 @@ function art(mood: Mood, theme: Theme, stage: number): { pose: string; image: Ar
 // Where she stands in the 150 x 120 box.
 const BOX = { centerX: 44, top: 2, height: 116 }
 
-// Where each picture has her head (its center) and her neck (where the head
-// turns, and below which the head layer fades into the body), as fractions of
-// the picture: each pose holds its head somewhere else. A later stage is
+// Where each picture has the center of her head, where the state's mark goes,
+// as fractions of the picture: each pose holds its head somewhere else. A later stage is
 // keyed etapa<N>/<pose>-<theme>; one not measured yet takes the default.
-type Layout = { headX: number; headY: number; neckY: number }
+type Layout = { headX: number; headY: number }
 const LAYOUT: Record<string, Layout> = {
   // stage 1, the hatchling
-  'base-claro': { headX: 0.4, headY: 0.3, neckY: 0.45 },
-  'hola-claro': { headX: 0.4, headY: 0.32, neckY: 0.46 },
-  'trabajando-claro': { headX: 0.4, headY: 0.34, neckY: 0.48 },
-  'necesita-claro': { headX: 0.4, headY: 0.34, neckY: 0.48 },
-  'parada-claro': { headX: 0.4, headY: 0.34, neckY: 0.48 },
-  'terminado-claro': { headX: 0.4, headY: 0.25, neckY: 0.36 },
-  'error-claro': { headX: 0.4, headY: 0.25, neckY: 0.36 },
-  'base-oscuro': { headX: 0.38, headY: 0.33, neckY: 0.48 },
-  'hola-oscuro': { headX: 0.4, headY: 0.32, neckY: 0.47 },
-  'trabajando-oscuro': { headX: 0.38, headY: 0.38, neckY: 0.52 },
-  'necesita-oscuro': { headX: 0.38, headY: 0.37, neckY: 0.5 },
-  'parada-oscuro': { headX: 0.38, headY: 0.37, neckY: 0.5 },
-  'terminado-oscuro': { headX: 0.38, headY: 0.2, neckY: 0.3 },
-  'error-oscuro': { headX: 0.38, headY: 0.22, neckY: 0.31 },
+  'base-claro': { headX: 0.4, headY: 0.3 },
+  'hola-claro': { headX: 0.4, headY: 0.32 },
+  'trabajando-claro': { headX: 0.4, headY: 0.34 },
+  'necesita-claro': { headX: 0.4, headY: 0.34 },
+  'parada-claro': { headX: 0.4, headY: 0.34 },
+  'terminado-claro': { headX: 0.4, headY: 0.25 },
+  'error-claro': { headX: 0.4, headY: 0.25 },
+  'base-oscuro': { headX: 0.38, headY: 0.33 },
+  'hola-oscuro': { headX: 0.4, headY: 0.32 },
+  'trabajando-oscuro': { headX: 0.38, headY: 0.38 },
+  'necesita-oscuro': { headX: 0.38, headY: 0.37 },
+  'parada-oscuro': { headX: 0.38, headY: 0.37 },
+  'terminado-oscuro': { headX: 0.38, headY: 0.2 },
+  'error-oscuro': { headX: 0.38, headY: 0.22 },
   // stage 2
-  'etapa2/base-claro': { headX: 0.3, headY: 0.26, neckY: 0.36 },
-  'etapa2/base-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
-  'etapa2/trabajando-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
-  'etapa2/trabajando-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
-  'etapa2/parada-claro': { headX: 0.3, headY: 0.3, neckY: 0.41 },
-  'etapa2/parada-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
-  'etapa2/necesita-claro': { headX: 0.3, headY: 0.27, neckY: 0.37 },
-  'etapa2/necesita-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
-  'etapa2/terminado-claro': { headX: 0.3, headY: 0.3, neckY: 0.4 },
-  'etapa2/terminado-oscuro': { headX: 0.38, headY: 0.18, neckY: 0.27 },
-  'etapa2/error-claro': { headX: 0.3, headY: 0.3, neckY: 0.4 },
-  'etapa2/error-oscuro': { headX: 0.4, headY: 0.18, neckY: 0.27 },
-  'etapa2/hola-claro': { headX: 0.32, headY: 0.26, neckY: 0.36 },
-  'etapa2/hola-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
+  'etapa2/base-claro': { headX: 0.3, headY: 0.26 },
+  'etapa2/base-oscuro': { headX: 0.35, headY: 0.2 },
+  'etapa2/trabajando-claro': { headX: 0.3, headY: 0.27 },
+  'etapa2/trabajando-oscuro': { headX: 0.35, headY: 0.21 },
+  'etapa2/parada-claro': { headX: 0.3, headY: 0.3 },
+  'etapa2/parada-oscuro': { headX: 0.35, headY: 0.21 },
+  'etapa2/necesita-claro': { headX: 0.3, headY: 0.27 },
+  'etapa2/necesita-oscuro': { headX: 0.35, headY: 0.21 },
+  'etapa2/terminado-claro': { headX: 0.3, headY: 0.3 },
+  'etapa2/terminado-oscuro': { headX: 0.38, headY: 0.18 },
+  'etapa2/error-claro': { headX: 0.3, headY: 0.3 },
+  'etapa2/error-oscuro': { headX: 0.4, headY: 0.18 },
+  'etapa2/hola-claro': { headX: 0.32, headY: 0.26 },
+  'etapa2/hola-oscuro': { headX: 0.35, headY: 0.2 },
   // stage 3
-  'etapa3/base-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/hola-oscuro': { headX: 0.3, headY: 0.21, neckY: 0.28 },
-  'etapa3/trabajando-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/necesita-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/parada-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/terminado-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/error-oscuro': { headX: 0.3, headY: 0.2, neckY: 0.27 },
-  'etapa3/base-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
-  'etapa3/hola-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
-  'etapa3/trabajando-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
-  'etapa3/necesita-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
-  'etapa3/parada-claro': { headX: 0.3, headY: 0.2, neckY: 0.28 },
-  'etapa3/terminado-claro': { headX: 0.25, headY: 0.2, neckY: 0.28 },
-  'etapa3/error-claro': { headX: 0.25, headY: 0.2, neckY: 0.28 },
+  'etapa3/base-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/hola-oscuro': { headX: 0.3, headY: 0.21 },
+  'etapa3/trabajando-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/necesita-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/parada-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/terminado-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/error-oscuro': { headX: 0.3, headY: 0.2 },
+  'etapa3/base-claro': { headX: 0.3, headY: 0.2 },
+  'etapa3/hola-claro': { headX: 0.3, headY: 0.2 },
+  'etapa3/trabajando-claro': { headX: 0.3, headY: 0.2 },
+  'etapa3/necesita-claro': { headX: 0.3, headY: 0.2 },
+  'etapa3/parada-claro': { headX: 0.3, headY: 0.2 },
+  'etapa3/terminado-claro': { headX: 0.25, headY: 0.2 },
+  'etapa3/error-claro': { headX: 0.25, headY: 0.2 },
   // stage 4
-  'etapa4/base-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.38 },
-  'etapa4/hola-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.38 },
-  'etapa4/trabajando-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
-  'etapa4/necesita-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
-  'etapa4/parada-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.37 },
-  'etapa4/terminado-oscuro': { headX: 0.3, headY: 0.27, neckY: 0.34 },
-  'etapa4/error-oscuro': { headX: 0.25, headY: 0.27, neckY: 0.34 },
-  'etapa4/base-claro': { headX: 0.3, headY: 0.27, neckY: 0.33 },
-  'etapa4/hola-claro': { headX: 0.25, headY: 0.27, neckY: 0.34 },
-  'etapa4/trabajando-claro': { headX: 0.25, headY: 0.27, neckY: 0.34 },
-  'etapa4/necesita-claro': { headX: 0.25, headY: 0.27, neckY: 0.34 },
-  'etapa4/parada-claro': { headX: 0.22, headY: 0.28, neckY: 0.34 },
-  'etapa4/terminado-claro': { headX: 0.22, headY: 0.2, neckY: 0.27 },
-  'etapa4/error-claro': { headX: 0.22, headY: 0.18, neckY: 0.25 },
+  'etapa4/base-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa4/hola-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa4/trabajando-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa4/necesita-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa4/parada-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa4/terminado-oscuro': { headX: 0.3, headY: 0.27 },
+  'etapa4/error-oscuro': { headX: 0.25, headY: 0.27 },
+  'etapa4/base-claro': { headX: 0.3, headY: 0.27 },
+  'etapa4/hola-claro': { headX: 0.25, headY: 0.27 },
+  'etapa4/trabajando-claro': { headX: 0.25, headY: 0.27 },
+  'etapa4/necesita-claro': { headX: 0.25, headY: 0.27 },
+  'etapa4/parada-claro': { headX: 0.22, headY: 0.28 },
+  'etapa4/terminado-claro': { headX: 0.22, headY: 0.2 },
+  'etapa4/error-claro': { headX: 0.22, headY: 0.18 },
   // stage 5
-  'etapa5/base-oscuro': { headX: 0.25, headY: 0.3, neckY: 0.38 },
-  'etapa5/hola-oscuro': { headX: 0.25, headY: 0.32, neckY: 0.4 },
-  'etapa5/trabajando-oscuro': { headX: 0.25, headY: 0.33, neckY: 0.4 },
-  'etapa5/necesita-oscuro': { headX: 0.25, headY: 0.33, neckY: 0.4 },
-  'etapa5/parada-oscuro': { headX: 0.25, headY: 0.33, neckY: 0.4 },
-  'etapa5/terminado-oscuro': { headX: 0.35, headY: 0.17, neckY: 0.24 },
-  'etapa5/error-oscuro': { headX: 0.3, headY: 0.17, neckY: 0.24 },
-  'etapa5/base-claro': { headX: 0.32, headY: 0.3, neckY: 0.4 },
-  'etapa5/hola-claro': { headX: 0.32, headY: 0.32, neckY: 0.42 },
-  'etapa5/trabajando-claro': { headX: 0.32, headY: 0.32, neckY: 0.42 },
-  'etapa5/necesita-claro': { headX: 0.32, headY: 0.32, neckY: 0.42 },
-  'etapa5/parada-claro': { headX: 0.32, headY: 0.32, neckY: 0.42 },
-  'etapa5/terminado-claro': { headX: 0.38, headY: 0.2, neckY: 0.3 },
-  'etapa5/error-claro': { headX: 0.32, headY: 0.2, neckY: 0.3 },
+  'etapa5/base-oscuro': { headX: 0.25, headY: 0.3 },
+  'etapa5/hola-oscuro': { headX: 0.25, headY: 0.32 },
+  'etapa5/trabajando-oscuro': { headX: 0.25, headY: 0.33 },
+  'etapa5/necesita-oscuro': { headX: 0.25, headY: 0.33 },
+  'etapa5/parada-oscuro': { headX: 0.25, headY: 0.33 },
+  'etapa5/terminado-oscuro': { headX: 0.35, headY: 0.17 },
+  'etapa5/error-oscuro': { headX: 0.3, headY: 0.17 },
+  'etapa5/base-claro': { headX: 0.32, headY: 0.3 },
+  'etapa5/hola-claro': { headX: 0.32, headY: 0.32 },
+  'etapa5/trabajando-claro': { headX: 0.32, headY: 0.32 },
+  'etapa5/necesita-claro': { headX: 0.32, headY: 0.32 },
+  'etapa5/parada-claro': { headX: 0.32, headY: 0.32 },
+  'etapa5/terminado-claro': { headX: 0.38, headY: 0.2 },
+  'etapa5/error-claro': { headX: 0.32, headY: 0.2 },
 }
-const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
-
-const MOTION: Record<Status, { swim: number; swimSeconds: number }> = {
-  working: { swim: 4.6, swimSeconds: 1.2 },
-  idle: { swim: 2, swimSeconds: 5 },
-  waiting: { swim: 2.6, swimSeconds: 2.2 },
-  done: { swim: 3.6, swimSeconds: 0.9 },
-  error: { swim: 3.4, swimSeconds: 0.4 },
-}
+const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2 }
 
 const STYLE = `
 :root{--edge:#ABA4C4;--gold:#E6B23A;--water:#7CC6F2;--card:#FFFFFF}
@@ -228,7 +218,7 @@ const STYLE = `
 
 const r1 = (n: number) => Math.round(n * 10) / 10
 
-// Where a picture lands in the box, and its head and neck there.
+// Where a picture lands in the box, and its head there.
 function place(image: Art, pose: string) {
   const layout = LAYOUT[pose] ?? DEFAULT_LAYOUT
   const width = (BOX.height * image.width) / image.height
@@ -238,7 +228,6 @@ function place(image: Art, pose: string) {
     width: r1(width),
     headX: r1(left + width * layout.headX),
     headY: r1(BOX.top + BOX.height * layout.headY),
-    neckY: r1(BOX.top + BOX.height * layout.neckY),
   }
 }
 
@@ -252,36 +241,13 @@ function aura(status: Status, id: string, strength: number): string {
   )
 }
 
-function swimFilter(status: Status): string {
-  const { swim, swimSeconds } = MOTION[status]
-  return (
-    `<filter id="swim" x="-15%" y="-5%" width="130%" height="110%">` +
-    `<feTurbulence type="turbulence" baseFrequency="0.012 0.05" numOctaves="1" seed="3" result="noise">` +
-    `<animate attributeName="baseFrequency" dur="${swimSeconds}s" values="0.012 0.05;0.017 0.068;0.012 0.05" repeatCount="indefinite"/>` +
-    `</feTurbulence>` +
-    `<feDisplacementMap in="SourceGraphic" in2="noise" scale="${swim}" xChannelSelector="R" yChannelSelector="G"/>` +
-    `</filter>`
-  )
-}
-
-// Her picture in one theme: the state's mark around her head, the body under
-// the swim filter up to the neck, and the head above it, sharp.
-// Its definitions (pictureDefs) all go in the one root <defs>.
+// Her picture in one theme: the state's mark around her head and the picture
+// itself, defined once in the root <defs> (pictureDefs).
 function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
   const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
-  // The head layer fades out below the neck, so it blends into the body.
-  return (
-    `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>` +
-    `<linearGradient id="fade-${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${r1(at.neckY - 8)}" x2="0" y2="${r1(at.neckY + 6)}">` +
-    `<stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>` +
-    `<mask id="head-${id}" maskUnits="userSpaceOnUse" x="0" y="-14" width="150" height="134"><rect x="0" y="-14" width="150" height="134" fill="url(#fade-${id})"/></mask>` +
-    // the body is the rest: where the head fades out, it fades in
-    `<linearGradient id="unfade-${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${r1(at.neckY - 8)}" x2="0" y2="${r1(at.neckY + 6)}">` +
-    `<stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
-    `<mask id="body-${id}" maskUnits="userSpaceOnUse" x="-20" y="-14" width="190" height="154"><rect x="-20" y="-14" width="190" height="154" fill="url(#unfade-${id})"/></mask>`
-  )
+  return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>`
 }
 
 function picture(mood: Mood, status: Status, theme: Theme, stage: number): string {
@@ -294,8 +260,7 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number): strin
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     badge(mood, status, at.headX, at.headY, theme) +
     `<g class="enter"><g class="whole${glow}">` +
-    `<g filter="url(#swim)" mask="url(#body-${id})"><use href="#art-${id}"/></g>` +
-    `<g class="head" mask="url(#head-${id})"><use href="#art-${id}"/></g>` +
+    `<use href="#art-${id}"/>` +
     `</g></g>` +
     `</g>`
   )
@@ -461,7 +426,7 @@ export function sprite(mood: Mood, stage = 1): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
-    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${swimFilter(status)}${THEMES.map(theme => pictureDefs(mood, theme, stage)).join('')}</defs>` +
+    `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${THEMES.map(theme => pictureDefs(mood, theme, stage)).join('')}</defs>` +
     `<style>${STYLE}</style>` +
     `<g class="s-${status} m-${mood}">` +
     water() +
