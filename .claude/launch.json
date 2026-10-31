@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "narsil-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/preview.mjs"],
+      "port": 47391
+    }
+  ]
+}
