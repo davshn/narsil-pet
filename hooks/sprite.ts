@@ -7,8 +7,9 @@ import type { Art } from './art'
 // each, the theme picked by the viewer's color scheme. A PNG has no parts to
 // move, so the life comes from around one sharp image, drawn once (a second,
 // warped copy shows through as a double):
-//   - the whole picture swims, bobs, leaps or shakes (CSS transforms);
-//   - effects around her: the state's glow, a pulsing aura, ring or halo,
+//   - the whole picture swims, bobs, leaps or trembles (CSS transforms), at
+//     the pace of her stage, with her shadow and splashes in step;
+//   - effects around her: a pulsing aura, ring or halo,
 //     bubbles, water rings and a wave, confetti when done, props;
 //   - a celebration of her growth over all that: a new level, a new stage.
 
@@ -158,21 +159,10 @@ const STYLE = `
 @media (prefers-color-scheme: dark){.th-claro{display:none}.th-oscuro{display:inline}}
 .enter{transform-box:fill-box;transform-origin:50% 100%;animation:enter .6s cubic-bezier(.3,1.7,.5,1) 1}
 .whole{transform-box:fill-box;transform-origin:50% 100%}
-.s-working .whole{animation:swim 1.2s ease-in-out infinite}
-.m-thinking .whole{animation:ponder 2.4s ease-in-out infinite}
-.m-scared .whole{animation:jolt .5s ease-out 2,swim 1.2s ease-in-out 1s infinite}
-.s-idle .whole{animation:breathe 4.2s ease-in-out infinite}
-.m-idle .whole{filter:saturate(.9)}
-.m-greeting .whole{animation:hop .9s cubic-bezier(.3,0,.4,1) 3,breathe 4.2s ease-in-out 2.7s infinite}
-.s-waiting .whole{animation:hop 1s cubic-bezier(.3,0,.4,1) infinite}
-.s-done .whole{animation:leap .85s ease-in-out 6}
-.s-error .whole{animation:shake .14s linear infinite}
-.glow-working{filter:drop-shadow(0 0 2.4px rgba(59,139,255,.85))}
-.glow-waiting{filter:drop-shadow(0 0 3px rgba(245,180,0,.95))}
-.glow-done{filter:drop-shadow(0 0 3px rgba(34,181,115,.9))}
-.glow-error{filter:drop-shadow(0 0 3px rgba(240,67,90,.95))}
 .aura{transform-box:fill-box;transform-origin:center;animation:aura 1.6s ease-in-out infinite}
-.s-error .aura{animation-duration:.5s}
+.s-error .aura{animation-duration:1.2s}
+.shadow{transform-box:fill-box;transform-origin:center;opacity:.3}
+.drop{transform-box:fill-box;transform-origin:center;opacity:0}
 .bub{animation:rise 3s ease-in infinite;opacity:0}
 .s-working .bub{animation-duration:1.3s}.s-idle .bub{animation-duration:5.5s}.s-done .bub{animation-duration:1s}
 .ripple{transform-box:fill-box;transform-origin:center;animation:ripple 2.4s ease-out infinite;opacity:0}
@@ -191,20 +181,12 @@ const STYLE = `
 .code{stroke-dasharray:30;animation:draw 1.6s linear infinite}
 .cur{animation:cur 1s steps(1) infinite}
 .flash{animation:flash .9s ease-out 1;opacity:0}
-.lvl{animation:lvl .9s ease-in-out infinite alternate}
 .burst{transform-box:fill-box;transform-origin:center;animation:burst 1.4s ease-out 4;opacity:0}
 .star{animation:star 2s ease-out infinite;opacity:0}
 .banner{transform-box:fill-box;transform-origin:center;animation:banner .7s cubic-bezier(.3,1.8,.5,1) 1}
 .rays{transform-box:fill-box;transform-origin:center;animation:spin 7s linear infinite,rays 9s ease-in-out 1 forwards}
 .evolve{transform-box:fill-box;transform-origin:50% 100%;animation:evolve 1.8s cubic-bezier(.3,1.4,.5,1) 1}
 @keyframes enter{0%{transform:scale(.7) translateY(10px);opacity:.2}100%{transform:scale(1);opacity:1}}
-@keyframes swim{0%,100%{transform:translate(0,0) rotate(-3deg)}25%{transform:translate(2px,-5px) rotate(0)}50%{transform:translate(0,-7px) rotate(3deg)}75%{transform:translate(-2px,-3px) rotate(0)}}
-@keyframes ponder{0%,100%{transform:translateY(0) rotate(0)}30%{transform:translateY(-4px) rotate(-4deg)}70%{transform:translateY(-2px) rotate(3deg)}}
-@keyframes breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(-4px) scale(.985,1.035)}}
-@keyframes hop{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(1.08,.9)}40%{transform:translateY(-12px) scale(.95,1.07)}62%{transform:translateY(0) scale(1.05,.94)}78%{transform:translateY(-3px) scale(1,1)}}
-@keyframes leap{0%,100%{transform:translateY(0) rotate(0) scale(1,1)}14%{transform:translateY(0) scale(1.1,.88)}48%{transform:translateY(-26px) rotate(-10deg) scale(.94,1.08)}70%{transform:translateY(-6px) rotate(6deg)}86%{transform:translateY(0) scale(1.06,.93)}}
-@keyframes shake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-4px) rotate(-2.5deg)}75%{transform:translateX(4px) rotate(2.5deg)}}
-@keyframes jolt{0%{transform:translate(0,0) rotate(0)}20%{transform:translate(-5px,-6px) rotate(-6deg)}45%{transform:translate(4px,0) rotate(4deg)}70%{transform:translate(-2px,-2px) rotate(-2deg)}100%{transform:none}}
 @keyframes aura{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}
 @keyframes rise{0%{transform:translate(0,0) scale(.6);opacity:0}15%{opacity:.95}50%{transform:translate(3px,-40px) scale(1)}100%{transform:translate(-2px,-84px) scale(1.25);opacity:0}}
 @keyframes ripple{0%{transform:scale(.3);opacity:.75}100%{transform:scale(1.6);opacity:0}}
@@ -221,15 +203,103 @@ const STYLE = `
 @keyframes draw{from{stroke-dashoffset:30}to{stroke-dashoffset:0}}
 @keyframes cur{50%{opacity:0}}
 @keyframes flash{0%{opacity:.6}100%{opacity:0}}
-@keyframes lvl{from{filter:drop-shadow(0 0 2px rgba(255,200,60,.7))}to{filter:drop-shadow(0 0 7px rgba(255,200,60,1))}}
 @keyframes burst{0%{transform:scale(.3);opacity:.95}100%{transform:scale(1.9);opacity:0}}
 @keyframes star{0%{transform:translate(0,0) scale(.4);opacity:0}15%{opacity:1}100%{transform:translate(0,-70px) scale(1.1);opacity:0}}
 @keyframes banner{0%{transform:scale(0) translateY(10px)}100%{transform:scale(1)}}
 @keyframes rays{0%{opacity:0}10%{opacity:.9}80%{opacity:.7}100%{opacity:0}}
-@keyframes evolve{0%{transform:scale(.5);filter:brightness(3) saturate(0)}45%{transform:scale(1.12);filter:brightness(2)}75%{transform:scale(.97);filter:brightness(1.2)}100%{transform:scale(1);filter:none}}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+@keyframes evolve{0%{transform:scale(.5);opacity:.3}45%{transform:scale(1.12);opacity:1}75%{transform:scale(.97)}100%{transform:scale(1)}}
 `
 
 const r1 = (n: number) => Math.round(n * 10) / 10
+
+// How she moves at each stage of her growth: `amp` scales how far (lifts,
+// turns, squash), `tempo` how long each motion takes. The hatchling bounces
+// light and quick; the grown serpent moves slow and heavy. Stage 2 is the
+// measure the others are scaled from.
+const STAGE_MOTION: readonly { amp: number; tempo: number }[] = [
+  { amp: 1.15, tempo: 0.9 },
+  { amp: 1, tempo: 1 },
+  { amp: 0.85, tempo: 1.12 },
+  { amp: 0.72, tempo: 1.25 },
+  { amp: 0.6, tempo: 1.4 },
+]
+
+function stageMotion(stage: number): { amp: number; tempo: number } {
+  return STAGE_MOTION[Math.min(STAGE_MOTION.length, Math.max(1, stage)) - 1]!
+}
+
+// Her whole-body motion for each state, at her stage, and the shadow and the
+// splashes that move in step with it (the same lengths and timing).
+function motion(stage: number): string {
+  const { amp, tempo } = stageMotion(stage)
+  const px = (n: number) => `${r1(n * amp)}px`
+  const deg = (n: number) => `${r1(n * amp)}deg`
+  const sq = (n: number) => Math.round((1 + (n - 1) * amp) * 1000) / 1000
+  const s = (n: number) => `${Math.round(n * tempo * 100) / 100}s`
+  const hop = 'cubic-bezier(.3,0,.4,1)'
+  return (
+    `.s-working .whole{animation:swim ${s(1.2)} ease-in-out infinite}` +
+    `.m-thinking .whole{animation:ponder ${s(2.4)} ease-in-out infinite}` +
+    `.m-scared .whole{animation:jolt ${s(0.5)} ease-out 2,swim ${s(1.2)} ease-in-out ${s(1)} infinite}` +
+    `.s-idle .whole{animation:breathe ${s(4.2)} ease-in-out infinite}` +
+    `.m-greeting .whole{animation:hop ${s(0.9)} ${hop} 3,breathe ${s(4.2)} ease-in-out ${s(2.7)} infinite}` +
+    `.s-waiting .whole{animation:hop ${s(1)} ${hop} infinite}` +
+    `.s-done .whole{animation:leap ${s(0.85)} ease-in-out 6}` +
+    `.s-error .whole{animation:jolt ${s(0.5)} ease-out 1,tremble ${s(1.6)} ease-in-out ${s(0.5)} infinite}` +
+    `.s-working .shadow{animation:shadow-swim ${s(1.2)} ease-in-out infinite}` +
+    `.m-thinking .shadow{animation:shadow-breathe ${s(2.4)} ease-in-out infinite}` +
+    `.s-idle .shadow{animation:shadow-breathe ${s(4.2)} ease-in-out infinite}` +
+    `.m-greeting .shadow{animation:shadow-hop ${s(0.9)} ${hop} 3,shadow-breathe ${s(4.2)} ease-in-out ${s(2.7)} infinite}` +
+    `.s-waiting .shadow{animation:shadow-hop ${s(1)} ${hop} infinite}` +
+    `.s-done .shadow{animation:shadow-leap ${s(0.85)} ease-in-out 6}` +
+    `.s-waiting .drop{animation:drop-hop ${s(1)} linear infinite}` +
+    `.m-greeting .drop{animation:drop-hop ${s(0.9)} linear 3}` +
+    `.s-done .drop{animation:drop-leap ${s(0.85)} linear 6}` +
+    `@keyframes swim{0%,100%{transform:translate(0,0) rotate(${deg(-3)})}25%{transform:translate(${px(2)},${px(-5)}) rotate(0deg)}50%{transform:translate(0,${px(-7)}) rotate(${deg(3)})}75%{transform:translate(${px(-2)},${px(-3)}) rotate(0deg)}}` +
+    `@keyframes ponder{0%,100%{transform:translateY(0) rotate(0deg)}30%{transform:translateY(${px(-4)}) rotate(${deg(-4)})}70%{transform:translateY(${px(-2)}) rotate(${deg(3)})}}` +
+    `@keyframes breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(${px(-4)}) scale(${sq(0.985)},${sq(1.035)})}}` +
+    `@keyframes hop{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(${sq(1.08)},${sq(0.9)})}40%{transform:translateY(${px(-12)}) scale(${sq(0.95)},${sq(1.07)})}62%{transform:translateY(0) scale(${sq(1.05)},${sq(0.94)})}78%{transform:translateY(${px(-3)}) scale(1,1)}}` +
+    `@keyframes leap{0%,100%{transform:translateY(0) rotate(0deg) scale(1,1)}14%{transform:translateY(0) scale(${sq(1.1)},${sq(0.88)})}48%{transform:translateY(${px(-26)}) rotate(${deg(-10)}) scale(${sq(0.94)},${sq(1.08)})}70%{transform:translateY(${px(-6)}) rotate(${deg(6)})}86%{transform:translateY(0) scale(${sq(1.06)},${sq(0.93)})}}` +
+    `@keyframes jolt{0%{transform:translate(0,0) rotate(0deg)}20%{transform:translate(${px(-5)},${px(-6)}) rotate(${deg(-6)})}45%{transform:translate(${px(4)},0) rotate(${deg(4)})}70%{transform:translate(${px(-2)},${px(-2)}) rotate(${deg(-2)})}100%{transform:none}}` +
+    // a few soft shivers, then a rest, over and over
+    `@keyframes tremble{0%,40%,100%{transform:translateX(0) rotate(0deg)}8%{transform:translateX(${px(-1.5)}) rotate(${deg(-1)})}16%{transform:translateX(${px(1.5)}) rotate(${deg(1)})}24%{transform:translateX(${px(-1)}) rotate(${deg(-0.5)})}32%{transform:translateX(${px(1)}) rotate(${deg(0.5)})}}` +
+    // the shadow narrows and fades as she rises, and spreads as she lands
+    `@keyframes shadow-swim{0%,100%{transform:scale(1);opacity:.3}50%{transform:scale(${sq(0.85)});opacity:.22}}` +
+    `@keyframes shadow-breathe{0%,100%{transform:scale(1)}50%{transform:scale(${sq(0.93)})}}` +
+    `@keyframes shadow-hop{0%,100%{transform:scale(1);opacity:.3}12%{transform:scale(${sq(1.08)});opacity:.34}40%{transform:scale(${sq(0.65)});opacity:.16}62%{transform:scale(${sq(1.06)});opacity:.34}78%{transform:scale(${sq(0.9)});opacity:.26}}` +
+    `@keyframes shadow-leap{0%,100%{transform:scale(1);opacity:.3}14%{transform:scale(${sq(1.1)});opacity:.34}48%{transform:scale(${sq(0.5)});opacity:.1}70%{transform:scale(${sq(0.85)});opacity:.24}86%{transform:scale(${sq(1.08)});opacity:.34}}` +
+    // splashes thrown up the moment she lands: 62% into a hop, 86% into a leap
+    `@keyframes drop-hop{0%,60%{transform:translate(0,0) scale(.4);opacity:0}64%{opacity:.95}88%,100%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0}}` +
+    `@keyframes drop-leap{0%,84%{transform:translate(0,0) scale(.4);opacity:0}88%{opacity:.95}100%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0}}`
+  )
+}
+
+// Her shadow on the water, under her.
+function shadow(): string {
+  return (
+    `<radialGradient id="shade"><stop offset="0" stop-color="#14203C" stop-opacity=".9"/><stop offset="1" stop-color="#14203C" stop-opacity="0"/></radialGradient>` +
+    `<ellipse class="shadow" cx="${BOX.centerX}" cy="116" rx="26" ry="4.5" fill="url(#shade)"/>`
+  )
+}
+
+// Water thrown up where she lands, for the states she jumps in.
+function drops(mood: Mood, status: Status, stage: number): string {
+  if (status !== 'waiting' && status !== 'done' && mood !== 'greeting') return ''
+  const { amp } = stageMotion(stage)
+  const at: Array<[number, number, number, number]> = [
+    [-18, -10, -8, 1.6],
+    [-10, -6, -12, 2],
+    [-4, -2, -14, 1.8],
+    [4, 2, -14, 1.8],
+    [10, 6, -12, 2],
+    [18, 10, -8, 1.6],
+  ]
+  return at
+    .map(([x, dx, dy, r]) => `<circle class="drop" style="--dx:${r1(dx * amp)}px;--dy:${r1(dy * amp)}px" cx="${BOX.centerX + x}" cy="113" r="${r}" fill="var(--water)"/>`)
+    .join('')
+}
+
 
 // Where a picture lands in the box, and its head there.
 function place(image: Art, pose: string) {
@@ -267,14 +337,13 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number, milest
   const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
-  const glow = status === 'idle' ? '' : ` glow-${status}`
   return (
     `<g class="th-${theme}">` +
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     (milestone ? '' : badge(mood, status, at.headX, at.headY, theme)) +
-    `<g class="enter">${grows(milestone)}<g class="whole${glow}">` +
+    `<g class="enter">${grows(milestone)}<g class="whole">` +
     `<use href="#art-${id}"/>` +
-    `</g>${milestone ? '</g>' : ''}</g>` +
+    `</g>${grows(milestone) ? '</g>' : ''}</g>` +
     `</g>`
   )
 }
@@ -438,8 +507,7 @@ function props(mood: Mood, status: Status): string {
 // a golden glow, rings bursting out, stars rising and its number; for a new
 // stage a flash and turning light rays as she grows into her new self.
 function grows(milestone?: Milestone): string {
-  if (!milestone) return ''
-  return milestone.kind === 'grew' ? '<g class="evolve">' : '<g class="lvl">'
+  return milestone?.kind === 'grew' ? '<g class="evolve">' : ''
 }
 
 const CENTER_Y = 60
@@ -451,8 +519,14 @@ function banner(text: string): string {
   )
 }
 
-// Behind her: light rays, only when she grows.
-function raysBehind(milestone?: Milestone): string {
+// Behind her: for a new level a golden glow, for a new stage light rays.
+function behind(milestone?: Milestone): string {
+  if (milestone?.kind === 'level') {
+    return (
+      `<radialGradient id="gold"><stop offset="0" stop-color="#FFD25A" stop-opacity=".75"/><stop offset=".6" stop-color="#FFD25A" stop-opacity=".3"/><stop offset="1" stop-color="#FFD25A" stop-opacity="0"/></radialGradient>` +
+      `<ellipse class="aura" cx="${BOX.centerX}" cy="${CENTER_Y}" rx="52" ry="62" fill="url(#gold)"/>`
+    )
+  }
   if (milestone?.kind !== 'grew') return ''
   const rays = Array.from({ length: 12 }, (_, i) => {
     const a = (i * 30 * Math.PI) / 180
@@ -486,12 +560,14 @@ export function sprite(mood: Mood, stage = 1, milestone?: Milestone): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
     `<defs><linearGradient id="screen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5B5BD6" stop-opacity=".35"/><stop offset="1" stop-color="#5B5BD6" stop-opacity="0"/></linearGradient>${aura(status, 'o', 0.5)}${aura(status, 'c', 0.2)}${THEMES.map(theme => pictureDefs(mood, theme, stage)).join('')}</defs>` +
-    `<style>${STYLE}</style>` +
+    `<style>${STYLE}${motion(stage)}</style>` +
     `<g class="s-${status} m-${mood}">` +
     water() +
-    raysBehind(milestone) +
+    behind(milestone) +
+    shadow() +
     THEMES.map(theme => picture(mood, status, theme, stage, milestone)).join('') +
     bubbles() +
+    drops(mood, status, stage) +
     (milestone ? celebration(milestone) : props(mood, status)) +
     `</g>` +
     `</svg>`

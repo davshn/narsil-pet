@@ -778,9 +778,10 @@ test('Narsil moves visibly in every state', () => {
     expect(svg.match(/class="bub"/g)?.length).toBe(7)
   }
   // a whole-body motion of its own for each state, far larger than a bob
-  expect(sprite('writing')).toContain('@keyframes swim{')
-  expect(sprite('writing')).toMatch(/translate\(0,-7px\) rotate\(3deg\)/)
-  expect(sprite('celebrating')).toMatch(/translateY\(-26px\) rotate\(-10deg\)/)
+  // (stage 2 moves at the measure the others are scaled from)
+  expect(sprite('writing', 2)).toContain('@keyframes swim{')
+  expect(sprite('writing', 2)).toMatch(/translate\(0,-7px\) rotate\(3deg\)/)
+  expect(sprite('celebrating', 2)).toMatch(/translateY\(-26px\) rotate\(-10deg\)/)
   expect(sprite('celebrating').match(/class="confetti"/g)?.length).toBe(12)
   expect(sprite('asking')).toContain('class="aura"')
   expect(sprite('idle')).not.toContain('class="aura"')
@@ -793,6 +794,58 @@ test('she is drawn once per theme, sharp, so no part of her shows twice', () => 
       for (const id of ['c', 'o']) expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
       expect(svg).not.toContain('<mask')
       expect(svg).not.toContain('feDisplacementMap')
+    }
+  }
+})
+
+// How high she leaps when done, and how long one leap takes, at a stage.
+function leapOf(stage: number): { height: number; seconds: number } {
+  const svg = sprite('celebrating', stage)
+  const height = Number(/@keyframes leap\{[^@]*?translateY\(-([\d.]+)px\) rotate/.exec(svg)?.[1])
+  const seconds = Number(/\.s-done \.whole\{animation:leap ([\d.]+)s/.exec(svg)?.[1])
+  return { height, seconds }
+}
+
+test('the hatchling bounces light and quick, the grown serpent moves slow and heavy', () => {
+  const leaps = [1, 2, 3, 4, 5].map(leapOf)
+  expect(leaps[1]).toEqual({ height: 26, seconds: 0.85 })
+  for (let i = 1; i < leaps.length; i++) {
+    expect(leaps[i]!.height).toBeLessThan(leaps[i - 1]!.height)
+    expect(leaps[i]!.seconds).toBeGreaterThan(leaps[i - 1]!.seconds)
+  }
+})
+
+test('her shadow on the water shrinks as she leaps, in step with her', () => {
+  const cases = [['asking', 'shadow-hop', 'waiting'], ['celebrating', 'shadow-leap', 'done'], ['writing', 'shadow-swim', 'working'], ['idle', 'shadow-breathe', 'idle']] as const
+  for (const [mood, keyframes, status] of cases) {
+    const svg = sprite(mood, 3)
+    expect(svg.match(/<ellipse class="shadow"/g)?.length).toBe(1)
+    expect(svg).toContain(`@keyframes ${keyframes}{`)
+    // the same length as her own motion
+    const seconds = new RegExp(String.raw`\.s-${status} \.whole\{animation:\w+ ([\d.]+)s`).exec(svg)?.[1]
+    expect(seconds).toBeDefined()
+    expect(svg).toContain(`.s-${status} .shadow{animation:${keyframes} ${seconds}s`)
+  }
+})
+
+test('water splashes where she lands, and only when she jumps', () => {
+  for (const mood of ['asking', 'celebrating', 'greeting'] as const) expect(sprite(mood).match(/class="drop"/g)?.length).toBe(6)
+  for (const mood of ['idle', 'writing', 'failed', 'thinking'] as const) expect(sprite(mood)).not.toContain('class="drop"')
+})
+
+test('an error is a start and then a soft tremble, not an endless shake', () => {
+  const svg = sprite('failed')
+  expect(svg).toMatch(/\.s-error \.whole\{animation:jolt [\d.]+s ease-out 1,tremble /)
+  expect(svg).not.toContain('@keyframes shake')
+})
+
+test('her glow is a cheap aura, never a filter redrawn each frame, and she keeps still when motion is reduced', () => {
+  const moods = ['greeting', 'idle', 'thinking', 'writing', 'asking', 'scared', 'celebrating', 'failed'] as const
+  for (const mood of moods) {
+    for (const svg of [sprite(mood, 4), sprite(mood, 4, { kind: 'level', level: 9, stage: 4 })]) {
+      expect(svg).not.toContain('drop-shadow')
+      expect(svg).not.toContain('saturate')
+      expect(svg).toContain('@media (prefers-reduced-motion: reduce){*{animation:none!important}}')
     }
   }
 })
