@@ -50,6 +50,9 @@ let lastAnswer = null
 let pendingOpens = []
 let isQuitting = false
 let keeper = null
+// Where the window last said it is on screen (in CSS pixels, from the top
+// left of the main screen), so the tip window can open above it on macOS.
+let bounds = null
 const listeners = new Set()
 
 function liveSessions() {
@@ -217,6 +220,7 @@ const server = http.createServer(async (req, res) => {
     req.on('close', () => listeners.delete(res))
     return
   }
+  if (req.method === 'GET' && url.pathname === '/window') return send(200, 'application/json', JSON.stringify(bounds && { ...bounds, age: Date.now() - bounds.at }))
   if (req.method === 'GET' && url.pathname === '/summary') return send(200, 'application/json', JSON.stringify(summary()))
   if (req.method === 'GET' && url.pathname === '/tick') {
     if (!isTrusted) return send(403, 'text/plain', 'forbidden')
@@ -231,6 +235,13 @@ const server = http.createServer(async (req, res) => {
     const link = conversationLink(url.searchParams.get('session') || (event && event.sessionId) || (first && first.sessionId))
     if (link) pendingOpens.push(link)
     clearEvent()
+    return send(204, 'text/plain', '')
+  }
+  if (url.pathname === '/bounds') {
+    const n = Number
+    const q = url.searchParams
+    const box = { x: n(q.get('x')), y: n(q.get('y')), width: n(q.get('w')), height: n(q.get('h')) }
+    if (Object.values(box).every(Number.isFinite)) bounds = { ...box, isVisible: q.get('visible') === '1', at: Date.now() }
     return send(204, 'text/plain', '')
   }
   if (url.pathname === '/dismiss') {

@@ -611,17 +611,20 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
   }
 }
 
-// On Windows a tip opens whole in a window of its own (overlay/tip.ps1), above
-// the floating window or in a corner of Claude's screen, and closes by itself
-// once its time in the band would be up. True when it opened.
+// On Windows and macOS a tip opens whole in a window of its own (overlay/tip.ps1,
+// overlay/tip.sh), above the floating window or in a corner of the screen, and
+// closes by itself once its time in the band would be up. True when it opened.
 async function openTipWindow($: EngineInterface, text: string): Promise<boolean> {
-  if ((await platformOf($)) !== 'windows') return false
+  const os = await platformOf($)
+  if (os === 'other') return false
   return launch($, 'tip', {
     NARSIL_TEXT: text,
     NARSIL_LINK: conversationLink(),
     NARSIL_STAGE: String(stageOf(levelOf(await read($, xp)).level)),
     NARSIL_SECONDS: String(TIP_SHOWN_MS / 1000),
-    NARSIL_ASSETS: `${$.plugin.root.replace(/\//g, '\\')}\\assets`,
+    NARSIL_ASSETS: os === 'windows' ? `${$.plugin.root.replace(/\//g, '\\')}\\assets` : `${$.plugin.root}/assets`,
+    // macOS asks it where the floating window is; Windows finds it itself
+    NARSIL_OVERLAY: OVERLAY,
   })
 }
 
@@ -848,8 +851,8 @@ function warnLoop($: EngineInterface, key: string, text: string | null): void {
   if (!text || loopsWarned.has(key)) return
   loopsWarned.add(key)
   void (async () => {
-    await showTip($, text, 'loop')
     await announce($, 'question', 'Narsil ve un bucle', text, 'Creo que esto se está repitiendo.')
+    await showTip($, text, 'loop')
   })().catch(() => undefined)
 }
 

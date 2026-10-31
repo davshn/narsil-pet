@@ -195,6 +195,15 @@
   }
 
   new EventSource('/events').onmessage = message => render(JSON.parse(message.data))
+  // Where this window is, for the tip window to open above it (macOS).
+  function reportBounds() {
+    const q = 'x=' + screenX + '&y=' + screenY + '&w=' + outerWidth + '&h=' + outerHeight + '&visible=' + (document.visibilityState === 'visible' ? 1 : 0)
+    fetch('/bounds?' + q, { method: 'POST' }).catch(() => undefined)
+  }
+  reportBounds()
+  setInterval(reportBounds, 2000)
+  addEventListener('resize', reportBounds)
+  document.addEventListener('visibilitychange', reportBounds)
   $('focus').addEventListener('click', () => open(focusId))
   $('event').addEventListener('click', () => open(null))
   $('close').addEventListener('click', click => {
