@@ -31,6 +31,9 @@ export type Prefs = {
   // the prompt cache lasts, in minutes (null: 60 on a plan, 5 off one).
   isNextStepsOn: boolean
   cacheMinutes: number | null
+  // Quiet mode: no voice, no turn-finished alerts, no automatic tips or next
+  // steps; a question or an error still tells you. Leaves the rest as it was.
+  isQuiet: boolean
 }
 
 // The tip on show: its text, why it was given (TipKind) and when. Faded: it

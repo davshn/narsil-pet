@@ -30,6 +30,7 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isAdviceSpoken: false,
   isNextStepsOn: true,
   cacheMinutes: null,
+  isQuiet: false,
 })
 // Every open conversation, by state: counted by the floating window.
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
@@ -432,8 +433,10 @@ async function ensureOverlay($: EngineInterface): Promise<boolean> {
 // again when it is down), never a system notification as well; with the
 // window off, a system notification is.
 async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false): Promise<void> {
-  const { isMuted, isFloating } = await read($, prefs)
-  const spoken = isMuted ? Promise.resolve() : speak($, voice)
+  const { isMuted, isFloating, isQuiet } = await read($, prefs)
+  // Quiet: no voice, and only what needs you (a question, an error) is told.
+  if (isQuiet && kind === 'done' && !force) return
+  const spoken = isMuted || isQuiet ? Promise.resolve() : speak($, voice)
   if (isFloating) {
     if (!(await postEvent($, kind, title, text, force)) && (await ensureOverlay($))) {
       await postEvent($, kind, title, text, force)
@@ -577,7 +580,7 @@ let tipsToday = 0
 // Whether an automatic tip may be asked for now; if so, it counts.
 async function mayTip($: EngineInterface, kind: TipKind): Promise<boolean> {
   const p = await read($, prefs)
-  if (!p.isAdviceOn) return false
+  if (!p.isAdviceOn || p.isQuiet) return false
   const now = await $.clock.now()
   const today = Math.floor(now / 86_400_000)
   if (today !== tipDay) {
@@ -802,7 +805,8 @@ async function tickCache($: EngineInterface): Promise<void> {
 async function offerSteps($: EngineInterface, at: number): Promise<void> {
   if (stepsAskedFor === at || (await read($, steps))?.at === at) return
   stepsAskedFor = at
-  if (!(await read($, prefs)).isNextStepsOn) return
+  const { isNextStepsOn, isQuiet } = await read($, prefs)
+  if (!isNextStepsOn || isQuiet) return
   try {
     const reply = await $.model.complete({
       model: 'haiku',
@@ -915,7 +919,7 @@ async function tickWatch($: EngineInterface): Promise<void> {
     void announce($, 'question', 'Sigo esperándote', text, 'Sigo esperándote.', true).catch(() => undefined)
   }
   const c = await read($, cache)
-  if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0) {
+  if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0 && !(await read($, prefs)).isQuiet) {
     summarizedFor = c.at
     await showTip($, await summarize($), 'summary')
   }
@@ -966,7 +970,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -1012,6 +1016,8 @@ export const register: Register = on => {
       mostrar: { isHidden: false },
       silencio: { isMuted: true },
       voz: { isMuted: false },
+      discreto: { isQuiet: true },
+      normal: { isQuiet: false },
     }
     if (arg === 'prueba') {
       await setMood($, 'celebrating', 'prueba')
@@ -1050,11 +1056,16 @@ export const register: Register = on => {
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
-          'Uso: /narsil estado | ocultar | mostrar | silencio | voz | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
+          (p.isQuiet ? 'Modo discreto activado: sin voz, sin avisos de fin de turno ni consejos o pasos automáticos.\n' : '') +
+          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
     await $.store.set(PREFS_KEY, saved).catch(() => undefined)
+    if (arg === 'discreto') {
+      return { text: 'Narsil: modo discreto activado. Sin voz, sin avisos de fin de turno y sin consejos ni próximos pasos automáticos; solo te aviso si te necesito o hay un error. /narsil normal lo devuelve todo.' }
+    }
+    if (arg === 'normal') return { text: 'Narsil: modo normal. Vuelven la voz, los avisos, los consejos y los próximos pasos como los tenías.' }
 
     return { text: `Narsil: hecho (${arg}).` }
   })

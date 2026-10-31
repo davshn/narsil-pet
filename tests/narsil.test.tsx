@@ -644,6 +644,38 @@ test('a failed, timed-out or rejected model call shows nothing and breaks nothin
   expect(JSON.stringify(answer)).toContain('Narsil: ahora mismo no tengo un consejo útil')
 })
 
+test('/narsil discreto keeps her quiet, and /narsil normal brings everything back', async ($, on) => {
+  const asked = model(on)
+  const runs: Ran[] = []
+  const { clock } = await tipEngine($, on, { os: 'mac', runs, store: noWindow(), hasSteps: true })
+  const spoken = () => runs.filter(r => scriptOf(r).endsWith('/overlay/speak.sh')).map(r => r.env.NARSIL_TEXT)
+  const toasts = () => runs.filter(r => scriptOf(r).endsWith('/overlay/toast.sh')).map(r => r.env.NARSIL_TITLE)
+
+  const quiet = await $.command.run({ command: 'narsil', args: 'discreto', ...TYPED })
+  expect(quiet.text).toContain('modo discreto')
+  await finishTurn($)
+  await clock.settle()
+  await clock.advance(11 * MINUTE)
+  await clock.settle()
+  // no voice, no "done" alert, no automatic tip, no next steps
+  expect(spoken()).toEqual([])
+  expect(toasts()).toEqual([])
+  expect(asked.length).toBe(0)
+  // what needs you still reaches you, silently
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(toasts()).toEqual(['Narsil · Te necesito'])
+  expect(spoken()).toEqual([])
+  const status = await $.command.run({ command: 'narsil', args: '', ...TYPED })
+  expect(JSON.stringify(status)).toContain('Modo discreto activado')
+
+  await $.command.run({ command: 'narsil', args: 'normal', ...TYPED })
+  await finishTurn($)
+  await clock.settle()
+  expect(spoken()).toContain('Ya está, ya terminé.')
+  expect(toasts()).toContain('Narsil · He terminado')
+  expect(asked.length).toBeGreaterThan(0)
+})
+
 test('prefs stored before tips existed get the tip defaults', async ($, on) => {
   await tipEngine($, on, { store: { prefs: { isHidden: false, isMuted: true, isFloating: false } } })
 
