@@ -7,8 +7,8 @@ import type { Art } from './art'
 // each, the theme picked by the viewer's color scheme. A PNG has no parts to
 // move, so the life comes from layers over one image:
 //   - the whole picture bobs, leaps or shakes (CSS transforms);
-//   - the body undulates under an animated displacement filter (SVG);
-//   - a second copy, masked to the head, nods or tilts on its own, sharp;
+//   - below the neck the body undulates; above it, the head stays sharp (two
+//     copies of the picture, each masked to its part, so she shows once);
 //   - effects around her: the state's glow, a pulsing aura, ring or halo,
 //     bubbles, water rings and a wave, confetti when done, props.
 
@@ -182,12 +182,6 @@ const STYLE = `
 .glow-error{filter:drop-shadow(0 0 3px rgba(240,67,90,.95))}
 .aura{transform-box:fill-box;transform-origin:center;animation:aura 1.6s ease-in-out infinite}
 .s-error .aura{animation-duration:.5s}
-.head{transform-box:view-box}
-.s-working .head{animation:nod 1.2s ease-in-out infinite}
-.m-thinking .head{animation:tilt 2.4s ease-in-out infinite}
-.s-idle .head{animation:doze 4.2s ease-in-out infinite}
-.s-waiting .head{animation:tilt 1s ease-in-out infinite}
-.s-done .head{animation:nod .42s ease-in-out 12}
 .bub{animation:rise 3s ease-in infinite;opacity:0}
 .s-working .bub{animation-duration:1.3s}.s-idle .bub{animation-duration:5.5s}.s-done .bub{animation-duration:1s}
 .ripple{transform-box:fill-box;transform-origin:center;animation:ripple 2.4s ease-out infinite;opacity:0}
@@ -215,9 +209,6 @@ const STYLE = `
 @keyframes shake{0%,100%{transform:translateX(0) rotate(0)}25%{transform:translateX(-4px) rotate(-2.5deg)}75%{transform:translateX(4px) rotate(2.5deg)}}
 @keyframes jolt{0%{transform:translate(0,0) rotate(0)}20%{transform:translate(-5px,-6px) rotate(-6deg)}45%{transform:translate(4px,0) rotate(4deg)}70%{transform:translate(-2px,-2px) rotate(-2deg)}100%{transform:none}}
 @keyframes aura{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}
-@keyframes nod{0%,100%{transform:rotate(-4.5deg)}50%{transform:rotate(4.5deg) translateY(1px)}}
-@keyframes doze{0%,100%{transform:rotate(-1.5deg) translateY(.5px)}50%{transform:rotate(5deg) translateY(2.5px)}}
-@keyframes tilt{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(6deg) translateY(-1.5px)}}
 @keyframes rise{0%{transform:translate(0,0) scale(.6);opacity:0}15%{opacity:.95}50%{transform:translate(3px,-40px) scale(1)}100%{transform:translate(-2px,-84px) scale(1.25);opacity:0}}
 @keyframes ripple{0%{transform:scale(.3);opacity:.75}100%{transform:scale(1.6);opacity:0}}
 @keyframes wave{from{transform:translateX(0)}to{transform:translateX(-24px)}}
@@ -274,7 +265,7 @@ function swimFilter(status: Status): string {
 }
 
 // Her picture in one theme: the state's mark around her head, the body under
-// the swim filter, and the head again on top, sharp, turning about the neck.
+// the swim filter up to the neck, and the head above it, sharp.
 // Its definitions (pictureDefs) all go in the one root <defs>.
 function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
   const { pose, image } = art(mood, theme, stage)
@@ -285,7 +276,11 @@ function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
     `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>` +
     `<linearGradient id="fade-${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${r1(at.neckY - 8)}" x2="0" y2="${r1(at.neckY + 6)}">` +
     `<stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>` +
-    `<mask id="head-${id}" maskUnits="userSpaceOnUse" x="0" y="-14" width="150" height="134"><rect x="0" y="-14" width="150" height="134" fill="url(#fade-${id})"/></mask>`
+    `<mask id="head-${id}" maskUnits="userSpaceOnUse" x="0" y="-14" width="150" height="134"><rect x="0" y="-14" width="150" height="134" fill="url(#fade-${id})"/></mask>` +
+    // the body is the rest: where the head fades out, it fades in
+    `<linearGradient id="unfade-${id}" gradientUnits="userSpaceOnUse" x1="0" y1="${r1(at.neckY - 8)}" x2="0" y2="${r1(at.neckY + 6)}">` +
+    `<stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
+    `<mask id="body-${id}" maskUnits="userSpaceOnUse" x="-20" y="-14" width="190" height="154"><rect x="-20" y="-14" width="190" height="154" fill="url(#unfade-${id})"/></mask>`
   )
 }
 
@@ -299,8 +294,8 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number): strin
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     badge(mood, status, at.headX, at.headY, theme) +
     `<g class="enter"><g class="whole${glow}">` +
-    `<g filter="url(#swim)"><use href="#art-${id}"/></g>` +
-    `<g class="head" style="transform-origin:${at.headX}px ${at.neckY}px" mask="url(#head-${id})"><use href="#art-${id}"/></g>` +
+    `<g filter="url(#swim)" mask="url(#body-${id})"><use href="#art-${id}"/></g>` +
+    `<g class="head" mask="url(#head-${id})"><use href="#art-${id}"/></g>` +
     `</g></g>` +
     `</g>`
   )
