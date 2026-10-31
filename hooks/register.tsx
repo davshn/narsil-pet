@@ -448,7 +448,7 @@ async function announceQuestion($: EngineInterface, text: string): Promise<void>
   const now = await $.clock.now()
   if (now - lastQuestionAt < 3000) return
   lastQuestionAt = now
-  await announce($, 'question', 'Narsil te necesita', text, 'Narsil te necesita.')
+  await announce($, 'question', 'Narsil te necesita', text, 'Te necesito.')
 }
 
 function summary(answer: string, took: string): string {
@@ -828,7 +828,7 @@ function warnLoop($: EngineInterface, key: string, text: string | null): void {
   loopsWarned.add(key)
   void (async () => {
     await showTip($, text, 'loop')
-    await announce($, 'question', 'Narsil ve un bucle', text, 'Narsil cree que esto se está repitiendo.')
+    await announce($, 'question', 'Narsil ve un bucle', text, 'Creo que esto se está repitiendo.')
   })().catch(() => undefined)
 }
 
@@ -853,7 +853,7 @@ async function tickWatch($: EngineInterface): Promise<void> {
   if (waiting && !waiting.isNudged && now - waiting.since >= NUDGE_AFTER_MS) {
     waiting.isNudged = true
     const text = nudgeText(waiting.what, now - waiting.since)
-    void announce($, 'question', 'Narsil sigue esperando', text, 'Narsil sigue esperándote.', true).catch(() => undefined)
+    void announce($, 'question', 'Narsil sigue esperando', text, 'Sigo esperándote.', true).catch(() => undefined)
   }
   const c = await read($, cache)
   if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0) {
@@ -1138,7 +1138,7 @@ export const register: Register = on => {
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
-      await announce($, 'done', 'Narsil ha terminado', summary(e.answer, took), 'Ya está, Narsil ha terminado.')
+      await announce($, 'done', 'Narsil ha terminado', summary(e.answer, took), 'Ya está, ya terminé.')
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 400)
       tipLater($, 'review')
@@ -1147,7 +1147,7 @@ export const register: Register = on => {
     } else {
       const why = e.reason === 'refusal' ? 'no pudo responder' : 'fallo de la API'
       await setMood($, 'failed', why)
-      await announce($, 'error', 'Narsil se ha detenido', `El turno terminó con un error (${why}).`, 'Uy, Narsil se ha detenido por un error.')
+      await announce($, 'error', 'Narsil se ha detenido', `El turno terminó con un error (${why}).`, 'Uy, me detuve por un error.')
     }
 
     return result

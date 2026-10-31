@@ -837,6 +837,32 @@ test('on macOS Narsil speaks and notifies with its own scripts, detached, never 
   expect(runs.some(r => r.argv[0] === 'powershell.exe')).toBe(false)
 })
 
+test('Narsil speaks of herself in the first person', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'mac', runs, store: noWindow() })
+  let shouldFail = false
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const spoken = () => runs.filter(r => scriptOf(r).endsWith('/overlay/speak.sh')).map(r => r.env.NARSIL_TEXT)
+
+  await finishTurn($)
+  expect(spoken()).toContain('Ya está, ya terminé.')
+
+  await $.turn.start({ text: 'otra', turnId: 'err' })
+  await $.turn.complete({ reason: 'error', answer: '', durationMs: 1000, isAborted: false, turnId: 'err', error: 'api' } as never)
+  expect(spoken()).toContain('Uy, me detuve por un error.')
+
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(spoken()).toContain('Te necesito.')
+
+  shouldFail = true
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  expect(spoken()).toContain('Creo que esto se está repitiendo.')
+  expect(spoken().some(t => String(t).includes('Narsil'))).toBe(false)
+})
+
 test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
   const runs: Ran[] = []
   engine(on, null, { os: 'mac', runs, store: noWindow() })
