@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Cache, Fleet, Mood, Pet, Prefs, Stats, Status, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, lines, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
-import { TONE_COLOR, agentChip, liveRuns } from './agents'
+import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import type { XpReason } from './xp'
@@ -50,6 +50,9 @@ const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
 const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 // Narsil's experience, kept across sessions in the store (xp.ts).
 const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
+// The main thread's model, as a name ("Opus 5.5"): read at start and with
+// each heartbeat, since no event tells of a /model change.
+const mainModel = atom({ plugin: 'narsil-pet', key: 'model' } as const, null)
 // A new level or stage being celebrated, and when it began.
 const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
 // How long each celebration shows.
@@ -340,6 +343,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
+    model: await read($, mainModel),
   }
   const send = async (withSvg: boolean): Promise<string | null> => {
     try {
@@ -365,6 +369,16 @@ async function pushOverlay($: EngineInterface): Promise<void> {
 
 // The heartbeat: keep the window in sync, and learn how many conversations
 // are open and in which state.
+async function readModel($: EngineInterface): Promise<void> {
+  let name: string | null = null
+  try {
+    name = modelLabel(await $.session.model()) || null
+  } catch {
+    // no model to read: none is shown
+  }
+  if (name !== (await read($, mainModel))) await update($, mainModel, () => name)
+}
+
 async function beat($: EngineInterface): Promise<void> {
   // A tip leaves the band after TIP_SHOWN_MS; the window keeps it for
   // TIP_KEPT_MS, since it shows while Claude is minimized, often later.
@@ -374,6 +388,7 @@ async function beat($: EngineInterface): Promise<void> {
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
   const shown = await read($, milestone)
   if (shown && (await $.clock.now()) - shown.at >= MILESTONE_MS[shown.kind]) await update($, milestone, () => null)
+  await readModel($)
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
@@ -1001,6 +1016,7 @@ export const register: Register = on => {
     // The stats survive a reload of the mod, and Claude Code restarting with
     // this conversation: only a new conversation starts them.
     await loadStats($)
+    await readModel($)
     if (!(await read($, stats))) await bumpStats($, s => s)
     const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
     await update($, xp, () => earned)
@@ -1071,6 +1087,7 @@ export const register: Register = on => {
         text:
           `Narsil está ${p.isHidden ? 'oculta' : 'visible'}, con la voz ${p.isMuted ? 'apagada' : 'encendida'} ` +
           `y la ventana flotante ${p.isFloating ? 'activada' : 'desactivada'}.\n` +
+          ((await read($, mainModel)) ? `Modelo del hilo principal: ${await read($, mainModel)}.\n` : '') +
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
@@ -1258,6 +1275,7 @@ export const register: Register = on => {
       startedAt: now,
       lastActiveAt: now,
       isBackground: e.background,
+      model: result.model || undefined,
     }
     await update($, agents, runs => [...runs.filter(r => r.id !== started.id), started])
     await bumpStats($, s => ({ ...s, agents: s.agents + 1 }))
@@ -1309,6 +1327,7 @@ export const register: Register = on => {
     const xpNow = await read($, xp)
     const celebrated = (await read($, milestone)) ?? undefined
     const level = xpLabel(xpNow)
+    const modelShown = await read($, mainModel)
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -1323,6 +1342,7 @@ export const register: Register = on => {
             <Text bold color={color}>
               {label}
             </Text>
+            {modelShown ? <Text dimColor>{` · ${modelShown}`}</Text> : null}
             <Text wrap="truncate-end"> · {title}</Text>
           </Box>
           {shown ? (
@@ -1379,6 +1399,7 @@ export const register: Register = on => {
               ● {label}
             </Text>
             <Text dimColor>· Narsil</Text>
+            {modelShown ? <Text dimColor>{`· ${modelShown}`}</Text> : null}
             <Text dimColor>{`· ${level}`}</Text>
           </Box>
           <Text bold wrap="truncate-end">

@@ -28,6 +28,22 @@ export const TONE_COLOR: Record<AgentTone, string> = {
   stopped: '#8A90A6',
 }
 
+// A model as a person reads it, from its id or alias: "claude-opus-5-5" is
+// "Opus 5.5", "claude-3-5-sonnet-20241022" "Sonnet 3.5", "opus[1m]" "Opus
+// (1M)". A name of another family is left as it is.
+export function modelLabel(model: string): string {
+  const id = model.trim()
+  const family = /(opus|sonnet|haiku|fable)/i.exec(id)?.[1]
+  if (!family) return id
+  const isLong = /\[1m\]/i.test(id)
+  // The version is what digits are left once the date and the family go.
+  const rest = id.replace(/\[1m\]/gi, '').replace(/\d{8}/g, '').replace(new RegExp(family, 'i'), ' ')
+  const version = /(\d+)(?:[-.](\d+))?/.exec(rest)
+  const name = family[0]!.toUpperCase() + family.slice(1).toLowerCase()
+  const number = version ? ` ${version[1]}${version[2] ? `.${version[2]}` : ''}` : ''
+  return `${name}${number}${isLong ? ' (1M)' : ''}`
+}
+
 // "45 s", "2 min", "1 min 20 s".
 export function took(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000))
@@ -37,14 +53,16 @@ export function took(ms: number): string {
 }
 
 export function agentChip(run: AgentRun, now: number): { text: string; tone: AgentTone } {
-  if (run.outcome === 'done') return { text: `✓ ${run.task} · terminado en ${took((run.endedAt ?? now) - run.startedAt)}`, tone: 'done' }
-  if (run.outcome === 'failed') return { text: `✗ ${run.task} · falló`, tone: 'failed' }
-  if (run.outcome === 'stopped') return { text: `■ ${run.task} · detenido`, tone: 'stopped' }
+  // The task, and the model it runs on when known.
+  const task = run.model ? `${run.task} · ${modelLabel(run.model)}` : run.task
+  if (run.outcome === 'done') return { text: `✓ ${task} · terminado en ${took((run.endedAt ?? now) - run.startedAt)}`, tone: 'done' }
+  if (run.outcome === 'failed') return { text: `✗ ${task} · falló`, tone: 'failed' }
+  if (run.outcome === 'stopped') return { text: `■ ${task} · detenido`, tone: 'stopped' }
   const mark = TYPE_MARK[run.type] ?? '✨'
   const minutes = Math.floor((now - run.startedAt) / 60_000)
   const isQuiet = now - run.lastActiveAt >= QUIET_MS
   const time = minutes >= 1 ? ` · ${minutes} min` : ''
-  return { text: `🐍${mark} ${run.task}${time}${isQuiet ? ' · sin actividad' : ''}`, tone: isQuiet ? 'quiet' : 'running' }
+  return { text: `🐍${mark} ${task}${time}${isQuiet ? ' · sin actividad' : ''}`, tone: isQuiet ? 'quiet' : 'running' }
 }
 
 // The runs still worth showing: every running one, and the ended ones for

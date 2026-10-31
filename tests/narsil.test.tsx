@@ -3,7 +3,7 @@ import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
 import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
-import { agentChip } from '../hooks/agents'
+import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { ART } from '../hooks/art'
@@ -147,7 +147,10 @@ test('each state change is pushed to the floating window with its token and sess
   expect(last?.body.title).toBe('landing')
   expect(last?.body.status).toBe('working')
   expect(last?.body.headline).toBe('Estoy editando: a.ts')
-  expect(String(last?.body.svg).startsWith('<svg')).toBe(true)
+  // the drawing goes with the change of state, not with each heartbeat after
+  const drawn = posts.filter(p => p.url.endsWith('/state') && p.body.svg).at(-1)
+  expect(drawn?.body.status).toBe('working')
+  expect(String(drawn?.body.svg).startsWith('<svg')).toBe(true)
 })
 
 test('a question from Claude pops up with the conversation it belongs to', async ($, on) => {
@@ -1222,18 +1225,18 @@ test('each subagent shows its type, how long it has run, and when it has gone qu
   await spawn($, 'Map the overlay', 'Explore')
   await spawn($, 'Review the tests')
   for (const surface of ['terminal', 'desktop'] as const) {
-    expect(await chips($, surface)).toEqual(['🐍🔍 Map the overlay', '🐍 Review the tests'])
+    expect(await chips($, surface)).toEqual(['🐍🔍 Map the overlay · Haiku', '🐍 Review the tests · Haiku'])
   }
 
   await clock.advance(2 * MINUTE)
-  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · 2 min', '🐍 Review the tests · 2 min'])
+  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · Haiku · 2 min', '🐍 Review the tests · Haiku · 2 min'])
   // The explorer reads a file: it is busy, the reviewer is not.
   await $.tool.call({ tool: 'Read', file_path: 'C:/repo/overlay.html', agentId: 'a1' } as never)
   await clock.advance(4 * MINUTE)
-  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · 6 min', '🐍 Review the tests · 6 min · sin actividad'])
+  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · Haiku · 6 min', '🐍 Review the tests · Haiku · 6 min · sin actividad'])
 
   const sent = posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents as { text: string; color: string }[]
-  expect(sent.map(a => a.text)).toEqual(['🐍🔍 Map the overlay · 6 min', '🐍 Review the tests · 6 min · sin actividad'])
+  expect(sent.map(a => a.text)).toEqual(['🐍🔍 Map the overlay · Haiku · 6 min', '🐍 Review the tests · Haiku · 6 min · sin actividad'])
   expect(sent[1]?.color).toBe('#F5B400')
 })
 
@@ -1248,9 +1251,9 @@ test('a finished subagent stays a few seconds with how it ended, then leaves', a
   await agentDone($, 'a2', 'error')
   await agentDone($, 'a3', 'aborted')
   expect(await chips($)).toEqual([
-    '✓ Map the overlay · terminado en 1 min 20 s',
-    '✗ Review the tests · falló',
-    '■ Write the docs · detenido',
+    '✓ Map the overlay · Haiku · terminado en 1 min 20 s',
+    '✗ Review the tests · Haiku · falló',
+    '■ Write the docs · Haiku · detenido',
   ])
   const sent = posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents as { color: string }[]
   expect(sent.map(a => a.color)).toEqual(['#22B573', '#F0435A', '#8A90A6'])
@@ -1260,6 +1263,48 @@ test('a finished subagent stays a few seconds with how it ended, then leaves', a
   expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.agents).toEqual([])
   // The main conversation is still where it was: a subagent's end is not hers.
   expect(posts.some(p => p.url.endsWith('/event'))).toBe(false)
+})
+
+test('model ids read as names, whatever their shape', () => {
+  expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5')
+  expect(modelLabel('claude-haiku-5-5')).toBe('Haiku 5.5')
+  expect(modelLabel('claude-sonnet-4-20250514')).toBe('Sonnet 4')
+  expect(modelLabel('claude-3-5-sonnet-20241022')).toBe('Sonnet 3.5')
+  expect(modelLabel('claude-opus-4-6[1m]')).toBe('Opus 4.6 (1M)')
+  expect(modelLabel('haiku')).toBe('Haiku')
+  expect(modelLabel('opus[1m]')).toBe('Opus (1M)')
+  expect(modelLabel('Opus 5.5')).toBe('Opus 5.5')
+  expect(modelLabel('gpt-something')).toBe('gpt-something')
+  expect(modelLabel('')).toBe('')
+})
+
+test('the band and the window show the main model, and follow a /model change within a heartbeat', async ($, on) => {
+  model(on, 'SKIP')
+  let main = 'claude-opus-5-5'
+  on('session.model', () => ({ value: main }))
+  const { posts, clock } = await tipEngine($, on)
+
+  expect(await bandTexts($, 'desktop')).toContain('· Opus 5.5')
+  expect((await bandTexts($, 'terminal')).join(' ')).toContain('Opus 5.5')
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.model).toBe('Opus 5.5')
+
+  main = 'claude-sonnet-5-5'
+  await clock.advance(2000)
+  await clock.settle()
+  expect(await bandTexts($, 'desktop')).toContain('· Sonnet 5.5')
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.model).toBe('Sonnet 5.5')
+  const status = await $.command.run({ command: 'narsil', args: '', ...TYPED })
+  expect(JSON.stringify(status)).toContain('Modelo del hilo principal: Sonnet 5.5.')
+})
+
+test('each subagent shows the model it runs on', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
+  const { clock } = await tipEngine($, on)
+  await spawn($, 'Map the overlay', 'Explore')
+  expect(await chips($)).toEqual(['🐍🔍 Map the overlay · Haiku 5.5'])
+  await clock.advance(80_000)
+  await agentDone($, 'a1')
+  expect(await chips($)).toEqual(['✓ Map the overlay · Haiku 5.5 · terminado en 1 min 20 s'])
 })
 
 test('the subagent chips show each type with its own mark', () => {

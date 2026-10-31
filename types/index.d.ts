@@ -60,8 +60,9 @@ export type Usage = {
 // the whole minutes it has left, 0 once it has gone cold.
 export type Cache = { at: number; minutes: number; left: number }
 
-// A subagent: its task and type, when it started and last used a tool,
-// whether it runs in the background, and how it ended once it has.
+// A subagent: its task and type, the model it runs on, when it started and
+// last used a tool, whether it runs in the background, and how it ended once
+// it has.
 export type AgentRun = {
   id: string
   task: string
@@ -69,6 +70,7 @@ export type AgentRun = {
   startedAt: number
   lastActiveAt: number
   isBackground: boolean
+  model?: string
   endedAt?: number
   outcome?: 'done' | 'failed' | 'stopped'
 }
@@ -99,6 +101,6 @@ export type Stats = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null }
   }
 }

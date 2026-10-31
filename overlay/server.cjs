@@ -262,7 +262,7 @@ const server = http.createServer(async (req, res) => {
     if (!data || typeof data !== 'object') return send(400, 'text/plain', 'bad state')
     const id = SESSION.test(data.sessionId || '') ? data.sessionId : 'local_unknown'
     const before = sessions.get(id)
-    const isChanged = !before || before.mood !== data.mood || before.headline !== data.headline || before.tip !== data.tip || JSON.stringify(before.usage) !== JSON.stringify(data.usage) || JSON.stringify(before.agents) !== JSON.stringify(data.agents) || before.cache !== data.cache || before.xp !== data.xp || JSON.stringify(before.steps) !== JSON.stringify(data.steps)
+    const isChanged = !before || before.mood !== data.mood || before.headline !== data.headline || before.tip !== data.tip || JSON.stringify(before.usage) !== JSON.stringify(data.usage) || JSON.stringify(before.agents) !== JSON.stringify(data.agents) || before.cache !== data.cache || before.xp !== data.xp || before.model !== data.model || JSON.stringify(before.steps) !== JSON.stringify(data.steps)
     const now = Date.now()
     // The drawing comes only when it changes: the one before stays meanwhile.
     const svg = typeof data.svg === 'string' ? data.svg : before && before.svg

@@ -134,7 +134,7 @@
         shownSvg = focus.svg
       }
       $('focus').className = 'focus s-' + focus.status
-      $('status').textContent = LABEL[focus.status] + (summary.total > 1 ? ' · ' + focus.title : '')
+      $('status').textContent = LABEL[focus.status] + (focus.model ? ' · ' + focus.model : '') + (summary.total > 1 ? ' · ' + focus.title : '')
       $('headline').textContent = focus.headline
       $('headline').title = focus.headline
       $('line').textContent = focus.line
