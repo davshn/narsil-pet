@@ -174,7 +174,7 @@ claude plugin test .
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
 - `tests/`: los tests.
 
-Los dibujos de `hooks/art.ts` se generan a partir de `assets/raw` con `tools/build-art.ps1`. La cría está en `assets/raw/<pose>-<claro|oscuro>.png` y cada etapa siguiente tiene su propia carpeta, `assets/raw/etapa2` a `assets/raw/etapa5`, con los mismos nombres. Si a una etapa le falta una pose, se usa su pose `base`. Si le faltan todas en un tema, se usa la etapa anterior, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
+Los dibujos de `hooks/art.ts` y `hooks/art/` se generan a partir de `assets/raw` con `tools/build-art.ps1`. La cría está en `assets/raw/<pose>-<claro|oscuro>.png` y cada etapa siguiente tiene su propia carpeta, `assets/raw/etapa2` a `assets/raw/etapa5`, con los mismos nombres. Si a una etapa le falta una pose, se usa su pose `base`. Si le faltan todas en un tema, se usa la etapa anterior, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
 
 ## Licencia
 

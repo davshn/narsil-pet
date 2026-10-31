@@ -1262,16 +1262,19 @@ test('Narsil grows at levels 5, 10, 20 and 35, and says so', async ($, on) => {
 
 test('a stage draws its own art, its base pose where one is missing, and the stage before where a theme is', () => {
   const drawn = { src: 'data:image/png;base64,ETAPA3', width: 100, height: 150 }
-  ART[3] = { base: { claro: drawn } }
+  ART[3] = { claro: { base: drawn } }
   try {
     const grown = sprite('writing', 3)
-    // light: stage 3 has no working pose yet, so its base; dark: stage 1, as before
+    // light: stage 3 has no working pose yet, so its base; dark: stage 2's
     expect(grown).toContain('href="data:image/png;base64,ETAPA3"')
-    expect(grown).toContain(String(ART[1].trabajando.oscuro?.src))
-    expect(grown).not.toContain(String(ART[1].trabajando.claro?.src))
+    expect(grown).toContain(String(ART[2].oscuro?.trabajando.src))
+    expect(grown).not.toContain(String(ART[2].claro?.trabajando.src))
     // stage 4 has none of its own, so it shows stage 3
     expect(sprite('writing', 4)).toContain('ETAPA3')
-    expect(sprite('writing', 2)).toBe(sprite('writing'))
+    // the hatchling shows her own art in both themes
+    const hatchling = sprite('writing', 1)
+    expect(hatchling).toContain(String(ART[1].claro?.trabajando.src))
+    expect(hatchling).toContain(String(ART[1].oscuro?.trabajando.src))
   } finally {
     delete ART[3]
   }
