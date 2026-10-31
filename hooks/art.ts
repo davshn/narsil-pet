@@ -4,10 +4,11 @@ import { POSES as etapa1Claro } from './art/etapa1-claro'
 import { POSES as etapa1Oscuro } from './art/etapa1-oscuro'
 import { POSES as etapa2Claro } from './art/etapa2-claro'
 import { POSES as etapa2Oscuro } from './art/etapa2-oscuro'
+import { POSES as etapa3Claro } from './art/etapa3-claro'
 import { POSES as etapa3Oscuro } from './art/etapa3-oscuro'
 // By stage of her growth (1 the hatchling), then by theme and pose.
 export const ART: Record<number, { claro?: Record<string, Art>; oscuro?: Record<string, Art> }> = {
   1: { claro: etapa1Claro, oscuro: etapa1Oscuro },
   2: { claro: etapa2Claro, oscuro: etapa2Oscuro },
-  3: { oscuro: etapa3Oscuro },
+  3: { claro: etapa3Claro, oscuro: etapa3Oscuro },
 }
