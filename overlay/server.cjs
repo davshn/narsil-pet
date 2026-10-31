@@ -7,6 +7,7 @@
 // or, on Windows, the window is closed.
 'use strict'
 
+const crypto = require('crypto')
 const http = require('http')
 const fs = require('fs')
 const os = require('os')
@@ -34,7 +35,13 @@ const STATUSES = ['working', 'idle', 'waiting', 'done', 'error']
 // Which conversation the window shows first: whoever needs you most.
 const PRIORITY = { waiting: 0, error: 1, working: 2, done: 3, idle: 4 }
 const SESSION_TIMEOUT_MS = 30_000
-const PAGE = fs.readFileSync(path.join(__dirname, 'overlay.html'))
+// The page's own key, new each run: its actions carry it, and no other web
+// page can read it (a page of another site cannot read this one).
+const PAGE_KEY = crypto.randomBytes(16).toString('hex')
+const PAGE = fs.readFileSync(path.join(__dirname, 'overlay.html'), 'utf8').replace('__NARSIL_KEY__', PAGE_KEY)
+// Only this address: a site that points its own name at 127.0.0.1 (DNS
+// rebinding) reaches the server under that name, and is turned away.
+const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`])
 // The window's icon on the taskbar (tools/build-icon.ps1).
 const ICON = fs.readFileSync(path.join(__dirname, 'icon.png'))
 const POWERSHELL = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File']
@@ -208,7 +215,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' })
     res.end(body)
   }
+  if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
+  const isPage = isTrusted || req.headers['x-narsil-page'] === PAGE_KEY
 
   if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil')
   if (req.method === 'GET' && url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE)
@@ -228,8 +237,9 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method !== 'POST') return send(404, 'text/plain', 'not found')
 
-  // The page's own actions: open a conversation (the one it names, else the
+  // The page's own actions, with its key: open a conversation (the one it names, else the
   // event's, else the one it shows first), or dismiss the event.
+  if (['/open', '/dismiss', '/bounds'].includes(url.pathname) && !isPage) return send(403, 'text/plain', 'forbidden')
   if (url.pathname === '/open') {
     const first = liveSessions()[0]
     const link = conversationLink(url.searchParams.get('session') || (event && event.sessionId) || (first && first.sessionId))

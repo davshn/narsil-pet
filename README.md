@@ -177,7 +177,10 @@ Narsil es de código abierto y las contribuciones son bienvenidas: abre un *issu
 ```
 claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
+node tests/overlay-server.check.cjs
 ```
+
+La última comprueba quién puede usar el servidor de la ventana flotante: solo su propia página (con la clave que recibe al cargarse) y el mod (con su token), y solo en su dirección local, así que ninguna web que visites puede manejarlo.
 
 - `overlay/tip.ps1`, `overlay/tip.sh` y `overlay/tip.js`: la ventanita de los consejos en Windows y en macOS.
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
