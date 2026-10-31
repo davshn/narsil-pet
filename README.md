@@ -82,7 +82,7 @@ Si un permiso, una pregunta o un plan llevan 2 minutos esperando tu respuesta, N
 ### Experiencia
 Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada vez que los tests pasan y 3 por cada subagente que termina bien. Del nivel 1 al 2 hacen falta 100 XP, del 2 al 3 otros 200, y así sucesivamente. El nivel ("⭐ Nivel 3 · 120/300 XP") aparece en la banda y en la ventana flotante, y Narsil celebra cada nivel nuevo. La experiencia se guarda entre sesiones y la suman todas las conversaciones abiertas.
 
-Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y las etapas 2 (desde el nivel 5), 3 (desde el 10), 4 (desde el 20) y 5 (desde el 35). Cuando cambia de etapa, lo anuncia y se dibuja más grande. `/narsil nivel` muestra el nivel y la etapa en la que está.
+Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y las etapas 2 (desde el nivel 5), 3 (desde el 10), 4 (desde el 20) y 5 (desde el 35). Cada nivel nuevo lo celebra con un brillo dorado, aros, estrellas y el número del nivel; cada etapa nueva, con un destello y rayos de luz mientras crece hasta su nuevo tamaño. `/narsil nivel` muestra el nivel y la etapa en la que está.
 
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno.

@@ -1297,6 +1297,63 @@ test('Narsil grows at levels 5, 10, 20 and 35, and says so', async ($, on) => {
   expect(asked.text).toContain('crezco en los niveles 5, 10, 20, 35.')
 })
 
+async function bandArt($: Engine): Promise<string> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const art = (await ui.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Narsil:'))
+  await ui.unmount()
+  return String(art?.props.source ?? '')
+}
+
+test('a new level plays its own celebration for a while, in the band and the window', async ($, on) => {
+  model(on, 'SKIP')
+  const store: Record<string, unknown> = { xp: 95 }
+  const { posts, clock } = await tipEngine($, on, { store })
+  expect(await bandArt($)).not.toContain('class="burst"')
+
+  await finishTurn($)
+
+  const art = await bandArt($)
+  expect(art).toContain('class="burst"')
+  expect(art).toContain('>NIVEL 2<')
+  expect(art).not.toContain('class="rays"')
+  expect(String(posts.filter(p => p.url.endsWith('/state')).pop()?.body.svg)).toContain('>NIVEL 2<')
+  await clock.advance(8000)
+  await clock.settle()
+  expect(await bandArt($)).not.toContain('class="burst"')
+})
+
+test('a new stage plays its growth: a flash, light rays and the new stage', async ($, on) => {
+  model(on, 'SKIP')
+  // 1000 XP is level 5, stage 2.
+  const store: Record<string, unknown> = { xp: 995 }
+  const { clock } = await tipEngine($, on, { store })
+
+  await finishTurn($)
+
+  const art = await bandArt($)
+  expect(art).toContain('class="rays"')
+  expect(art).toContain('class="evolve"')
+  expect(art).toContain('>¡ETAPA 2!<')
+  await clock.advance(11_000)
+  await clock.settle()
+  expect(await bandArt($)).not.toContain('class="rays"')
+})
+
+test('the celebrations stay within the Svg size limit at every stage', () => {
+  for (let stage = 1; stage <= 5; stage++) {
+    for (const mood of ['celebrating', 'idle', 'writing'] as const) {
+      const leveled = sprite(mood, stage, { kind: 'level', level: 12, stage })
+      const grown = sprite(mood, stage, { kind: 'grew', level: 20, stage })
+      expect(leveled).toContain('>NIVEL 12<')
+      expect(grown).toContain(`>¡ETAPA ${stage}!<`)
+      for (const svg of [leveled, grown]) {
+        expect(svg.length).toBeLessThan(131072)
+        expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+      }
+    }
+  }
+})
+
 test('a stage draws its own art, its base pose where one is missing, and the stage before where a theme is', () => {
   // A stage far past the drawn ones, so the real art is left as it is.
   const drawn = { src: 'data:image/png;base64,ETAPA9', width: 100, height: 150 }

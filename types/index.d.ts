@@ -71,6 +71,10 @@ export type AgentRun = {
 // How a subagent shows: its chip's text and color.
 export type AgentChip = { text: string; color: string }
 
+// A moment of her growth celebrated on top of whatever she is doing: a new
+// level, or a new stage (which is a new level too).
+export type Milestone = { kind: 'level' | 'grew'; level: number; stage: number }
+
 // The next steps offered for the turn that ended at `at`.
 export type Steps = { at: number; items: readonly string[] }
 
@@ -90,6 +94,6 @@ export type Stats = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null }
   }
 }

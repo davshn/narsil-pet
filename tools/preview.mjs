@@ -1,5 +1,6 @@
 // A page to look over Narsil's art as the band animates it: every mood, in
-// the light and the dark theme, for the stages of her growth asked for.
+// the light and the dark theme, for the stages of her growth asked for, and
+// the celebrations of a new level and a new stage.
 //   node tools/preview.mjs          then open http://localhost:47391/
 //   http://localhost:47391/?etapas=1,2   (default: stage 1)
 // The art is read at start: run tools/build-art.ps1, then restart this.
@@ -42,7 +43,13 @@ function page(stages) {
         `<section style="background:${CARD[theme]};color:${theme === 'oscuro' ? '#E8E8F0' : '#222'}">` +
         `<h2>Etapa ${stage} · ${theme}</h2><div class="row">` +
         // Each as an image of its own: inline, their styles and ids would mix.
-        MOODS.map(mood => `<figure><img width="225" height="201" alt="${mood}" src="data:image/svg+xml;base64,${Buffer.from(fixed(sprite(mood, stage), theme)).toString('base64')}"><figcaption>${mood}</figcaption></figure>`).join('') +
+        [
+          ...MOODS.map(mood => [mood, sprite(mood, stage)]),
+          ['subir de nivel', sprite('celebrating', stage, { kind: 'level', level: 12, stage })],
+          ['crecer', sprite('celebrating', stage, { kind: 'grew', level: 20, stage })],
+        ]
+          .map(([name, svg]) => `<figure><img width="225" height="201" alt="${name}" src="data:image/svg+xml;base64,${Buffer.from(fixed(svg, theme)).toString('base64')}"><figcaption>${name}</figcaption></figure>`)
+          .join('') +
         `</div></section>`,
     ),
   )

@@ -49,6 +49,10 @@ const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
 const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 // Narsil's experience, kept across sessions in the store (xp.ts).
 const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
+// A new level or stage being celebrated, and when it began.
+const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
+// How long each celebration shows.
+const MILESTONE_MS = { level: 6000, grew: 9000 } as const
 
 const PREFS_KEY = 'prefs'
 const TOKEN_KEY = 'overlayToken'
@@ -323,7 +327,7 @@ async function pushOverlay($: EngineInterface): Promise<void> {
     statusLabel: STATUS_LABEL[status],
     headline: headline(s.mood, s.detail),
     line: s.line,
-    svg: sprite(s.mood, stageOf(levelOf(await read($, xp)).level)),
+    svg: sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined),
     tip: (await read($, tip))?.text ?? null,
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
@@ -349,6 +353,8 @@ async function beat($: EngineInterface): Promise<void> {
   const age = kept ? (await $.clock.now()) - kept.at : 0
   if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
+  const shown = await read($, milestone)
+  if (shown && (await $.clock.now()) - shown.at >= MILESTONE_MS[shown.kind]) await update($, milestone, () => null)
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
@@ -877,6 +883,8 @@ async function gainXp($: EngineInterface, reason: XpReason): Promise<void> {
     // A new stage of her growth is told apart: she looks different from now on.
     const stage = stageOf(level)
     const grew = stage > stageOf(was)
+    const at = await $.clock.now()
+    await update($, milestone, () => ({ kind: grew ? ('grew' as const) : ('level' as const), level, stage, at }))
     $.ui.log(grew ? `🌊 Narsil ha crecido: nivel ${level}, etapa ${stage} de ${STAGES}.` : `⭐ Narsil ha subido al nivel ${level}.`)
     await setMood($, current, (await read($, pet)).detail, grew ? `¡He crecido! Nivel ${level}, etapa ${stage} de ${STAGES} 🌊` : `¡He subido al nivel ${level}! ⭐`)
   }
@@ -1215,6 +1223,7 @@ export const register: Register = on => {
     const clockShown = await read($, cache)
     const offered = (await read($, steps))?.items ?? []
     const xpNow = await read($, xp)
+    const celebrated = (await read($, milestone)) ?? undefined
     const level = xpLabel(xpNow)
     const dismiss = async () => {
       await update($, tip, () => null)
@@ -1278,7 +1287,7 @@ export const register: Register = on => {
       <Box flexDirection="row" alignItems="center" gap={2}>
         {/* Not isInteractive: the desktop's interactive frame shows no embedded
             images, the art's PNGs among them; drawn as an image, it does. */}
-        <Svg source={sprite(state.mood, stageOf(levelOf(xpNow).level))} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
+        <Svg source={sprite(state.mood, stageOf(levelOf(xpNow).level), celebrated)} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
         {/* minWidth 0: long text wraps or is cut inside the band, never widens it. */}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Box flexDirection="row" gap={1}>

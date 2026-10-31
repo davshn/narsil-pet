@@ -1,4 +1,4 @@
-import type { Mood, Status } from '../types'
+import type { Milestone, Mood, Status } from '../types'
 import { ART } from './art'
 import type { Art } from './art'
 
@@ -9,7 +9,8 @@ import type { Art } from './art'
 // warped copy shows through as a double):
 //   - the whole picture swims, bobs, leaps or shakes (CSS transforms);
 //   - effects around her: the state's glow, a pulsing aura, ring or halo,
-//     bubbles, water rings and a wave, confetti when done, props.
+//     bubbles, water rings and a wave, confetti when done, props;
+//   - a celebration of her growth over all that: a new level, a new stage.
 
 export function statusOf(mood: Mood): Status {
   switch (mood) {
@@ -190,6 +191,12 @@ const STYLE = `
 .code{stroke-dasharray:30;animation:draw 1.6s linear infinite}
 .cur{animation:cur 1s steps(1) infinite}
 .flash{animation:flash .9s ease-out 1;opacity:0}
+.lvl{animation:lvl .9s ease-in-out infinite alternate}
+.burst{transform-box:fill-box;transform-origin:center;animation:burst 1.4s ease-out 4;opacity:0}
+.star{animation:star 2s ease-out infinite;opacity:0}
+.banner{transform-box:fill-box;transform-origin:center;animation:banner .7s cubic-bezier(.3,1.8,.5,1) 1}
+.rays{transform-box:fill-box;transform-origin:center;animation:spin 7s linear infinite,rays 9s ease-in-out 1 forwards}
+.evolve{transform-box:fill-box;transform-origin:50% 100%;animation:evolve 1.8s cubic-bezier(.3,1.4,.5,1) 1}
 @keyframes enter{0%{transform:scale(.7) translateY(10px);opacity:.2}100%{transform:scale(1);opacity:1}}
 @keyframes swim{0%,100%{transform:translate(0,0) rotate(-3deg)}25%{transform:translate(2px,-5px) rotate(0)}50%{transform:translate(0,-7px) rotate(3deg)}75%{transform:translate(-2px,-3px) rotate(0)}}
 @keyframes ponder{0%,100%{transform:translateY(0) rotate(0)}30%{transform:translateY(-4px) rotate(-4deg)}70%{transform:translateY(-2px) rotate(3deg)}}
@@ -214,6 +221,12 @@ const STYLE = `
 @keyframes draw{from{stroke-dashoffset:30}to{stroke-dashoffset:0}}
 @keyframes cur{50%{opacity:0}}
 @keyframes flash{0%{opacity:.6}100%{opacity:0}}
+@keyframes lvl{from{filter:drop-shadow(0 0 2px rgba(255,200,60,.7))}to{filter:drop-shadow(0 0 7px rgba(255,200,60,1))}}
+@keyframes burst{0%{transform:scale(.3);opacity:.95}100%{transform:scale(1.9);opacity:0}}
+@keyframes star{0%{transform:translate(0,0) scale(.4);opacity:0}15%{opacity:1}100%{transform:translate(0,-70px) scale(1.1);opacity:0}}
+@keyframes banner{0%{transform:scale(0) translateY(10px)}100%{transform:scale(1)}}
+@keyframes rays{0%{opacity:0}10%{opacity:.9}80%{opacity:.7}100%{opacity:0}}
+@keyframes evolve{0%{transform:scale(.5);filter:brightness(3) saturate(0)}45%{transform:scale(1.12);filter:brightness(2)}75%{transform:scale(.97);filter:brightness(1.2)}100%{transform:scale(1);filter:none}}
 `
 
 const r1 = (n: number) => Math.round(n * 10) / 10
@@ -250,7 +263,7 @@ function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
   return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>`
 }
 
-function picture(mood: Mood, status: Status, theme: Theme, stage: number): string {
+function picture(mood: Mood, status: Status, theme: Theme, stage: number, milestone?: Milestone): string {
   const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
@@ -258,10 +271,10 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number): strin
   return (
     `<g class="th-${theme}">` +
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
-    badge(mood, status, at.headX, at.headY, theme) +
-    `<g class="enter"><g class="whole${glow}">` +
+    (milestone ? '' : badge(mood, status, at.headX, at.headY, theme)) +
+    `<g class="enter">${grows(milestone)}<g class="whole${glow}">` +
     `<use href="#art-${id}"/>` +
-    `</g></g>` +
+    `</g>${milestone ? '</g>' : ''}</g>` +
     `</g>`
   )
 }
@@ -421,8 +434,54 @@ function props(mood: Mood, status: Status): string {
   }
 }
 
+// Around a celebrated moment, in place of the state's props: for a new level
+// a golden glow, rings bursting out, stars rising and its number; for a new
+// stage a flash and turning light rays as she grows into her new self.
+function grows(milestone?: Milestone): string {
+  if (!milestone) return ''
+  return milestone.kind === 'grew' ? '<g class="evolve">' : '<g class="lvl">'
+}
+
+const CENTER_Y = 60
+
+function banner(text: string): string {
+  return (
+    `<g class="banner"><rect x="64" y="-12" width="76" height="18" rx="9" fill="#F5C542" stroke="#B8860B" stroke-width="1.2"/>` +
+    `<text x="102" y="1.5" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="11" fill="#5A3D00">${text}</text></g>`
+  )
+}
+
+// Behind her: light rays, only when she grows.
+function raysBehind(milestone?: Milestone): string {
+  if (milestone?.kind !== 'grew') return ''
+  const rays = Array.from({ length: 12 }, (_, i) => {
+    const a = (i * 30 * Math.PI) / 180
+    const w = (6 * Math.PI) / 180
+    const at = (t: number) => `${r1(BOX.centerX + 90 * Math.cos(t))} ${r1(CENTER_Y + 90 * Math.sin(t))}`
+    return `<path d="M${BOX.centerX} ${CENTER_Y} L${at(a - w)} L${at(a + w)} Z"/>`
+  }).join('')
+  return `<g class="rays" fill="#FFE9A8" opacity="0">${rays}</g>`
+}
+
+function celebration(milestone: Milestone): string {
+  if (milestone.kind === 'grew') {
+    const sparks = ([[14, 20, 0], [130, 36, 0.3], [24, 84, 0.6], [124, 92, 0.9], [76, 6, 1.2]] as Array<[number, number, number]>)
+      .map(([x, y, d]) => `<path class="spark" style="animation-delay:${d}s" d="M${x} ${y - 6} l1.7 4.3 l4.3 1.7 l-4.3 1.7 l-1.7 4.3 l-1.7 -4.3 l-4.3 -1.7 l4.3 -1.7 z" fill="#FFF4C2"/>`)
+      .join('')
+    return `<circle class="flash" cx="${BOX.centerX}" cy="${CENTER_Y}" r="80" fill="#FFFFFF"/>` + sparks + banner(`¡ETAPA ${milestone.stage}!`)
+  }
+  const rings = [0, 0.35]
+    .map(d => `<circle class="burst" style="animation-delay:${d}s" cx="${BOX.centerX}" cy="${CENTER_Y}" r="34" fill="none" stroke="#F5C542" stroke-width="3"/>`)
+    .join('')
+  const stars = ([[12, 0], [30, 0.5], [50, 1], [68, 0.25], [86, 0.75], [22, 1.3], [60, 1.6]] as Array<[number, number]>)
+    .map(([x, d]) => `<path class="star" style="animation-delay:${d}s" d="M${x} 104 l1.5 3.8 l3.8 1.5 l-3.8 1.5 l-1.5 3.8 l-1.5 -3.8 l-3.8 -1.5 l3.8 -1.5 z" fill="var(--gold)"/>`)
+    .join('')
+  return rings + stars + banner(`NIVEL ${milestone.level}`)
+}
+
 // Stage: how grown she is, 1 (the hatchling) to 5 (see stageOf in xp.ts).
-export function sprite(mood: Mood, stage = 1): string {
+// Milestone: a new level or stage to celebrate over her state, if any.
+export function sprite(mood: Mood, stage = 1, milestone?: Milestone): string {
   const status = statusOf(mood)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -14 150 134" width="150" height="134">` +
@@ -430,9 +489,10 @@ export function sprite(mood: Mood, stage = 1): string {
     `<style>${STYLE}</style>` +
     `<g class="s-${status} m-${mood}">` +
     water() +
-    THEMES.map(theme => picture(mood, status, theme, stage)).join('') +
+    raysBehind(milestone) +
+    THEMES.map(theme => picture(mood, status, theme, stage, milestone)).join('') +
     bubbles() +
-    props(mood, status) +
+    (milestone ? celebration(milestone) : props(mood, status)) +
     `</g>` +
     `</svg>`
   )
