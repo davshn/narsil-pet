@@ -103,8 +103,20 @@ public static class Cutout {
     // A painted checkerboard can sit inside the character (a hole in the
     // coil): a closed patch that alternates two kinds of square in good
     // measure is one; the character's own whites carry a tint, or are one kind.
+    // Only looked for where the picture's edge shows one: on a plain white
+    // background, a pale body's greys and whites would read as one too. The
+    // edge is read a few pixels in, past any frame line drawn along it.
+    int border = 0, greyBorder = 0;
+    for (int i = 0; i < px.Length; i++) {
+      int x = i % w, y = i / w;
+      if (x < 3 || y < 3 || x >= w - 3 || y >= h - 3) continue;
+      if (x != 3 && y != 3 && x != w - 4 && y != h - 4) continue;
+      border++;
+      if (CheckerKind(px[i]) == 2) greyBorder++;
+    }
+    bool hasChecker = greyBorder * 10 >= border;
     var seen = new bool[w * h];
-    for (int start = 0; start < px.Length; start++) {
+    for (int start = 0; hasChecker && start < px.Length; start++) {
       if (gone[start] || seen[start] || CheckerKind(px[start]) == 0) continue;
       var patch = new List<int>();
       var kinds = new int[4];
