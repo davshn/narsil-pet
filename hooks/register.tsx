@@ -9,7 +9,7 @@ import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
-import { IDLE_SUMMARY_MS, NUDGE_AFTER_MS, addFile, emptyStats, loopWarning, nudgeText, summaryText } from './watch'
+import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, loopWarning, nudgeText, statsOf, summaryText } from './watch'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 
 // Narsil: a chibi sea serpent, named after the sword reforged to cut down
@@ -842,9 +842,44 @@ let waiting: { since: number; what: string; isNudged: boolean } | null = null
 // The finished turn (its cache clock's start) already summed up.
 let summarizedFor: number | null = null
 
+// The store key of this conversation's counts ('' when its id is unknown),
+// and whether the counts of old conversations were already cleared away.
+let statsKey = ''
+let isStatsPruned = false
+
 async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
   const now = await $.clock.now()
   await update($, stats, s => change(s ?? emptyStats(now)))
+  await saveStats($)
+}
+
+// Takes up this conversation's counts where they were left, when Claude Code
+// was closed with it open; a reload of the mod keeps them in $.state anyway.
+async function loadStats($: EngineInterface): Promise<void> {
+  let id = ''
+  try {
+    id = await $.session.id()
+  } catch {
+    // no id: the counts start over with each session
+  }
+  statsKey = id ? `${STATS_PREFIX}${id}` : ''
+  if (!statsKey || (await read($, stats))) return
+  const kept = statsOf(await $.store.get(statsKey).catch(() => undefined))
+  if (kept) await update($, stats, s => s ?? kept)
+}
+
+async function saveStats($: EngineInterface): Promise<void> {
+  if (!statsKey) return
+  await $.store.set(statsKey, await read($, stats)).catch(() => undefined)
+  if (isStatsPruned) return
+  isStatsPruned = true
+  try {
+    // Oldest first: the store lists its keys in the order they were set.
+    const others = (await $.store.keys()).filter(key => key.startsWith(STATS_PREFIX) && key !== statsKey)
+    for (const key of others.slice(0, Math.max(0, others.length - (KEEP_STATS - 1)))) await $.store.delete(key)
+  } catch {
+    // a store that cannot list or delete keeps them all
+  }
 }
 
 function warnLoop($: EngineInterface, key: string, text: string | null): void {
@@ -941,7 +976,9 @@ export const register: Register = on => {
     const spent = await $.session.usage().catch(() => undefined)
     if (spent) await setUsage($, usageOf(spent))
     sessionTitle = basename(await $.session.cwd().catch(() => e.cwd))
-    // The stats survive a reload of the mod: only a new session starts them.
+    // The stats survive a reload of the mod, and Claude Code restarting with
+    // this conversation: only a new conversation starts them.
+    await loadStats($)
     if (!(await read($, stats))) await bumpStats($, s => s)
     const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
     await update($, xp, () => earned)

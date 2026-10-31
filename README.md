@@ -87,7 +87,7 @@ Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada v
 Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y las etapas 2 (desde el nivel 5), 3 (desde el 10), 4 (desde el 20) y 5 (desde el 35). Cada nivel nuevo lo celebra con un brillo dorado, aros, estrellas y el número del nivel; cada etapa nueva, con un destello y rayos de luz mientras crece hasta su nuevo tamaño. `/narsil nivel` muestra el nivel y la etapa en la que está.
 
 ### Resumen de la sesión
-`/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno.
+`/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).
 
 ## Animaciones
 

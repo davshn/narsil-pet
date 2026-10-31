@@ -58,3 +58,30 @@ export function summaryText(stats: Stats, now: number, contextPercent: number | 
   if (contextPercent !== null) parts.push(`contexto ${Math.round(contextPercent)} %`)
   return `📋 Sesión de ${length}: ${parts.join(' · ')}.`
 }
+
+// Each conversation's counts are kept in the store under this prefix and its
+// id, so a conversation taken up again after Claude Code restarts keeps
+// counting; only the last KEEP_STATS conversations are kept.
+export const STATS_PREFIX = 'stats:'
+export const KEEP_STATS = 20
+
+const COUNTS = ['startedAt', 'turns', 'workedMs', 'moreFiles', 'commands', 'failures', 'agents'] as const
+
+// A stored value from any version, or none: the counts, or null.
+export function statsOf(stored: unknown): Stats | null {
+  if (!stored || typeof stored !== 'object') return null
+  const s = stored as Record<string, unknown>
+  if (!COUNTS.every(key => typeof s[key] === 'number' && Number.isFinite(s[key]))) return null
+  if (!Array.isArray(s.files) || !s.files.every(file => typeof file === 'string')) return null
+  const n = (key: (typeof COUNTS)[number]) => s[key] as number
+  return {
+    startedAt: n('startedAt'),
+    turns: n('turns'),
+    workedMs: n('workedMs'),
+    files: (s.files as string[]).slice(0, MAX_FILES),
+    moreFiles: n('moreFiles'),
+    commands: n('commands'),
+    failures: n('failures'),
+    agents: n('agents'),
+  }
+}

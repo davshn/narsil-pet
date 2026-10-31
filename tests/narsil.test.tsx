@@ -52,6 +52,11 @@ function engine(
     store[e.key] = e.value
     return { value: undefined }
   })
+  on('store.keys', () => ({ value: Object.keys(store) }))
+  on('store.delete', (_, e) => {
+    delete store[e.key]
+    return { value: undefined }
+  })
   on('env.get', (_, e) => ({
     value: e.name === 'CLAUDE_CODE_HOST_SESSION_ID' ? 'local_abc-123' : e.name === 'OS' && os === 'windows' ? 'Windows_NT' : undefined,
   }))
@@ -1339,6 +1344,39 @@ test('/narsil resumen sums the session up, and so does a 30-minute pause after a
   await clock.advance(MINUTE + 2000)
   await clock.settle()
   expect(windowTip(posts)).toBe('📋 Sesión de 30 min: 2 turnos (1 min 24 s de trabajo) · 2 archivos editados (a.ts, b.ts) · 1 comando, 0 fallos.')
+})
+
+test('a conversation taken up again keeps counting its session, kept across restarts', async ($, on) => {
+  model(on, 'SKIP')
+  on('session.id', () => ({ value: 'conv-1' }))
+  // what the conversation had done before Claude Code was closed
+  const earlier = { ...emptyStats(1_000_000 - 10 * MINUTE), turns: 3, workedMs: 120_000, files: ['x.ts'], commands: 2 }
+  const store: Record<string, unknown> = { 'stats:conv-1': earlier }
+  await tipEngine($, on, { store })
+
+  await finishTurn($)
+
+  const asked = await $.command.run({ command: 'narsil', args: 'resumen', ...TYPED })
+  expect(asked.text).toBe('Narsil: 📋 Sesión de 10 min: 4 turnos (2 min 42 s de trabajo) · 2 archivos editados (x.ts, register.tsx) · 2 comandos, 0 fallos.')
+  expect((store['stats:conv-1'] as { turns: number }).turns).toBe(4)
+})
+
+test('only the last 20 conversations keep their counts, and an odd stored value is ignored', async ($, on) => {
+  model(on, 'SKIP')
+  on('session.id', () => ({ value: 'conv-new' }))
+  const store: Record<string, unknown> = { xp: 10, 'stats:conv-new': 'not a count' }
+  for (let i = 0; i < 25; i++) store[`stats:old-${i}`] = { ...emptyStats(0), turns: 1 }
+  await tipEngine($, on, { store })
+
+  await finishTurn($)
+
+  const kept = Object.keys(store).filter(key => key.startsWith('stats:'))
+  expect(kept.length).toBe(20)
+  expect(kept).toContain('stats:conv-new')
+  expect(kept).toContain('stats:old-24')
+  expect(kept).not.toContain('stats:old-0')
+  expect(store.xp).toBe(20)
+  expect((store['stats:conv-new'] as { turns: number }).turns).toBe(1)
 })
 
 test('the summary names three files at most, and counts subagents and context', () => {
