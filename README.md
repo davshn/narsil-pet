@@ -184,6 +184,7 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 
 - `overlay/tip.ps1`, `overlay/tip.sh` y `overlay/tip.js`: la ventanita de los consejos en Windows y en macOS.
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
+- `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
 - `tests/`: los tests.
