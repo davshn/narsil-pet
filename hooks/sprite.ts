@@ -91,19 +91,19 @@ const LAYOUT: Record<string, Layout> = {
   'error-oscuro': { headX: 0.38, headY: 0.22, neckY: 0.31 },
   // stage 2
   'etapa2/base-claro': { headX: 0.43, headY: 0.31, neckY: 0.46 },
-  'etapa2/base-oscuro': { headX: 0.55, headY: 0.17, neckY: 0.34 },
+  'etapa2/base-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
   'etapa2/trabajando-claro': { headX: 0.42, headY: 0.29, neckY: 0.43 },
-  'etapa2/trabajando-oscuro': { headX: 0.64, headY: 0.19, neckY: 0.33 },
+  'etapa2/trabajando-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
   'etapa2/parada-claro': { headX: 0.42, headY: 0.3, neckY: 0.44 },
-  'etapa2/parada-oscuro': { headX: 0.7, headY: 0.26, neckY: 0.36 },
+  'etapa2/parada-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
   'etapa2/necesita-claro': { headX: 0.41, headY: 0.28, neckY: 0.42 },
-  'etapa2/necesita-oscuro': { headX: 0.5, headY: 0.17, neckY: 0.31 },
+  'etapa2/necesita-oscuro': { headX: 0.35, headY: 0.21, neckY: 0.31 },
   'etapa2/terminado-claro': { headX: 0.41, headY: 0.27, neckY: 0.41 },
-  'etapa2/terminado-oscuro': { headX: 0.5, headY: 0.17, neckY: 0.3 },
+  'etapa2/terminado-oscuro': { headX: 0.38, headY: 0.18, neckY: 0.27 },
   'etapa2/error-claro': { headX: 0.42, headY: 0.27, neckY: 0.41 },
-  'etapa2/error-oscuro': { headX: 0.5, headY: 0.18, neckY: 0.31 },
+  'etapa2/error-oscuro': { headX: 0.4, headY: 0.18, neckY: 0.27 },
   'etapa2/hola-claro': { headX: 0.41, headY: 0.26, neckY: 0.4 },
-  'etapa2/hola-oscuro': { headX: 0.5, headY: 0.16, neckY: 0.3 },
+  'etapa2/hola-oscuro': { headX: 0.35, headY: 0.2, neckY: 0.3 },
 }
 const DEFAULT_LAYOUT: Layout = { headX: 0.5, headY: 0.2, neckY: 0.36 }
 
