@@ -1678,3 +1678,119 @@ test('levels need 100, 200, 300 XP more each, and odd stored values count as non
   expect(xpOf(Number.NaN)).toBe(0)
   expect(xpOf(12.7)).toBe(12)
 })
+
+// What reached ntfy.sh: the phone's notifications.
+const toPhone = (posts: Posted[]) => posts.filter(p => p.url === 'https://ntfy.sh').map(p => p.body)
+
+// The engine, with turns and tools answered.
+function phoneEngine(on: On, store: Record<string, unknown> = {}): Posted[] {
+  const posts = engine(on, null, { store })
+  on('tool.call', () => ({ result: {} }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  return posts
+}
+
+test('the phone gets nothing until /narsil movil is turned on', async ($, on) => {
+  const posts = phoneEngine(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await finishTurn($)
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(toPhone(posts)).toEqual([])
+})
+
+test('/narsil movil makes a private topic, says how to follow it, and sends what needs you there', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const reply = await $.command.run({ command: 'narsil', args: 'movil', ...TYPED })
+  const topic = (store.prefs as { phoneTopic: string }).phoneTopic
+  expect(topic).toMatch(/^narsil-[0-9a-f]{20}$/)
+  expect(reply.text).toContain(topic)
+  expect(reply.text).toContain('ntfy')
+
+  await finishTurn($)
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  const sent = toPhone(posts)
+  expect(sent.map(m => m.title)).toEqual(['Narsil · He terminado · landing', 'Narsil · Te necesito · landing'])
+  expect(sent.every(m => m.topic === topic)).toBe(true)
+  expect(sent.map(m => m.priority)).toEqual([3, 4])
+  expect(sent[0]?.message).toBe('He terminado (42 s): Listo: he cambiado el registro.')
+  expect(store.phone).toEqual({ day: '1970-01-01', sent: 2 })
+
+  // the same topic again, and off stops the phone without forgetting it
+  await $.command.run({ command: 'narsil', args: 'móvil', ...TYPED })
+  expect((store.prefs as { phoneTopic: string }).phoneTopic).toBe(topic)
+  const off = await $.command.run({ command: 'narsil', args: 'movil off', ...TYPED })
+  expect(off.text).toContain('desactivad')
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(2)
+  await $.command.run({ command: 'narsil', args: 'movil on', ...TYPED })
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(3)
+})
+
+test('/narsil movil nuevo changes the topic, and /narsil movil prueba sends one', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const fresh = await $.command.run({ command: 'narsil', args: 'movil nuevo', ...TYPED })
+  const topic = (store.prefs as { phoneTopic: string }).phoneTopic
+  expect(topic).not.toBe('narsil-0123456789abcdef0123')
+  expect(fresh.text).toContain(topic)
+
+  const tried = await $.command.run({ command: 'narsil', args: 'movil prueba', ...TYPED })
+  expect(tried.text).toContain('enviado')
+  expect(toPhone(posts)).toEqual([expect.objectContaining({ topic, title: 'Narsil · Así te aviso en el móvil · landing' })])
+})
+
+test('the phone gets at most 200 a day, says which is the last, and starts again the next day', async ($, on) => {
+  const store: Record<string, unknown> = {
+    prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true },
+    phone: { day: '1970-01-01', sent: 199 },
+  }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  await finishTurn($)
+  const sent = toPhone(posts)
+  expect(sent.length).toBe(1)
+  expect(String(sent[0]?.message)).toContain('último aviso de hoy')
+  expect(store.phone).toEqual({ day: '1970-01-01', sent: 200 })
+  const status = await $.command.run({ command: 'narsil', args: 'movil', ...TYPED })
+  expect(status.text).toContain('200 de 200')
+
+  // a count of another day, or an odd one, starts from zero
+  store.phone = { day: '1969-12-31', sent: 200 }
+  await finishTurn($)
+  store.phone = 'odd'
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(3)
+})
+
+test('in quiet mode the phone gets only what needs you', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true, isQuiet: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await finishTurn($)
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(toPhone(posts).map(m => m.title)).toEqual(['Narsil · Te necesito · landing'])
+})
+
+test('each phone alert shows Narsil at her stage, in the pose that fits it', async ($, on) => {
+  const art = 'https://raw.githubusercontent.com/davshn/narsil-pet/main/assets'
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await finishTurn($)
+  expect(toPhone(posts).at(-1)?.icon).toBe(`${art}/terminado-oscuro.png`)
+
+  // level 10: the third stage
+  store.xp = 5000
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(toPhone(posts).at(-1)?.icon).toBe(`${art}/etapa3/necesita-oscuro.png`)
+})

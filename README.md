@@ -92,6 +92,9 @@ Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y
 ### Modo discreto
 Si Narsil te resulta demasiado, `/narsil discreto` la calla: sin voz, sin avisos al terminar un turno y sin consejos ni próximos pasos automáticos. Sigue avisándote, sin hablar, cuando te necesita o hay un error, y la banda sigue mostrando lo que hace. `/narsil normal` lo devuelve todo como lo tenías.
 
+### Avisos en el móvil y el reloj
+`/narsil movil` envía a tu móvil lo que te necesita: cuando Narsil termina, cuando te necesita o cuando algo falla. Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
+
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).
 
@@ -155,6 +158,7 @@ La ventana flotante necesita, además:
 | `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
 | `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
 | `/narsil nivel` | Muestra el nivel y la experiencia de Narsil, y cómo se gana. |
+| `/narsil movil` · `on` · `off` · `nuevo` · `prueba` | Activa los avisos al móvil y dice cómo seguirlos; los apaga, crea un tema nuevo o envía uno de prueba. |
 | `/narsil resumen` | Resume la sesión: turnos, archivos editados, comandos, fallos, subagentes y contexto. |
 
 ## Sistemas compatibles
@@ -185,6 +189,7 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 - `overlay/tip.ps1`, `overlay/tip.sh` y `overlay/tip.js`: la ventanita de los consejos en Windows y en macOS.
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
 - `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
+- `hooks/phone.ts`: los avisos al móvil (el mensaje para ntfy.sh con su icono, el tema y la cuenta diaria).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
 - `tests/`: los tests.

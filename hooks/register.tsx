@@ -5,6 +5,7 @@ import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, countOf, dayOf, newTopic, phoneHelp, phoneMessage } from './phone'
 import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -32,6 +33,8 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isNextStepsOn: true,
   cacheMinutes: null,
   isQuiet: false,
+  phoneTopic: null,
+  isPhoneOn: false,
 })
 // Every open conversation, by state: counted by the floating window.
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
@@ -336,7 +339,64 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   } else {
     await notify($, `Narsil · ${title}`, text)
   }
+  await sendToPhone($, kind, title, text)
   await spoken
+}
+
+// The same alert on your phone, through ntfy.sh, when /narsil movil is on:
+// at most PHONE_DAILY a day across every conversation, the free plan's room.
+// Returns whether it went.
+async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string): Promise<boolean> {
+  const { phoneTopic, isPhoneOn } = await read($, prefs)
+  if (!isPhoneOn || !phoneTopic) return false
+  const day = dayOf(await $.clock.now())
+  const count = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), day)
+  if (count.sent >= PHONE_DAILY) return false
+  const isLast = count.sent + 1 === PHONE_DAILY
+  try {
+    const { ok } = await $.http.fetch(NTFY_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(phoneMessage(phoneTopic, kind, title, text, sessionTitle, stageOf(levelOf(await read($, xp)).level), isLast)),
+    })
+    if (!ok) return false
+  } catch {
+    return false
+  }
+  await $.store.set(PHONE_KEY, { day, sent: count.sent + 1 }).catch(() => undefined)
+  return true
+}
+
+// /narsil movil [on|off|nuevo|prueba]: undefined for any other command.
+async function phoneCommand($: EngineInterface, arg: string): Promise<string | undefined> {
+  const [word, rest = ''] = arg.split(' ')
+  if (word !== 'movil' && word !== 'móvil') return undefined
+  const save = async (patch: Partial<Prefs>) => {
+    const saved = await update($, prefs, p => ({ ...p, ...patch }))
+    await $.store.set(PREFS_KEY, saved).catch(() => undefined)
+    return saved
+  }
+  if (rest === 'off') {
+    await save({ isPhoneOn: false })
+    return 'Narsil: avisos al móvil desactivados. /narsil movil on los vuelve a activar con el mismo tema.'
+  }
+  if (rest === 'nuevo') {
+    const { phoneTopic } = await save({ phoneTopic: newTopic(crypto.randomUUID()), isPhoneOn: true })
+    return `Narsil: tema nuevo, el anterior ya no recibe nada. ${phoneHelp(phoneTopic ?? '')}`
+  }
+  if (rest === 'prueba') {
+    if (!(await read($, prefs)).isPhoneOn) return 'Narsil: los avisos al móvil están desactivados; actívalos con /narsil movil.'
+    const went = await sendToPhone($, 'done', 'Así te aviso en el móvil', 'Te escribiré aquí cuando termine, te necesite o algo falle.')
+    return went ? 'Narsil: aviso de prueba enviado al móvil.' : 'Narsil: no pude enviar el aviso (sin conexión, o ya llegué al límite de hoy).'
+  }
+  if (rest !== '' && rest !== 'on') return 'Uso: /narsil movil [on | off | nuevo | prueba]'
+  const p = await read($, prefs)
+  const { phoneTopic } = await save({ phoneTopic: p.phoneTopic ?? newTopic(crypto.randomUUID()), isPhoneOn: true })
+  const today = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), dayOf(await $.clock.now()))
+  return (
+    `Narsil: avisos al móvil activados (hoy ${today.sent} de ${PHONE_DAILY}). Te aviso cuando termino, te necesito o algo falla. ` +
+    `${phoneHelp(phoneTopic ?? '')} /narsil movil prueba envía uno; /narsil movil off los apaga.`
+  )
 }
 
 // The last test run failed: the next one that passes is a recovery.
@@ -821,7 +881,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba]',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -858,6 +918,8 @@ export const register: Register = on => {
     if (advice !== undefined) return { text: advice }
     const stepped = await stepsCommand($, arg)
     if (stepped !== undefined) return { text: stepped }
+    const phoned = await phoneCommand($, arg)
+    if (phoned !== undefined) return { text: phoned }
     if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
     if (arg === 'nivel') {
       const now = await read($, xp)
@@ -910,7 +972,7 @@ export const register: Register = on => {
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
           (p.isQuiet ? 'Modo discreto activado: sin voz, sin avisos de fin de turno ni consejos o pasos automáticos.\n' : '') +
-          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel',
+          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba]',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))

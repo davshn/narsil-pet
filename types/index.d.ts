@@ -34,6 +34,10 @@ export type Prefs = {
   // Quiet mode: no voice, no turn-finished alerts, no automatic tips or next
   // steps; a question or an error still tells you. Leaves the rest as it was.
   isQuiet: boolean
+  // The phone: the private ntfy.sh topic its notifications go to (null until
+  // /narsil movil makes one), and whether they go.
+  phoneTopic: string | null
+  isPhoneOn: boolean
 }
 
 // The tip on show: its text, why it was given (TipKind) and when. Faded: it
