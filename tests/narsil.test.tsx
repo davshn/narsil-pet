@@ -42,6 +42,7 @@ function engine(
     os = 'windows',
     runs = [],
     isOverlayDown = false,
+    isOverlayStale = false,
     stateReply = () => '',
   }: {
     hasClock?: boolean
@@ -49,12 +50,15 @@ function engine(
     os?: 'windows' | 'mac' | 'linux'
     runs?: Ran[]
     isOverlayDown?: boolean
+    // an older server holds the port: it answers the ping the old way
+    isOverlayStale?: boolean
     // what the window's server answers a pushed state
     stateReply?: (body: Record<string, unknown>) => string
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
   let isUp = !isOverlayDown
+  let isStale = isOverlayStale
   const uname = { windows: 'MINGW64_NT-10.0', mac: 'Darwin', linux: 'Linux' }[os]
   on('store.get', (_, e) => ({ value: e.key === 'overlayToken' ? 'secret-token' : store[e.key] }))
   on('store.set', (_, e) => {
@@ -73,13 +77,19 @@ function engine(
   on('command.register', () => ({ value: { command: 'narsil' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('http.fetch', (_, e) => {
+    if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil' } }
+    if (isStale && e.url.endsWith('/quit')) {
+      isStale = false
+      isUp = false
+      return { value: { status: 204, ok: true, headers: {}, text: '' } }
+    }
     if (!isUp) return { value: { status: 503, ok: false, headers: {}, text: '' } }
     if (e.init?.method === 'POST' && e.init.body) {
       posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: JSON.parse(e.init.body) })
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && isOverlayDown ? 'narsil' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 2' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
@@ -1059,6 +1069,20 @@ test('with the window on but down, an event starts it again and shows there, nev
   expect(runs.some(r => scriptOf(r).endsWith('toast.ps1'))).toBe(false)
 })
 
+test('an older window server left running is closed and replaced by this version', async ($, on) => {
+  const runs: Ran[] = []
+  const posts = engine(on, null, { os: 'windows', runs, isOverlayStale: true })
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+
+  expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
+  expect(posts.find(p => p.url.endsWith('/event'))?.body.kind).toBe('question')
+  // the new server gets the drawing at once
+  expect(posts.some(p => p.url.endsWith('/state') && typeof p.body.svg === 'string')).toBe(true)
+})
+
 test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
   const runs: Ran[] = []
   engine(on, null, { os: 'windows', runs, store: noWindow() })
@@ -1688,12 +1712,19 @@ function phoneEngine(on: On, store: Record<string, unknown> = {}): Posted[] {
   on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
   return posts
 }
+
+// Where you write from: Remote Control (your phone, the web) or the desk.
+const BY_PHONE = { ...TYPED, origin: { kind: 'bridge' } } as const
+const fromPhone = ($: Engine) => $.prompt.submit({ text: 'sigue', wait: false, origin: { kind: 'bridge' } })
+const fromDesk = ($: Engine) => $.prompt.submit({ text: 'sigue', wait: false, origin: { kind: 'composer' } })
 
 test('the phone gets nothing until /narsil movil is turned on', async ($, on) => {
   const posts = phoneEngine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
   await finishTurn($)
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   expect(toPhone(posts)).toEqual([])
@@ -1703,8 +1734,9 @@ test('/narsil movil makes a private topic, says how to follow it, and sends what
   const store: Record<string, unknown> = {}
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
 
-  const reply = await $.command.run({ command: 'narsil', args: 'movil', ...TYPED })
+  const reply = await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
   const topic = (store.prefs as { phoneTopic: string }).phoneTopic
   expect(topic).toMatch(/^narsil-[0-9a-f]{20}$/)
   expect(reply.text).toContain(topic)
@@ -1720,13 +1752,13 @@ test('/narsil movil makes a private topic, says how to follow it, and sends what
   expect(store.phone).toEqual({ day: '1970-01-01', sent: 2 })
 
   // the same topic again, and off stops the phone without forgetting it
-  await $.command.run({ command: 'narsil', args: 'móvil', ...TYPED })
+  await $.command.run({ command: 'narsil', args: 'móvil', ...BY_PHONE })
   expect((store.prefs as { phoneTopic: string }).phoneTopic).toBe(topic)
-  const off = await $.command.run({ command: 'narsil', args: 'movil off', ...TYPED })
+  const off = await $.command.run({ command: 'narsil', args: 'movil off', ...BY_PHONE })
   expect(off.text).toContain('desactivad')
   await finishTurn($)
   expect(toPhone(posts).length).toBe(2)
-  await $.command.run({ command: 'narsil', args: 'movil on', ...TYPED })
+  await $.command.run({ command: 'narsil', args: 'movil on', ...BY_PHONE })
   await finishTurn($)
   expect(toPhone(posts).length).toBe(3)
 })
@@ -1735,8 +1767,9 @@ test('/narsil movil nuevo changes the topic, and /narsil movil prueba sends one'
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
 
-  const fresh = await $.command.run({ command: 'narsil', args: 'movil nuevo', ...TYPED })
+  const fresh = await $.command.run({ command: 'narsil', args: 'movil nuevo', ...BY_PHONE })
   const topic = (store.prefs as { phoneTopic: string }).phoneTopic
   expect(topic).not.toBe('narsil-0123456789abcdef0123')
   expect(fresh.text).toContain(topic)
@@ -1753,6 +1786,7 @@ test('the phone gets at most 200 a day, says which is the last, and starts again
   }
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
 
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   await finishTurn($)
@@ -1760,7 +1794,7 @@ test('the phone gets at most 200 a day, says which is the last, and starts again
   expect(sent.length).toBe(1)
   expect(String(sent[0]?.message)).toContain('último aviso de hoy')
   expect(store.phone).toEqual({ day: '1970-01-01', sent: 200 })
-  const status = await $.command.run({ command: 'narsil', args: 'movil', ...TYPED })
+  const status = await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
   expect(status.text).toContain('200 de 200')
 
   // a count of another day, or an odd one, starts from zero
@@ -1775,6 +1809,7 @@ test('in quiet mode the phone gets only what needs you', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true, isQuiet: true } }
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
   await finishTurn($)
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   expect(toPhone(posts).map(m => m.title)).toEqual(['Narsil · Te necesito · landing'])
@@ -1785,12 +1820,50 @@ test('each phone alert shows Narsil at her stage, in the pose that fits it', asy
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
   await finishTurn($)
   expect(toPhone(posts).at(-1)?.icon).toBe(`${art}/terminado-oscuro.png`)
 
   // level 10: the third stage
   store.xp = 5000
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   expect(toPhone(posts).at(-1)?.icon).toBe(`${art}/etapa3/necesita-oscuro.png`)
+})
+
+test('the phone gets alerts only while you write through Remote Control, never at the desk', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  // at the desk: nothing
+  await finishTurn($)
+  await fromDesk($)
+  await finishTurn($)
+  expect(toPhone(posts)).toEqual([])
+  const status = await $.command.run({ command: 'narsil', args: 'movil', ...TYPED })
+  expect(status.text).toContain('Remote Control')
+
+  // a message from the phone: alerts go there
+  await fromPhone($)
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(1)
+  // a command typed at the desk brings you back too
+  await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(1)
+  await $.command.run({ command: 'narsil', args: 'estado', ...BY_PHONE })
+  await finishTurn($)
+  await fromDesk($)
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(2)
+})
+
+test('her drawing has no entrance that replays, so redrawing the band never makes her blink', () => {
+  for (const mood of ['idle', 'reading', 'celebrating'] as const) {
+    const svg = sprite(mood, 2)
+    expect(svg).not.toContain('class="enter"')
+    expect(svg).not.toContain('animation:enter')
+  }
 })

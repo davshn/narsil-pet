@@ -219,7 +219,8 @@ const server = http.createServer(async (req, res) => {
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
   const isPage = isTrusted || req.headers['x-narsil-page'] === PAGE_KEY
 
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil')
+  // The protocol, as the mod checks it: "narsil 2" keeps each drawing until a new one comes.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 2')
   if (req.method === 'GET' && url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE)
   if (req.method === 'GET' && (url.pathname === '/icon.png' || url.pathname === '/favicon.ico')) return send(200, 'image/png', ICON)
   if (req.method === 'GET' && url.pathname === '/events') {

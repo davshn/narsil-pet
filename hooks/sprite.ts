@@ -157,7 +157,6 @@ const STYLE = `
 @media (prefers-color-scheme: dark){:root{--edge:#9FB7E0;--gold:#E9A93A;--water:#5FA6E6;--card:#F4F6FF}}
 .th-oscuro{display:none}
 @media (prefers-color-scheme: dark){.th-claro{display:none}.th-oscuro{display:inline}}
-.enter{transform-box:fill-box;transform-origin:50% 100%;animation:enter .6s cubic-bezier(.3,1.7,.5,1) 1}
 .whole{transform-box:fill-box;transform-origin:50% 100%}
 .aura{transform-box:fill-box;transform-origin:center;animation:aura 1.6s ease-in-out infinite}
 .s-error .aura{animation-duration:1.2s}
@@ -186,7 +185,6 @@ const STYLE = `
 .banner{transform-box:fill-box;transform-origin:center;animation:banner .7s cubic-bezier(.3,1.8,.5,1) 1}
 .rays{transform-box:fill-box;transform-origin:center;animation:spin 7s linear infinite,rays 9s ease-in-out 1 forwards}
 .evolve{transform-box:fill-box;transform-origin:50% 100%;animation:evolve 1.8s cubic-bezier(.3,1.4,.5,1) 1}
-@keyframes enter{0%{transform:scale(.7) translateY(10px);opacity:.2}100%{transform:scale(1);opacity:1}}
 @keyframes aura{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}
 @keyframes rise{0%{transform:translate(0,0) scale(.6);opacity:0}15%{opacity:.95}50%{transform:translate(3px,-40px) scale(1)}100%{transform:translate(-2px,-84px) scale(1.25);opacity:0}}
 @keyframes ripple{0%{transform:scale(.3);opacity:.75}100%{transform:scale(1.6);opacity:0}}
@@ -341,7 +339,7 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number, milest
     `<g class="th-${theme}">` +
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     (milestone ? '' : badge(mood, status, at.headX, at.headY, theme)) +
-    `<g class="enter">${grows(milestone)}<g class="whole">` +
+    `<g>${grows(milestone)}<g class="whole">` +
     `<use href="#art-${id}"/>` +
     `</g>${grows(milestone) ? '</g>' : ''}</g>` +
     `</g>`

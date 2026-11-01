@@ -138,18 +138,38 @@ async function overlayToken($: EngineInterface): Promise<string> {
   return token
 }
 
-async function isOverlayUp($: EngineInterface): Promise<boolean> {
+// What this version's window server answers a ping. A server another version
+// started answers otherwise ("narsil" before the drawing was sent only on a
+// change): it outlives the mod's updates, so it is closed and started anew.
+const OVERLAY_PROTOCOL = 'narsil 2'
+
+async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/ping`)
-    return ok && text === 'narsil'
+    if (!ok) return 'down'
+    if (text === OVERLAY_PROTOCOL) return 'up'
+    return text.startsWith('narsil') ? 'stale' : 'down'
   } catch {
-    return false
+    return 'down'
   }
+}
+
+async function isOverlayUp($: EngineInterface): Promise<boolean> {
+  return (await overlayPing($)) === 'up'
 }
 
 async function startOverlay($: EngineInterface): Promise<void> {
   const os = await platformOf($)
-  if (os === 'other' || (await isOverlayUp($))) return
+  if (os === 'other') return
+  const ping = await overlayPing($)
+  if (ping === 'up') return
+  if (ping === 'stale') {
+    // Closed first, and given time to free the port.
+    await stopOverlay($)
+    for (let waited = 0; waited < OVERLAY_WAIT_MS && (await overlayPing($)) !== 'down'; waited += 300) {
+      await $.clock.sleep(300).catch(() => undefined)
+    }
+  }
   const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
   if (os === 'mac') {
     // start.sh finds Node and a Chromium browser and starts the server behind.
@@ -343,12 +363,24 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   await spoken
 }
 
-// The same alert on your phone, through ntfy.sh, when /narsil movil is on:
-// at most PHONE_DAILY a day across every conversation, the free plan's room.
+// Whether you last wrote to this conversation through Remote Control (your
+// phone, the web) rather than at the desk: no event says Remote Control is
+// on, so where your messages come from tells. A module variable: a reload
+// starts it over, at the desk.
+let isRemote = false
+
+function noteOrigin(origin: { kind: string } | undefined): void {
+  if (origin?.kind === 'bridge') isRemote = true
+  else if (origin?.kind === 'composer') isRemote = false
+}
+
+// The same alert on your phone, through ntfy.sh, when /narsil movil is on and
+// you write from away (`force`: the test, wherever you are): at most
+// PHONE_DAILY a day across every conversation, the free plan's room.
 // Returns whether it went.
-async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string): Promise<boolean> {
+async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
   const { phoneTopic, isPhoneOn } = await read($, prefs)
-  if (!isPhoneOn || !phoneTopic) return false
+  if (!isPhoneOn || !phoneTopic || (!isRemote && !force)) return false
   const day = dayOf(await $.clock.now())
   const count = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), day)
   if (count.sent >= PHONE_DAILY) return false
@@ -386,7 +418,7 @@ async function phoneCommand($: EngineInterface, arg: string): Promise<string | u
   }
   if (rest === 'prueba') {
     if (!(await read($, prefs)).isPhoneOn) return 'Narsil: los avisos al móvil están desactivados; actívalos con /narsil movil.'
-    const went = await sendToPhone($, 'done', 'Así te aviso en el móvil', 'Te escribiré aquí cuando termine, te necesite o algo falle.')
+    const went = await sendToPhone($, 'done', 'Así te aviso en el móvil', 'Te escribiré aquí cuando termine, te necesite o algo falle.', true)
     return went ? 'Narsil: aviso de prueba enviado al móvil.' : 'Narsil: no pude enviar el aviso (sin conexión, o ya llegué al límite de hoy).'
   }
   if (rest !== '' && rest !== 'on') return 'Uso: /narsil movil [on | off | nuevo | prueba]'
@@ -394,7 +426,7 @@ async function phoneCommand($: EngineInterface, arg: string): Promise<string | u
   const { phoneTopic } = await save({ phoneTopic: p.phoneTopic ?? newTopic(crypto.randomUUID()), isPhoneOn: true })
   const today = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), dayOf(await $.clock.now()))
   return (
-    `Narsil: avisos al móvil activados (hoy ${today.sent} de ${PHONE_DAILY}). Te aviso cuando termino, te necesito o algo falla. ` +
+    `Narsil: avisos al móvil activados (hoy ${today.sent} de ${PHONE_DAILY}). Mientras me escribes por Remote Control, te aviso cuando termino, te necesito o algo falla; en el escritorio no te envío nada. ` +
     `${phoneHelp(phoneTopic ?? '')} /narsil movil prueba envía uno; /narsil movil off los apaga.`
   )
 }
@@ -913,6 +945,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'narsil' }, async ($, e) => {
+    noteOrigin(e.origin)
     const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
     const advice = await adviceCommand($, arg)
     if (advice !== undefined) return { text: advice }
@@ -1014,6 +1047,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta) seen.prompt = e.text.slice(0, 400)
+    noteOrigin(e.origin)
 
     return next(e)
   })

@@ -55,7 +55,9 @@ check('another host name (a page rebound to this address) is refused everywhere'
     const res = await request(method, url, { host: `attacker.example:${port}` })
     assert.equal(res.status, 403, `${method} ${url}`)
   }
-  assert.equal((await request('GET', '/ping', { host: `localhost:${port}` })).status, 200)
+  const ping = await request('GET', '/ping', { host: `localhost:${port}` })
+  assert.equal(ping.status, 200)
+  assert.equal(ping.text, 'narsil 2', 'the protocol the mod checks')
 })
 
 check("the page's actions need its key", async () => {
