@@ -39,7 +39,11 @@ const POSE: Record<PhoneKind, string> = { done: 'terminado', question: 'necesita
 // Narsil at her stage, in the pose that fits the alert: the hatchling's art
 // sits at the root of assets, each later stage in its own folder.
 export function phoneIcon(kind: PhoneKind, stage: number): string {
-  return `${ART_URL}/${stage > 1 ? `etapa${stage}/` : ''}${POSE[kind]}-oscuro.png`
+  return artUrl(POSE[kind], stage)
+}
+
+export function artUrl(pose: string, stage: number): string {
+  return `${ART_URL}/${stage > 1 ? `etapa${stage}/` : ''}${pose}-oscuro.png`
 }
 
 // What ntfy.sh is sent, as its JSON form takes it. `where` names the
@@ -53,6 +57,25 @@ export function phoneMessage(topic: string, kind: PhoneKind, title: string, text
     tags: [TAGS[kind]],
     icon: phoneIcon(kind, stage),
   }
+}
+
+// The topic the phone app reads Narsil's state from: not followed by push,
+// so its messages never show as notifications.
+export function statusTopic(topic: string): string {
+  return `${topic}-estado`
+}
+
+// ntfy.sh turns a message past 4096 bytes into an attachment: the state
+// stays under it, counting each character as two (accents take two).
+const STATUS_ROOM = 2000
+
+// What the phone app is sent of the state the desktop shows, as a JSON
+// message on the status topic; the tip and the next steps go first when it
+// does not fit.
+export function phoneStatus(topic: string, state: Record<string, unknown>) {
+  let message = JSON.stringify(state)
+  if (message.length > STATUS_ROOM) message = JSON.stringify({ ...state, tip: null, steps: [] })
+  return { topic: statusTopic(topic), message, priority: 1 }
 }
 
 // How to follow the topic, for /narsil movil.

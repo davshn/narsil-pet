@@ -388,11 +388,11 @@ async function tipEngine(
 let turns = 0
 
 // One finished turn of the main conversation that edited `file`.
-async function finishTurn($: Engine, file = 'C:/repo/hooks/register.tsx') {
+async function finishTurn($: Engine, file = 'C:/repo/hooks/register.tsx', answer = 'Listo: he cambiado el registro.') {
   const turnId = `t${++turns}`
   await $.turn.start({ text: 'arregla el registro', turnId })
   await $.tool.call({ tool: 'Edit', file_path: file, old_string: 'a', new_string: 'b' } as never)
-  await $.turn.complete({ reason: 'answer', answer: 'Listo: he cambiado el registro.', durationMs: 42_000, isAborted: false, turnId })
+  await $.turn.complete({ reason: 'answer', answer, durationMs: 42_000, isAborted: false, turnId })
 }
 
 async function bandTip($: Engine, surface: 'terminal' | 'desktop') {
@@ -1704,7 +1704,10 @@ test('levels need 100, 200, 300 XP more each, and odd stored values count as non
 })
 
 // What reached ntfy.sh: the phone's notifications.
-const toPhone = (posts: Posted[]) => posts.filter(p => p.url === 'https://ntfy.sh').map(p => p.body)
+const toNtfy = (posts: Posted[]) => posts.filter(p => p.url === 'https://ntfy.sh').map(p => p.body)
+// The alerts, and apart from them the states the phone app shows.
+const toPhone = (posts: Posted[]) => toNtfy(posts).filter(m => !String(m.topic).endsWith('-estado'))
+const toStatus = (posts: Posted[]) => toNtfy(posts).filter(m => String(m.topic).endsWith('-estado'))
 
 // The engine, with turns and tools answered.
 function phoneEngine(on: On, store: Record<string, unknown> = {}): Posted[] {
@@ -1720,6 +1723,55 @@ function phoneEngine(on: On, store: Record<string, unknown> = {}): Posted[] {
 const BY_PHONE = { ...TYPED, origin: { kind: 'bridge' } } as const
 const fromPhone = ($: Engine) => $.prompt.submit({ text: 'sigue', wait: false, origin: { kind: 'bridge' } })
 const fromDesk = ($: Engine) => $.prompt.submit({ text: 'sigue', wait: false, origin: { kind: 'composer' } })
+
+test('the phone gets the answer beyond its first line, cut at a word with an ellipsis', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
+  const answer = '## Listo\n\nHe cambiado el **registro** para que valide el correo.\n- ' + 'palabra '.repeat(120)
+  await finishTurn($, undefined, answer)
+  const message = toPhone(posts)[0]?.message ?? ''
+  expect(message.startsWith('He terminado (42 s): Listo\nHe cambiado el registro para que valide el correo.\n- palabra')).toBe(true)
+  expect(message.endsWith('palabra…')).toBe(true)
+  expect(message.length).toBeLessThanOrEqual(600)
+})
+
+test('as a turn ends from the phone, the app gets what the band shows on the status topic, silently', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
+  const topic = (store.prefs as { phoneTopic: string }).phoneTopic
+  await finishTurn($)
+  const sent = toStatus(posts)
+  expect(sent.length).toBe(1)
+  expect(sent[0]?.topic).toBe(`${topic}-estado`)
+  expect(sent[0]?.priority).toBe(1)
+  expect(sent[0]?.title).toBeUndefined()
+  const state = JSON.parse(String(sent[0]?.message))
+  expect(state.status).toBe('done')
+  expect(state.statusLabel).toBeTruthy()
+  expect(state.headline).toBeTruthy()
+  expect(String(state.art)).toMatch(/terminado-oscuro\.png$/)
+  expect(typeof state.at).toBe('number')
+  expect(state.xp).toBeTruthy()
+  expect(Array.isArray(state.usage)).toBe(true)
+  expect(state.agents).toBeUndefined()
+  // not live: no count of the other conversations, and the cache as when it
+  // ends, for the app to count down itself
+  expect(state.others).toBeUndefined()
+  expect(state.cache).toBeUndefined()
+  expect(state.cacheMinutes).toBeGreaterThan(0)
+  expect(state.cacheEndsAt - state.at).toBe(state.cacheMinutes * 60)
+
+  // at the desk nothing goes
+  await fromDesk($)
+  await finishTurn($)
+  expect(toStatus(posts).length).toBe(1)
+})
 
 test('the phone gets nothing until /narsil movil is turned on', async ($, on) => {
   const posts = phoneEngine(on)
@@ -1749,7 +1801,8 @@ test('/narsil movil makes a private topic, says how to follow it, and sends what
   expect(sent.every(m => m.topic === topic)).toBe(true)
   expect(sent.map(m => m.priority)).toEqual([3, 4])
   expect(sent[0]?.message).toBe('He terminado (42 s): Listo: he cambiado el registro.')
-  expect(store.phone).toEqual({ day: '1970-01-01', sent: 2 })
+  // the turn's state went too, and counts
+  expect(store.phone).toEqual({ day: '1970-01-01', sent: 3 })
 
   // the same topic again, and off stops the phone without forgetting it
   await $.command.run({ command: 'narsil', args: 'móvil', ...BY_PHONE })

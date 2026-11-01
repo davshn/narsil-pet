@@ -38,7 +38,7 @@ export const STATUS_COLOR: Record<Status, string> = {
 }
 
 // The pose of each state, as named in assets/raw (base until it is drawn).
-const POSE: Record<Status, string> = {
+export const POSE: Record<Status, string> = {
   working: 'trabajando',
   idle: 'parada',
   waiting: 'necesita',

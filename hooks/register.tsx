@@ -5,12 +5,12 @@ import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, countOf, dayOf, newTopic, phoneHelp, phoneMessage } from './phone'
-import { FACE, STATUS_COLOR, sprite, statusOf } from './sprite'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus } from './phone'
+import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, loopWarning, nudgeText, statsOf, summaryText } from './watch'
-import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
+import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -209,24 +209,8 @@ async function pushOverlay($: EngineInterface): Promise<void> {
   const { isFloating } = await read($, prefs)
   if (!isFloating) return
   const s = await read($, pet)
-  const status = statusOf(s.mood)
   const svg = sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined)
-  const state = {
-    sessionId: hostSession,
-    title: sessionTitle,
-    mood: s.mood,
-    status,
-    statusLabel: STATUS_LABEL[status],
-    headline: headline(s.mood, s.detail),
-    line: s.line,
-    tip: await read($, tip).then(t => (t && !t.isWindowed ? t.text : null)),
-    usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
-    agents: await read($, agentChips),
-    cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
-    steps: (await read($, steps))?.items ?? [],
-    xp: xpLabel(await read($, xp)),
-    model: await read($, mainModel),
-  }
+  const state = await shownState($)
   const send = async (withSvg: boolean): Promise<string | null> => {
     try {
       const reply = await $.http.fetch(`${OVERLAY}/state`, {
@@ -247,6 +231,29 @@ async function pushOverlay($: EngineInterface): Promise<void> {
   }
   if (withSvg) sentSvg = svg
   else if (reply === 'need-svg' && (await send(true)) !== null) sentSvg = svg
+}
+
+// What the floating window and the phone app show of this conversation, as
+// the band shows it.
+async function shownState($: EngineInterface) {
+  const s = await read($, pet)
+  const status = statusOf(s.mood)
+  return {
+    sessionId: hostSession,
+    title: sessionTitle,
+    mood: s.mood,
+    status,
+    statusLabel: STATUS_LABEL[status],
+    headline: headline(s.mood, s.detail),
+    line: s.line,
+    tip: await read($, tip).then(t => (t && !t.isWindowed ? t.text : null)),
+    usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
+    agents: await read($, agentChips),
+    cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
+    steps: (await read($, steps))?.items ?? [],
+    xp: xpLabel(await read($, xp)),
+    model: await read($, mainModel),
+  }
 }
 
 // The heartbeat: keep the window in sync, and learn how many conversations
@@ -347,7 +354,8 @@ async function ensureOverlay($: EngineInterface): Promise<boolean> {
 // aloud. With the window on, the window is the only place it shows (started
 // again when it is down), never a system notification as well; with the
 // window off, a system notification is.
-async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false): Promise<void> {
+// `phoneText`: a longer text for the phone, which has room for more.
+async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false, phoneText = text): Promise<void> {
   const { isMuted, isFloating, isQuiet } = await read($, prefs)
   // Quiet: no voice, and only what needs you (a question, an error) is told.
   if (isQuiet && kind === 'done' && !force) return
@@ -359,7 +367,7 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   } else {
     await notify($, `Narsil · ${title}`, text)
   }
-  await sendToPhone($, kind, title, text)
+  await sendToPhone($, kind, title, phoneText)
   await spoken
 }
 
@@ -379,6 +387,24 @@ function noteOrigin(origin: { kind: string } | undefined): void {
 // PHONE_DAILY a day across every conversation, the free plan's room.
 // Returns whether it went.
 async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
+  const stage = stageOf(levelOf(await read($, xp)).level)
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast), force)
+}
+
+// What the band shows, for the phone app to show when you open it: on its
+// own topic, as the turn ends, under the same rules and daily count as the
+// alerts. Sent once a turn, it leaves out what would show stale (the
+// subagents), and gives the cache as when it ends, for the app to count down.
+async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
+  const { agents: _, cache: __, ...shown } = await shownState($)
+  const art = artUrl(POSE[shown.status], stageOf(levelOf(await read($, xp)).level))
+  const at = Math.floor((await $.clock.now()) / 1000)
+  const c = await read($, cache)
+  const cacheTimes = c ? { cacheEndsAt: Math.floor((c.at + c.minutes * 60_000) / 1000), cacheMinutes: c.minutes } : {}
+  return postToPhone($, topic => phoneStatus(topic, { ...shown, art, at, ...cacheTimes }), force)
+}
+
+async function postToPhone($: EngineInterface, message: (topic: string, isLast: boolean) => object, force: boolean): Promise<boolean> {
   const { phoneTopic, isPhoneOn } = await read($, prefs)
   if (!isPhoneOn || !phoneTopic || (!isRemote && !force)) return false
   const day = dayOf(await $.clock.now())
@@ -389,7 +415,7 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
     const { ok } = await $.http.fetch(NTFY_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(phoneMessage(phoneTopic, kind, title, text, sessionTitle, stageOf(levelOf(await read($, xp)).level), isLast)),
+      body: JSON.stringify(message(phoneTopic, isLast)),
     })
     if (!ok) return false
   } catch {
@@ -419,6 +445,7 @@ async function phoneCommand($: EngineInterface, arg: string): Promise<string | u
   if (rest === 'prueba') {
     if (!(await read($, prefs)).isPhoneOn) return 'Narsil: los avisos al móvil están desactivados; actívalos con /narsil movil.'
     const went = await sendToPhone($, 'done', 'Así te aviso en el móvil', 'Te escribiré aquí cuando termine, te necesite o algo falle.', true)
+    if (went) await sendStatus($, true)
     return went ? 'Narsil: aviso de prueba enviado al móvil.' : 'Narsil: no pude enviar el aviso (sin conexión, o ya llegué al límite de hoy).'
   }
   if (rest !== '' && rest !== 'on') return 'Uso: /narsil movil [on | off | nuevo | prueba]'
@@ -1161,7 +1188,7 @@ export const register: Register = on => {
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
-      await announce($, 'done', 'He terminado', summary(e.answer, took), 'Ya está, ya terminé.')
+      await announce($, 'done', 'He terminado', summary(e.answer, took), 'Ya está, ya terminé.', false, summary(e.answer, took, Infinity, PHONE_ROOM))
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 400)
       tipLater($, 'review')
@@ -1172,6 +1199,7 @@ export const register: Register = on => {
       await setMood($, 'failed', why)
       await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, 'Uy, me detuve por un error.')
     }
+    await sendStatus($)
 
     return result
   })

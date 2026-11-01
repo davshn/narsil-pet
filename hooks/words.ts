@@ -150,10 +150,23 @@ export function fleetSummary(f: Fleet | null): string {
   return `${f.total} conversaciones abiertas: ${parts.join(' · ')}`
 }
 
-export function summary(answer: string, took: string): string {
-  const first = answer.replace(/[#*_`>]/g, '').split('\n').map(l => l.trim()).find(Boolean) ?? ''
-  return first ? `He terminado (${took}): ${first.slice(0, 120)}` : `He terminado (${took}).`
+// Cut at the last word that fits in `max`, with "…" when anything was left out.
+export function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max - 1)
+  const space = cut.search(/\s\S*$/)
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
+
+// The answer's first `count` lines, at most `max` long: the desktop shows
+// one, the phone (PHONE_ROOM) as many as fit.
+export function summary(answer: string, took: string, count = 1, max = 120): string {
+  const lines = answer.replace(/[#*_`>]/g, '').split('\n').map(l => l.trim()).filter(Boolean)
+  return lines.length ? `He terminado (${took}): ${clip(lines.slice(0, count).join('\n'), max)}` : `He terminado (${took}).`
+}
+
+// Room on the phone for the answer: Android shows about this much unfolded.
+export const PHONE_ROOM = 540
 
 export function duration(ms: number): string {
   const seconds = Math.round(ms / 1000)

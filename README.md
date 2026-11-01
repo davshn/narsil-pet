@@ -95,6 +95,39 @@ Si Narsil te resulta demasiado, `/narsil discreto` la calla: sin voz, sin avisos
 ### Avisos en el móvil y el reloj
 Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a tu móvil lo que te necesita: cuando Narsil termina, cuando te necesita o cuando algo falla. Solo envía mientras le escribes a la conversación desde Remote Control (el móvil o la web); en cuanto vuelves a escribir en el escritorio, deja de enviar. Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
 
+Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` lo que la banda muestra en el PC: estado, titular, consejo, uso, caché, próximos pasos, nivel y modelo. Ese tema no genera notificaciones: está pensado para que una app propia lo lea al abrirse (ver más abajo). Esos mensajes cuentan dentro de los 200 diarios.
+
+#### Tu propia app para el móvil
+La app ntfy basta para recibir los avisos. Si quieres ver también el estado del PC, como en la banda, puedes hacer tu propia app web instalable (PWA). No hace falta servidor: es una página estática que habla directamente con ntfy.sh. Puedes alojarla gratis en Vercel, Netlify o GitHub Pages. Lo que necesita:
+
+1. **Avisos con la app cerrada (Web Push).** Registra un service worker y suscríbete con `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`. Usa como clave la VAPID pública de ntfy.sh, la que publica en `https://ntfy.sh/config.js` (`web_push_public_key`). Después envía la suscripción a ntfy.sh:
+   ```js
+   const { endpoint, keys } = sub.toJSON()
+   await fetch('https://ntfy.sh/v1/webpush', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({ endpoint, auth: keys.auth, p256dh: keys.p256dh, topics: [tema] }),
+   })
+   ```
+   En el service worker, el evento `push` trae el mensaje de ntfy en `event.data.json()` (`title`, `message`, `icon`, `priority`): muéstralo con `showNotification`. Chrome exige que cada push muestre una notificación. Suscribe así solo el tema de los avisos, nunca el de `-estado`. Registra de nuevo la suscripción cada vez que se abra la app, porque ntfy.sh descarta las que fallan al entregar.
+2. **El estado, mientras la app está abierta.** Lee el último con `GET https://ntfy.sh/<tema>-estado/json?poll=1&since=latest` y escucha los siguientes con `new EventSource('https://ntfy.sh/<tema>,<tema>-estado/sse')`. Cada línea es un mensaje de ntfy; en los del tema de estado, `message` es un JSON con estos campos:
+
+   | Campo | Qué es |
+   | --- | --- |
+   | `status`, `statusLabel` | `working`, `idle`, `waiting`, `done` o `error`, y su nombre ("TRABAJANDO"…). |
+   | `headline`, `line`, `tip` | El titular, la frase de Narsil y el consejo (`null` si no hay). |
+   | `usage` | Las barras: `[{ label, percent, color, note }]` (contexto, 5 horas, semana). |
+   | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché (segundos Unix) y cuántos minutos dura. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
+   | `steps` | Los próximos pasos sugeridos. |
+   | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación. |
+   | `art` | La URL del dibujo de Narsil en su etapa y pose (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
+   | `at` | Cuándo se envió (segundos Unix). |
+
+   Si el JSON no cabe, llega sin `tip` ni `steps`. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado".
+3. **Instalable.** Añade un `manifest.webmanifest` con `display: "standalone"` y los iconos. `tools/build-pwa-icons.ps1` genera `icon-192.png`, `icon-512.png` y `badge.png` con la cabeza de Narsil: `powershell -ExecutionPolicy Bypass -File tools/build-pwa-icons.ps1 -OutDir <carpeta de tu app>`. En iPhone, Web Push solo funciona si añades la app a la pantalla de inicio (iOS 16.4 o posterior).
+
+Guarda el tema en la app (en `localStorage`, por ejemplo) y no lo pongas en la URL pública: quien lo conozca puede leer tus avisos.
+
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).
 
