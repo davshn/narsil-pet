@@ -42,7 +42,7 @@ Una pequeña ventana siempre visible que aparece cuando Claude está minimizado 
 En Windows aparece en la misma pantalla en la que está Claude, aunque tengas varios monitores.
 
 ### Voz y avisos
-Narsil te avisa en voz alta, en español, cuando termina un turno, cuando una pregunta o un permiso te espera y cuando un turno falla. Con la ventana flotante activada, el aviso aparece en ella; si la desactivas, llega como notificación del sistema.
+Narsil te avisa en voz alta, en español, cuando termina un turno, cuando una pregunta o un permiso te espera y cuando un turno falla. En la app de escritorio, un turno que termina con una pregunta en el recuadro de siguiente paso te avisa como pregunta, con esa pregunta. Con la ventana flotante activada, el aviso aparece en ella; si la desactivas, llega como notificación del sistema.
 
 ### Consejos
 Consejos breves y concretos sobre el trabajo en curso, generados con Haiku: al terminar un turno, tras varios fallos seguidos o en un turno muy largo. Se le pide que mencione algo concreto (un archivo, un comando, un error) y que no invente datos. Con `/narsil consejo profundo` analiza la conversación completa. Las frecuencias son configurables y nunca frenan a Claude.

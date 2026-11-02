@@ -490,6 +490,12 @@ let areTestsFailing = false
 // One tool can raise both a permission ask and its own question.
 let lastQuestionAt = 0
 
+// The desktop app's next-step box asks its question as the turn ends, with
+// nothing left waiting in the turn: the tool that fills it carries it as
+// `ask`, and the turn's end then alerts as a question instead of a finish.
+const ASK_BOX_TOOL = 'mcp__ccd_turn__wrap_up'
+let turnAsk: string | null = null
+
 async function announceQuestion($: EngineInterface, text: string): Promise<void> {
   const now = await $.clock.now()
   if (now - lastQuestionAt < 3000) return
@@ -1089,6 +1095,7 @@ export const register: Register = on => {
       failuresByTool = new Map()
       failuresThisTurn = 0
       triedThisTurn = new Set()
+      turnAsk = null
       failStreaks = new Map()
       loopsWarned = new Set()
       stopWaiting()
@@ -1136,6 +1143,10 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (e.tool === ASK_BOX_TOOL) {
+      const ask = (e as { ask?: unknown }).ask
+      turnAsk = typeof ask === 'string' && ask.trim() ? ask.trim() : null
+    }
     if (ASKING_TOOLS.has(e.tool)) {
       const isPlan = e.tool === 'ExitPlanMode'
       await setMood($, 'asking', isPlan ? 'tengo un plan para que lo apruebes' : 'tengo una pregunta para ti')
@@ -1209,7 +1220,15 @@ export const register: Register = on => {
     // Every request of the turn wrote the prompt cache; its clock starts now.
     await startCache($)
 
-    if (e.reason === 'answer') {
+    if (e.reason === 'answer' && turnAsk) {
+      await setMood($, 'asking', 'tengo una pregunta para ti')
+      await gainXp($, 'turn')
+      await announce($, 'question', 'Te necesito', turnAsk, 'Te necesito.')
+      await startWaiting($, 'tengo una pregunta para ti.')
+      seen.durationMs = e.durationMs
+      seen.answer = e.answer.slice(0, 400)
+      turnAsk = null
+    } else if (e.reason === 'answer') {
       const took = duration(e.durationMs)
       await setMood($, 'celebrating', `en ${took}`)
       await gainXp($, 'turn')

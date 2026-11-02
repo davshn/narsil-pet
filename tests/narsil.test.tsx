@@ -2041,3 +2041,22 @@ test('a tip a little past the 160 characters asked for arrives whole; a runaway 
   expect(cut.length).toBeLessThanOrEqual(320)
   expect(cut.endsWith('falla.')).toBe(true)
 })
+
+test('a turn that ends asking in the desktop app next-step box alerts as a question, with that question', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.turn.start({ text: 'arregla el registro', turnId: 'ask' })
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Arreglado.', ask: '¿Lo subo a main?' } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Arreglado.', durationMs: 42_000, isAborted: false, turnId: 'ask' })
+  const sent = toPhone(posts)
+  expect(sent.map(m => [m.title, m.message, m.priority])).toEqual([['Narsil · Te necesito · landing', '¿Lo subo a main?', 4]])
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('waiting')
+
+  // a box with no question is a plain finish
+  await $.turn.start({ text: 'y ahora', turnId: 'plain' })
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Listo.' } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Listo.', durationMs: 42_000, isAborted: false, turnId: 'plain' })
+  expect(toPhone(posts).at(-1)?.title).toBe('Narsil · He terminado · landing')
+})
