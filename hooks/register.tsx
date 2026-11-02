@@ -395,7 +395,7 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
 
 // What the band shows, for the phone app to show when you open it: on its
 // own topic, as the turn ends, under the same rules and daily count as the
-// alerts. Sent once a turn, it leaves out what would show stale (the
+// alerts. Sent as a turn ends and with each question, it leaves out what would show stale (the
 // subagents), and gives the cache and each limit's reset as when they come
 // (seconds), for the app to count down.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
@@ -495,6 +495,8 @@ async function announceQuestion($: EngineInterface, text: string): Promise<void>
   if (now - lastQuestionAt < 3000) return
   lastQuestionAt = now
   await announce($, 'question', 'Te necesito', text, 'Te necesito.')
+  // The app shows her waiting, not the state of the last turn.
+  await sendStatus($)
 }
 
 // Mirrors the stored mood so the streaming hook writes only on a change.

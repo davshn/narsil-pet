@@ -1740,6 +1740,30 @@ test('the phone gets the answer beyond its first line, cut at a word with an ell
   expect(message.length).toBeLessThanOrEqual(600)
 })
 
+test('a question from the phone sends the state too, so the app shows Narsil waiting for you', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  const sent = toStatus(posts)
+  expect(sent.length).toBe(1)
+  expect(JSON.parse(String(sent[0]?.message)).status).toBe('waiting')
+})
+
+test('a turn that fails from the phone sends the state too, so the app shows Narsil stopped', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.turn.start({ text: 'arregla el registro', turnId: 'err' })
+  await $.turn.complete({ reason: 'error', answer: '', durationMs: 1000, isAborted: false, turnId: 'err', error: 'api' } as never)
+  expect(toPhone(posts).map(m => m.priority)).toEqual([4])
+  const sent = toStatus(posts)
+  expect(sent.length).toBe(1)
+  expect(JSON.parse(String(sent[0]?.message)).status).toBe('error')
+})
+
 test('as a turn ends from the phone, the app gets what the band shows on the status topic, silently', async ($, on) => {
   const store: Record<string, unknown> = {}
   const posts = phoneEngine(on, store)
@@ -1878,8 +1902,8 @@ test('/narsil movil makes a private topic, says how to follow it, and sends what
   expect(sent.every(m => m.topic === topic)).toBe(true)
   expect(sent.map(m => m.priority)).toEqual([3, 4])
   expect(sent[0]?.message).toBe('He terminado (42 s): Listo: he cambiado el registro.')
-  // the turn's state went too, and counts
-  expect(store.phone).toEqual({ day: '1970-01-01', sent: 3 })
+  // the turn's state and the question's went too, and count
+  expect(store.phone).toEqual({ day: '1970-01-01', sent: 4 })
 
   // the same topic again, and off stops the phone without forgetting it
   await $.command.run({ command: 'narsil', args: 'móvil', ...BY_PHONE })
