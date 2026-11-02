@@ -93,7 +93,7 @@ function conversationLink(sessionId) {
 function killWindow(done) {
   if (isMac) {
     // Every process of the window's own browser profile, helpers included.
-    execFile('pkill', ['-f', `--user-data-dir=${profile}`], () => done())
+    execFile('pkill', ['-f', '--', PROFILE_FLAG], () => done())
     return
   }
   execFile('powershell.exe', [...POWERSHELL, path.join(__dirname, 'kill.ps1')], { env: { ...process.env, NARSIL_PROFILE: profile } }, () => done())
@@ -160,42 +160,70 @@ function tick(claudeState, hasWindow) {
   return lines.join('\n')
 }
 
-// macOS keeper. It reads which app is in front with lsappinfo, which needs no
-// permission: Claude in front is "fg"; running behind another app counts as
-// "min", since a Mac window is rarely minimized; not running is "gone".
-// Hiding another app's window would need the accessibility permission, so
-// the window is opened behind the app in use (open -g) when wanted and closed
-// when not; its browser profile remembers where you put it.
-const MAC_TICK_MS = 700
+// macOS keeper. mac-claude.js reports, from the window list and with no
+// permission, whether a window of Claude's is on screen: none (minimized,
+// hidden or not running) is "min", or "gone" when Claude is not running; one
+// in front is "fg", one behind another app "bg", as watch.ps1 tells them on
+// Windows. Hiding another app's window would need the accessibility
+// permission, so the window is opened behind the app in use (open -g) when
+// wanted and closed when not; its browser profile remembers where you put it.
+// The browser hands `open -n` to a profile's running instance, which opens
+// one more window: so the window opens only when none of its processes runs,
+// and each show or hide waits for the one before it to finish.
+let macWindowWork = Promise.resolve()
+const PROFILE_FLAG = `--user-data-dir=${profile}`
 
-function macClaudeState(done) {
-  execFile('/bin/sh', ['-c', 'lsappinfo info -only name "$(lsappinfo front)"'], { timeout: 2000 }, (err, out) => {
-    const front = err ? '' : (/="([^"]*)"/.exec(String(out)) || [])[1] || ''
-    if (front === 'Claude') return done('fg')
-    execFile('pgrep', ['-x', 'Claude'], { timeout: 2000 }, notRunning => done(notRunning ? 'gone' : 'min'))
-  })
+function isMacWindowRunning() {
+  return new Promise(resolve => execFile('pgrep', ['-f', '--', PROFILE_FLAG], { timeout: 2000 }, err => resolve(!err)))
+}
+
+function inMacOrder(work) {
+  macWindowWork = macWindowWork.then(work).catch(() => undefined)
 }
 
 function showMacWindow() {
-  execFile('open', ['-g', '-n', '-a', browserApp, '--args', ...BROWSER_ARGS], () => undefined)
+  inMacOrder(async () => {
+    if (await isMacWindowRunning()) return
+    await new Promise(resolve => execFile('open', ['-g', '-n', '-a', browserApp, '--args', ...BROWSER_ARGS], () => resolve()))
+  })
+}
+
+// Closing takes the browser a moment: wait until it is gone, 3 s at most.
+function hideMacWindow() {
+  inMacOrder(async () => {
+    await new Promise(resolve => killWindow(resolve))
+    for (let i = 0; i < 15 && (await isMacWindowRunning()); i++) await new Promise(resolve => setTimeout(resolve, 200))
+  })
+}
+
+function onMacState(state) {
+  for (const line of tick(state, true).split('\n')) {
+    if (line === 'show') showMacWindow()
+    else if (line === 'hide') hideMacWindow()
+    // Only ever a Claude Code conversation link, checked when queued too.
+    else if (line.startsWith('open ') && LINK.test(line.slice(5))) execFile('open', [line.slice(5)], () => undefined)
+  }
 }
 
 function keepMac() {
-  if (!browserApp) return
+  if (!browserApp || isQuitting) return
+  const reader = keeper = spawn('osascript', ['-l', 'JavaScript', path.join(__dirname, 'mac-claude.js')], { stdio: ['ignore', 'ignore', 'pipe'] })
+  let rest = ''
   let isBusy = false
-  setInterval(() => {
-    if (isBusy || isQuitting) return
+  reader.stderr.on('data', chunk => {
+    const lines = (rest + chunk).split('\n')
+    rest = lines.pop()
+    const word = lines.at(-1)?.trim()
+    if (!['fg', 'bg', 'none'].includes(word) || isBusy) return
+    if (word !== 'none') return onMacState(word)
     isBusy = true
-    macClaudeState(state => {
+    execFile('pgrep', ['-x', 'Claude'], { timeout: 2000 }, notRunning => {
       isBusy = false
-      for (const line of tick(state, true).split('\n')) {
-        if (line === 'show') showMacWindow()
-        else if (line === 'hide') killWindow(() => undefined)
-        // Only ever a Claude Code conversation link, checked when queued too.
-        else if (line.startsWith('open ') && LINK.test(line.slice(5))) execFile('open', [line.slice(5)], () => undefined)
-      }
+      if (!isQuitting) onMacState(notRunning ? 'gone' : 'min')
     })
-  }, MAC_TICK_MS)
+  })
+  // It only stops when something killed it: start it again.
+  reader.on('exit', () => setTimeout(keepMac, 2000))
 }
 
 function readBody(req) {
