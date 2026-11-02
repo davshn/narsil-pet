@@ -2,6 +2,8 @@
 // to a private topic on ntfy.sh, which the ntfy app follows. Pure functions
 // over plain values: the hooks module sends and counts.
 
+import { levelColor } from './usage'
+
 export const NTFY_URL = 'https://ntfy.sh'
 // The store key of how many went today, across every conversation.
 export const PHONE_KEY = 'phone'
@@ -85,6 +87,23 @@ export function statusTopic(topic: string): string {
 // to open the app. Never followed by push.
 export function pushTopic(topic: string): string {
   return `${topic}-push`
+}
+
+// What ntfy.sh says of the day's messages from this network, as
+// GET /v1/account answers it: a usage row the phone app shows with the
+// account's limits, counted down to its reset. ntfy.sh counts by IP, in a
+// day of its own that starts at an hour hashed from the IP, not at midnight.
+// `extra`: messages about to go that the answer does not count yet. Null
+// for anything else.
+export function ntfyRow(account: unknown, extra = 0): { key: 'ntfy'; label: string; percent: number; color: string; note: string; resetsAt: number } | null {
+  const a = account as { limits?: { messages?: unknown }; stats?: { messages?: unknown; reset_at?: unknown } } | null
+  const limit = a?.limits?.messages
+  const used = a?.stats?.messages
+  const resetsAt = a?.stats?.reset_at
+  if (typeof limit !== 'number' || typeof used !== 'number' || typeof resetsAt !== 'number' || limit <= 0) return null
+  const sent = Math.min(limit, used + extra)
+  const percent = (sent / limit) * 100
+  return { key: 'ntfy', label: 'ntfy hoy', percent, color: levelColor(percent), note: `${sent}/${limit} mensajes`, resetsAt }
 }
 
 export type PushSubscription = { endpoint: string; auth: string; p256dh: string }
