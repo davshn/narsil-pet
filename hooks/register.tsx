@@ -5,8 +5,9 @@ import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus, sealedMessage, sealedPayload } from './phone'
-import { newKey, seal } from './seal'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
+import type { PushSubscription } from './phone'
+import { newKey, seal, unseal } from './seal'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -390,7 +391,7 @@ function noteOrigin(origin: { kind: string } | undefined): void {
 // Returns whether it went.
 async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
   const stage = stageOf(levelOf(await read($, xp)).level)
-  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation), force)
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation), force, true)
 }
 
 // What the band shows, for the phone app to show when you open it: on its
@@ -416,12 +417,14 @@ async function postToPhone(
   $: EngineInterface,
   message: (topic: string, isLast: boolean, isSealed: boolean) => { title?: string; message: string },
   force: boolean,
+  isAlert = false,
 ): Promise<boolean> {
   const { phoneTopic, isPhoneOn, phoneKey } = await read($, prefs)
   if (!isPhoneOn || !phoneTopic || (!isRemote && !force)) return false
   const day = dayOf(await $.clock.now())
   const count = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), day)
   if (count.sent >= PHONE_DAILY) return false
+  if (isAlert) await renewPush($, phoneTopic, phoneKey)
   const isLast = count.sent + 1 === PHONE_DAILY
   try {
     const m = message(phoneTopic, isLast, Boolean(phoneKey))
@@ -436,6 +439,45 @@ async function postToPhone(
   }
   await $.store.set(PHONE_KEY, { day, sent: count.sent + 1 }).catch(() => undefined)
   return true
+}
+
+// The phone app's Web Push subscription registered again on ntfy.sh, which
+// drops one whose delivery failed once: the latest the app left on its push
+// topic (opened with the key when sealed), else the one kept from before,
+// as ntfy.sh keeps a message 12 h. Registering is not publishing, so it does
+// not count against the day's messages. Any failure leaves the alert to go
+// as it would have.
+async function renewPush($: EngineInterface, topic: string, key: string | null): Promise<void> {
+  try {
+    const fresh = await latestPush($, topic, key)
+    if (fresh) await $.store.set(PUSH_KEY, fresh).catch(() => undefined)
+    const sub = fresh ?? pushSubscriptionOf(await $.store.get(PUSH_KEY).catch(() => undefined))
+    if (!sub) return
+    await $.http.fetch(`${NTFY_URL}/v1/webpush`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...sub, topics: [topic] }),
+    })
+  } catch {
+    // offline, or something odd on the topic: the alert goes anyway
+  }
+}
+
+// The subscription the app last left on its push topic, sealed as the
+// alerts are when there is a key: null when there is none, or it does not
+// open with the key, or it is not one.
+async function latestPush($: EngineInterface, topic: string, key: string | null): Promise<PushSubscription | null> {
+  try {
+    const { ok, text } = await $.http.fetch(`${NTFY_URL}/${pushTopic(topic)}/json?poll=1&since=latest`)
+    const last = ok ? String(text ?? '').trim().split('\n').at(-1) : ''
+    if (!last) return null
+    const raw = String(JSON.parse(last).message ?? '')
+    const inside = key ? await unseal(key, raw) : raw
+    if (!inside) return null
+    return pushSubscriptionOf(JSON.parse(key ? JSON.parse(inside).message : inside))
+  } catch {
+    return null
+  }
 }
 
 // /narsil movil [on|off|nuevo|prueba|clave [off]]: undefined for any other

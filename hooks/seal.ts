@@ -48,21 +48,45 @@ export function newKey(): string {
   return toBase64Url(crypto.getRandomValues(new Uint8Array(32)))
 }
 
+// The bytes XORed with the keystream: sealing and opening are the same step.
+async function xorStream(encKey: Uint8Array, nonce: Uint8Array, bytes: Uint8Array): Promise<Uint8Array> {
+  const out = new Uint8Array(bytes.length)
+  for (let i = 0; i * BLOCK < bytes.length; i++) {
+    const counter = new Uint8Array(4)
+    new DataView(counter.buffer).setUint32(0, i)
+    const stream = await hmac(encKey, join(nonce, counter))
+    for (let j = 0; j < BLOCK && i * BLOCK + j < bytes.length; j++) out[i * BLOCK + j] = bytes[i * BLOCK + j] ^ stream[j]
+  }
+  return out
+}
+
 // `text` sealed: the prefix, then the nonce, the ciphertext and the tag.
 export async function seal(key: string, text: string, nonce = crypto.getRandomValues(new Uint8Array(NONCE))): Promise<string> {
   const k = fromBase64Url(key)
   const encKey = await hmac(k, utf8.encode('enc'))
   const macKey = await hmac(k, utf8.encode('mac'))
-  const plain = utf8.encode(text)
-  const cipher = new Uint8Array(plain.length)
-  for (let i = 0; i * BLOCK < plain.length; i++) {
-    const counter = new Uint8Array(4)
-    new DataView(counter.buffer).setUint32(0, i)
-    const stream = await hmac(encKey, join(nonce, counter))
-    for (let j = 0; j < BLOCK && i * BLOCK + j < plain.length; j++) cipher[i * BLOCK + j] = plain[i * BLOCK + j] ^ stream[j]
-  }
+  const cipher = await xorStream(encKey, nonce, utf8.encode(text))
   const tag = await hmac(macKey, join(nonce, cipher))
   return SEAL_PREFIX + toBase64Url(join(nonce, cipher, tag))
+}
+
+// What `sealed` holds, as the phone app seals it too; null when it is not
+// sealed with this key, or not sealed at all.
+export async function unseal(key: string, sealed: string): Promise<string | null> {
+  if (!sealed.startsWith(SEAL_PREFIX)) return null
+  try {
+    const bytes = fromBase64Url(sealed.slice(SEAL_PREFIX.length))
+    if (bytes.length < NONCE + BLOCK) return null
+    const k = fromBase64Url(key)
+    const macKey = await hmac(k, utf8.encode('mac'))
+    const tag = await hmac(macKey, bytes.slice(0, -BLOCK))
+    const given = bytes.slice(-BLOCK)
+    if (tag.some((b, i) => b !== given[i])) return null
+    const encKey = await hmac(k, utf8.encode('enc'))
+    return new TextDecoder().decode(await xorStream(encKey, bytes.slice(0, NONCE), bytes.slice(NONCE, -BLOCK)))
+  } catch {
+    return null
+  }
 }
 
 // How many bytes a sealed text of `bytes` takes: ntfy.sh keeps a message
