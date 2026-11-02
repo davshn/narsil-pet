@@ -46,15 +46,24 @@ export function artUrl(pose: string, stage: number): string {
   return `${ART_URL}/${stage > 1 ? `etapa${stage}/` : ''}${pose}-oscuro.png`
 }
 
+// A conversation as the phone tells them apart: 8 hex characters from its
+// session id (FNV-1a), the same each time and saying nothing of its name.
+export function conversationTag(sessionId: string): string {
+  let hash = 0x811c9dc5
+  for (const c of sessionId) hash = Math.imul(hash ^ c.charCodeAt(0), 0x01000193) >>> 0
+  return hash.toString(16).padStart(8, '0')
+}
+
 // What ntfy.sh is sent, as its JSON form takes it. `where` names the
-// conversation; `isLast` says no more come today.
-export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean) {
+// conversation and `conversation` tells it apart, as a `conv-` tag the phone
+// app groups by; `isLast` says no more come today.
+export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean, conversation = '') {
   return {
     topic,
     title: where ? `Narsil · ${title} · ${where}` : `Narsil · ${title}`,
     message: isLast ? `${text}\n(último aviso de hoy: mañana sigo)` : text,
     priority: PRIORITY[kind],
-    tags: [TAGS[kind]],
+    tags: conversation ? [TAGS[kind], `conv-${conversation}`] : [TAGS[kind]],
     icon: phoneIcon(kind, stage),
     actions: [OPEN_CLAUDE],
   }

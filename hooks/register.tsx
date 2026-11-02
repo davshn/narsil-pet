@@ -5,7 +5,7 @@ import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus, sealedMessage, sealedPayload } from './phone'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus, sealedMessage, sealedPayload } from './phone'
 import { newKey, seal } from './seal'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
@@ -390,7 +390,7 @@ function noteOrigin(origin: { kind: string } | undefined): void {
 // Returns whether it went.
 async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
   const stage = stageOf(levelOf(await read($, xp)).level)
-  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast), force)
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation), force)
 }
 
 // What the band shows, for the phone app to show when you open it: on its
@@ -409,7 +409,7 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     const resetsAt = r.key === 'context' ? NaN : Date.parse(spent[r.key]?.resetsAt ?? '')
     return Number.isNaN(resetsAt) ? r : { ...r, resetsAt: Math.floor(resetsAt / 1000) }
   })
-  return postToPhone($, (topic, _isLast, isSealed) => phoneStatus(topic, { ...shown, usage: rows, art, at, ...cacheTimes }, isSealed), force)
+  return postToPhone($, (topic, _isLast, isSealed) => phoneStatus(topic, { ...shown, usage: rows, art, at, conversation, ...cacheTimes }, isSealed), force)
 }
 
 async function postToPhone(
@@ -853,6 +853,8 @@ let summarizedFor: number | null = null
 // The store key of this conversation's counts ('' when its id is unknown),
 // and whether the counts of old conversations were already cleared away.
 let statsKey = ''
+// This conversation as the phone tells it apart (conversationTag).
+let conversation = ''
 let isStatsPruned = false
 
 async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
@@ -871,6 +873,7 @@ async function loadStats($: EngineInterface): Promise<void> {
     // no id: the counts start over with each session
   }
   statsKey = id ? `${STATS_PREFIX}${id}` : ''
+  conversation = id ? conversationTag(id) : ''
   if (!statsKey || (await read($, stats))) return
   const kept = statsOf(await $.store.get(statsKey).catch(() => undefined))
   if (kept) await update($, stats, s => s ?? kept)

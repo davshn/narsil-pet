@@ -124,6 +124,7 @@ La app ntfy basta para recibir los avisos. Si quieres ver también el estado del
    | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación. |
    | `art` | La URL del dibujo de Narsil en su etapa y pose (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
    | `at` | Cuándo se envió (segundos Unix). |
+   | `conversation` | La conversación que lo envía: 8 caracteres hexadecimales, los mismos cada vez. Guarda el último estado de cada una para mostrar varias conversaciones a la vez. Sus avisos llevan la misma marca como etiqueta `conv-<conversation>` en `tags`. |
 
    Si el JSON no cabe, llega sin `tip` ni `steps`. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
 3. **Cifrado (opcional).** Con `/narsil movil clave`, el `message` de cada aviso y de cada estado llega como `narsil1:` seguido, en base64url, de un nonce de 16 bytes, el texto cifrado y una etiqueta de 32 bytes; el `title` llega como "Narsil". Para abrirlo con WebCrypto, usando HMAC-SHA256 (`crypto.subtle.sign('HMAC', …)`):

@@ -2060,3 +2060,24 @@ test('a turn that ends asking in the desktop app next-step box alerts as a quest
   await $.turn.complete({ reason: 'answer', answer: 'Listo.', durationMs: 42_000, isAborted: false, turnId: 'plain' })
   expect(toPhone(posts).at(-1)?.title).toBe('Narsil · He terminado · landing')
 })
+
+test('each alert and state names its conversation the same way, and two conversations differently', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  let id = 'session-a'
+  on('session.id', () => ({ value: id }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  const conversation = JSON.parse(String(toStatus(posts).at(-1)?.message)).conversation
+  expect(conversation).toMatch(/^[0-9a-f]{8}$/)
+  expect(toPhone(posts).at(-1)?.tags).toEqual(['white_check_mark', `conv-${conversation}`])
+
+  id = 'session-b'
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  const other = JSON.parse(String(toStatus(posts).at(-1)?.message)).conversation
+  expect(other).toMatch(/^[0-9a-f]{8}$/)
+  expect(other).not.toBe(conversation)
+})
