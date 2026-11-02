@@ -9,6 +9,7 @@ import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
 import { phoneStatus, sealedPayload } from '../hooks/phone'
+import { addSpend, spendOf, usdLabel } from '../hooks/spend'
 import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, sealedLength, toBase64Url, unseal as openSealed } from '../hooks/seal'
 
 const BAND = {
@@ -47,6 +48,7 @@ function engine(
     isOverlayStale = false,
     stateReply = () => '',
     pushReply = () => '',
+    account = '',
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -59,6 +61,8 @@ function engine(
     stateReply?: (body: Record<string, unknown>) => string
     // what the phone app left on its push topic, as ntfy.sh's poll returns it
     pushReply?: () => Promise<string> | string
+    // what ntfy.sh's /v1/account answers
+    account?: string
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -82,6 +86,7 @@ function engine(
   on('command.register', () => ({ value: { command: 'narsil' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('http.fetch', async (_, e) => {
+    if (e.url.endsWith('/v1/account')) return { value: { status: account ? 200 : 503, ok: Boolean(account), headers: {}, text: account } }
     if (e.url.includes('-push/json')) {
       const message = await pushReply()
       return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}
@@ -1720,8 +1725,8 @@ const toPhone = (posts: Posted[]) => toNtfy(posts).filter(m => !String(m.topic).
 const toStatus = (posts: Posted[]) => toNtfy(posts).filter(m => String(m.topic).endsWith('-estado'))
 
 // The engine, with turns and tools answered.
-function phoneEngine(on: On, store: Record<string, unknown> = {}, pushReply?: () => Promise<string> | string): Posted[] {
-  const posts = engine(on, null, { store, pushReply })
+function phoneEngine(on: On, store: Record<string, unknown> = {}, pushReply?: () => Promise<string> | string, account?: string): Posted[] {
+  const posts = engine(on, null, { store, pushReply, account })
   on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
@@ -2147,4 +2152,73 @@ test('what the mod seals, it opens; with another key, or tampered, it does not',
   bytes[20] ^= 1
   expect(await openSealed(key, SEAL_PREFIX + toBase64Url(bytes))).toBeNull()
   expect(await openSealed(key, 'no sellado')).toBeNull()
+})
+
+test('the state carries ntfy.sh count of the day, this message included, and when it resets', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const account = JSON.stringify({ limits: { messages: 250 }, stats: { messages: 127, reset_at: 1_793_662_469 } })
+  const posts = phoneEngine(on, store, undefined, account)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
+  expect(state.usage.at(-1)).toEqual({ key: 'ntfy', label: 'ntfy hoy', percent: (128 / 250) * 100, color: '#22B573', note: '128/250 mensajes', resetsAt: 1_793_662_469 })
+})
+
+test('with ntfy.sh count out of reach, the state goes without that row', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
+  expect(state.usage.some((r: { key: string }) => r.key === 'ntfy')).toBe(false)
+})
+
+test('the band shows what Claude has cost today and in all, summed over conversations, each counted once', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  engine(on, null, { store })
+  measured(on)
+  let id = 'session-a'
+  on('session.id', () => ({ value: id }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  // nothing reported yet: no line
+  expect((await bandTexts($, 'desktop')).some(t => t.startsWith('💵'))).toBe(false)
+
+  await $.session.measure({ ...MEASURED, cost: { usd: 0.5 }, changed: ['cost'] } as never)
+  await $.session.measure({ ...MEASURED, cost: { usd: 1.25 }, changed: ['cost'] } as never)
+  expect(await bandTexts($, 'desktop')).toContain('💵 Hoy $1.25 · total $1.25')
+
+  // another conversation adds its own; this one, reporting the same again, adds nothing
+  id = 'session-b'
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
+  expect(await bandTexts($, 'terminal')).toContain('💵 Hoy $3.25 · total $3.25')
+  await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
+  expect((store.spend as { total: number }).total).toBe(3.25)
+})
+
+test('a new day starts today at zero and keeps the total; a conversation that starts its count over subtracts nothing', () => {
+  let s = spendOf(undefined, '2026-11-01')
+  s = addSpend(s, 'a', 4, '2026-11-01')
+  s = addSpend(s, 'a', 5, '2026-11-02')
+  expect([s.today, s.total]).toEqual([1, 5])
+  s = addSpend(s, 'a', 0.5, '2026-11-02')
+  expect([s.today, s.total]).toEqual([1, 5])
+  s = addSpend(s, 'a', 1.5, '2026-11-02')
+  expect([s.today, s.total]).toEqual([2, 6])
+  expect(spendOf({ day: 'x', today: -1, total: 3 }, '2026-11-02')).toEqual({ day: '2026-11-02', today: 0, total: 0, sessions: {} })
+  expect([usdLabel(0), usdLabel(0.004), usdLabel(12.345)]).toEqual(['$0', '<$0.01', '$12.35'])
+})
+
+test('the phone app gets the cost with the state', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('session.id', () => ({ value: 'session-a' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.session.measure({ ...MEASURED, cost: { usd: 0.75 }, changed: ['cost'] } as never)
+  await fromPhone($)
+  await finishTurn($)
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).spend).toEqual({ today: 0.75, total: 0.75 })
 })

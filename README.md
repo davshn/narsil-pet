@@ -54,6 +54,8 @@ Barras con el uso de la ventana de contexto, del límite de 5 horas y del límit
 
 La barra de contexto calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
 
+Debajo, Narsil muestra lo que ha costado Claude en este ordenador: hoy (desde tu medianoche) y en total desde que empezó a contarlo ("💵 Hoy $3.46 · total $45.60"). Suma todas las conversaciones y cuenta cada una una sola vez, con la misma cifra que da `/cost`. Con un plan Pro o Max no es lo que pagas, sino lo que costarían esos tokens en la API. Cada ordenador lleva su propia cuenta.
+
 ### Reacciones a lo que ejecuta Claude
 - **Tests**: celebra cuando pasan, se da cuenta cuando fallan y celebra cuando se recuperan. Reconoce npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle y más.
 - **Comandos peligrosos**: avisa antes de que se ejecute un comando sin vuelta atrás, como `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `git branch -D`, `Remove-Item -Recurse -Force`, `DROP TABLE`, `chmod -R 777` o `curl … | sh`. Solo avisa: nunca bloquea nada.
@@ -118,13 +120,14 @@ La app ntfy basta para recibir los avisos. Si quieres ver también el estado del
    | --- | --- |
    | `status`, `statusLabel` | `working`, `idle`, `waiting`, `done` o `error`, y su nombre ("TRABAJANDO"…). |
    | `headline`, `line`, `tip` | El titular, la frase de Narsil y el consejo (`null` si no hay). |
-   | `usage` | Las barras: `[{ key, label, percent, color, note, resetsAt }]` (contexto, 5 horas, semana). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja. |
+   | `usage` | Las barras: `[{ key, label, percent, color, note, resetsAt }]` (contexto, 5 horas, semana y, si ntfy.sh responde, `ntfy`: los mensajes del día desde tu red, con `note` como "128/250 mensajes"). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja, salvo en `ntfy`, donde `note` no es un reinicio. ntfy.sh cuenta por IP y su día empieza a una hora propia de cada IP, no a medianoche: `GET https://ntfy.sh/v1/account` la da en `stats.reset_at`. |
    | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché (segundos Unix) y cuántos minutos dura. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
    | `steps` | Los próximos pasos sugeridos. |
    | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación. |
    | `art` | La URL del dibujo de Narsil en su etapa y pose (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
    | `at` | Cuándo se envió (segundos Unix). |
    | `conversation` | La conversación que lo envía: 8 caracteres hexadecimales, los mismos cada vez. Guarda el último estado de cada una para mostrar varias conversaciones a la vez. Sus avisos llevan la misma marca como etiqueta `conv-<conversation>` en `tags`. |
+   | `spend` | Lo que ha costado Claude en este ordenador, en dólares: `{ today, total }`, como lo muestra la banda. Es de la cuenta, no de la conversación: muéstralo una vez, del estado más reciente. |
 
    Si el JSON no cabe, llega sin `tip` ni `steps`. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
 3. **Cifrado (opcional).** Con `/narsil movil clave`, el `message` de cada aviso y de cada estado llega como `narsil1:` seguido, en base64url, de un nonce de 16 bytes, el texto cifrado y una etiqueta de 32 bytes; el `title` llega como "Narsil". Para abrirlo con WebCrypto, usando HMAC-SHA256 (`crypto.subtle.sign('HMAC', …)`):
@@ -233,6 +236,7 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
 - `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
 - `hooks/phone.ts`: los avisos al móvil (el mensaje para ntfy.sh con su icono, el tema y la cuenta diaria).
+- `hooks/spend.ts`: lo que ha costado Claude en este ordenador, hoy y en total, sumando cada conversación una sola vez.
 - `hooks/seal.ts`: el cifrado de `/narsil movil clave` (HMAC-SHA256 en modo contador, con etiqueta).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).

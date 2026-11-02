@@ -106,8 +106,12 @@ export type Stats = {
   agents: number
 }
 
+// What Claude has cost on this computer (hooks/spend.ts), in US dollars:
+// today, from local midnight, and since Narsil began counting.
+export type Spending = { today: number; total: number }
+
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null }
   }
 }

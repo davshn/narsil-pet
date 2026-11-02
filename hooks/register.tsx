@@ -5,9 +5,10 @@ import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
 import type { PushSubscription } from './phone'
 import { newKey, seal, unseal } from './seal'
+import { SPEND_KEY, addSpend, localDay, spendLabel, spendOf } from './spend'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -59,6 +60,8 @@ const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
 // The main thread's model, as a name ("Opus 5.5"): read at start and with
 // each heartbeat, since no event tells of a /model change.
+// What Claude has cost on this computer, for the band (hooks/spend.ts).
+const spending = atom({ plugin: 'narsil-pet', key: 'spending' } as const, null)
 const mainModel = atom({ plugin: 'narsil-pet', key: 'model' } as const, null)
 // A new level or stage being celebrated, and when it began.
 const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
@@ -410,12 +413,32 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     const resetsAt = r.key === 'context' ? NaN : Date.parse(spent[r.key]?.resetsAt ?? '')
     return Number.isNaN(resetsAt) ? r : { ...r, resetsAt: Math.floor(resetsAt / 1000) }
   })
-  return postToPhone($, (topic, _isLast, isSealed) => phoneStatus(topic, { ...shown, usage: rows, art, at, conversation, ...cacheTimes }, isSealed), force)
+  // ntfy.sh's count of the day's messages, this one included, as one more
+  // row: read only once it is going.
+  return postToPhone(
+    $,
+    async (topic, _isLast, isSealed) => {
+      const ntfy = ntfyRow(await ntfyAccount($), 1)
+      const spend = await read($, spending)
+      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation, ...cacheTimes, ...(spend ? { spend } : {}) }, isSealed)
+    },
+    force,
+  )
+}
+
+// What ntfy.sh counts of this network's messages today; undefined offline.
+async function ntfyAccount($: EngineInterface): Promise<unknown> {
+  try {
+    const { ok, text } = await $.http.fetch(`${NTFY_URL}/v1/account`)
+    return ok ? JSON.parse(String(text)) : undefined
+  } catch {
+    return undefined
+  }
 }
 
 async function postToPhone(
   $: EngineInterface,
-  message: (topic: string, isLast: boolean, isSealed: boolean) => { title?: string; message: string },
+  message: (topic: string, isLast: boolean, isSealed: boolean) => { title?: string; message: string } | Promise<{ title?: string; message: string }>,
   force: boolean,
   isAlert = false,
 ): Promise<boolean> {
@@ -427,7 +450,7 @@ async function postToPhone(
   if (isAlert) await renewPush($, phoneTopic, phoneKey)
   const isLast = count.sent + 1 === PHONE_DAILY
   try {
-    const m = message(phoneTopic, isLast, Boolean(phoneKey))
+    const m = await message(phoneTopic, isLast, Boolean(phoneKey))
     const { ok } = await $.http.fetch(NTFY_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -577,6 +600,19 @@ async function surfaceReport($: EngineInterface): Promise<string> {
     return `${name}${state}: ${asked === undefined ? 'nunca ha pedido la banda' : `pidió la banda ${ago(now - asked)}`}`
   })
   return `Superficies: ${parts.join(' · ')}`
+}
+
+// This conversation's running cost into the computer's count, and the
+// band's figures from it; with no report, only the day turns over.
+async function recordSpend($: EngineInterface, usd: number | undefined): Promise<void> {
+  const now = await $.clock.now()
+  const day = localDay(now)
+  const kept = spendOf(await $.store.get(SPEND_KEY).catch(() => undefined), day)
+  const next = usd === undefined || !sessionId ? { ...kept, ...(kept.day === day ? {} : { day, today: 0 }) } : addSpend(kept, sessionId, usd, day)
+  if (usd !== undefined && sessionId) await $.store.set(SPEND_KEY, next).catch(() => undefined)
+  // Nothing counted yet (or a host with no cost ledger): no line at all.
+  const shown = next.total > 0 ? { today: next.today, total: next.total } : null
+  if (JSON.stringify(await read($, spending)) !== JSON.stringify(shown)) await update($, spending, () => shown)
 }
 
 async function setUsage($: EngineInterface, next: Usage): Promise<void> {
@@ -897,6 +933,8 @@ let summarizedFor: number | null = null
 let statsKey = ''
 // This conversation as the phone tells it apart (conversationTag).
 let conversation = ''
+// Its session id, which its cost is counted under (hooks/spend.ts).
+let sessionId = ''
 let isStatsPruned = false
 
 async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
@@ -916,6 +954,7 @@ async function loadStats($: EngineInterface): Promise<void> {
   }
   statsKey = id ? `${STATS_PREFIX}${id}` : ''
   conversation = id ? conversationTag(id) : ''
+  sessionId = id
   if (!statsKey || (await read($, stats))) return
   const kept = statsOf(await $.store.get(statsKey).catch(() => undefined))
   if (kept) await update($, stats, s => s ?? kept)
@@ -1032,6 +1071,7 @@ export const register: Register = on => {
     // The stats survive a reload of the mod, and Claude Code restarting with
     // this conversation: only a new conversation starts them.
     await loadStats($)
+    await recordSpend($, spent?.cost?.usd)
     await readModel($)
     if (!(await read($, stats))) await bumpStats($, s => s)
     const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
@@ -1127,6 +1167,7 @@ export const register: Register = on => {
   // The engine measures after each turn and when a limit moves a point.
   on('session.measure', async ($, e, next) => {
     await setUsage($, usageOf(e))
+    await recordSpend($, e.cost?.usd)
 
     return next(e)
   })
@@ -1357,6 +1398,7 @@ export const register: Register = on => {
     const helpers = (await read($, agentChips)).slice(0, MAX_AGENTS_SHOWN)
     // The cache's clock while Claude waits, and the next steps on offer.
     const clockShown = await read($, cache)
+    const cost = await read($, spending)
     const offered = (await read($, steps))?.items ?? []
     const xpNow = await read($, xp)
     const celebrated = (await read($, milestone)) ?? undefined
@@ -1407,6 +1449,7 @@ export const register: Register = on => {
           ))}
           <Text dimColor>{level}</Text>
           {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
+          {cost ? <Text dimColor>{spendLabel(cost)}</Text> : null}
           {offered.length > 0 ? (
             <Box flexDirection="row" gap={1} flexWrap="wrap">
               <Text dimColor>➜ ¿Y ahora?</Text>
@@ -1463,6 +1506,7 @@ export const register: Register = on => {
             </Box>
           ) : null}
           {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
+          {cost ? <Text dimColor>{spendLabel(cost)}</Text> : null}
           {offered.length > 0 ? (
             <Box flexDirection="column" gap={1} alignItems="flex-start" minWidth={0}>
               <Text dimColor>➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:</Text>
