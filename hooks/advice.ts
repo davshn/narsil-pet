@@ -23,7 +23,9 @@ export type Context = {
 export const MAX_CALLS = 15
 export const MAX_FAILURES = 5
 export const MAX_CONTEXT = 2000
-export const MAX_TIP = 160
+// The model is asked for 160 characters and often writes a few more: those
+// show whole, and only a runaway tip is cut, at its last full sentence.
+export const MAX_TIP = 320
 
 export function emptyContext(): Context {
   return { prompt: '', calls: [], failures: [], touched: new Map(), durationMs: 0, answer: '' }
@@ -144,6 +146,8 @@ export function parse(reply: string): string | null {
     .trim()
   if (!text || /^skip\b/i.test(text)) return null
   if (text.length <= MAX_TIP) return text
+  const sentence = /^.*[.!?](?=\s)/.exec(text.slice(0, MAX_TIP))?.[0]
+  if (sentence && sentence.length > MAX_TIP / 2) return sentence
   const cut = text.slice(0, MAX_TIP - 1)
   const space = cut.lastIndexOf(' ')
   return `${space > MAX_TIP / 2 ? cut.slice(0, space) : cut}…`

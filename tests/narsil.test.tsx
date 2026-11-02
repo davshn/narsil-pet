@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
-import { STEPS_SYSTEM, SYSTEM, parseSteps } from '../hooks/advice'
+import { STEPS_SYSTEM, SYSTEM, parse, parseSteps } from '../hooks/advice'
 import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
@@ -2029,4 +2029,15 @@ test('her drawing has no entrance that replays, so redrawing the band never make
     expect(svg).not.toContain('class="enter"')
     expect(svg).not.toContain('animation:enter')
   }
+})
+
+test('a tip a little past the 160 characters asked for arrives whole; a runaway one ends at a sentence', () => {
+  const long = 'Ya está en GitHub, pero antes de dar por cerrada la 2.0.0, comprueba desde una instalación limpia que `claude plugin test .` sigue pasando los 93 tests tras el cambio.'
+  expect(long.length).toBeGreaterThan(160)
+  expect(parse(long)).toBe(long)
+
+  const runaway = `${'Prueba primero el caso que falla. '.repeat(12)}Y después el resto`
+  const cut = parse(runaway) ?? ''
+  expect(cut.length).toBeLessThanOrEqual(320)
+  expect(cut.endsWith('falla.')).toBe(true)
 })

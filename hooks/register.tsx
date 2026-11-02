@@ -616,7 +616,7 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
       system: SYSTEM,
       prompt: prompt(describe(seen, kind), recentTips),
       effort: 'low',
-      maxTokens: 120,
+      maxTokens: 200,
       timeoutMs: 8000,
     })
     return reply.isAnswered ? parse(reply.text) : null
