@@ -56,8 +56,13 @@ export function phoneMessage(topic: string, kind: PhoneKind, title: string, text
     priority: PRIORITY[kind],
     tags: [TAGS[kind]],
     icon: phoneIcon(kind, stage),
+    actions: [OPEN_CLAUDE],
   }
 }
+
+// A button under the alert. Nothing links to the conversation itself from a
+// phone: this one opens the Claude app, where Remote Control lists it.
+const OPEN_CLAUDE = { action: 'view', label: 'Abrir Claude', url: 'https://claude.ai/code' }
 
 // The topic the phone app reads Narsil's state from: not followed by push,
 // so its messages never show as notifications.
@@ -66,15 +71,18 @@ export function statusTopic(topic: string): string {
 }
 
 // ntfy.sh turns a message past 4096 bytes into an attachment: the state
-// stays under it, counting each character as two (accents take two).
-const STATUS_ROOM = 2000
+// stays under it, in UTF-8 bytes, with less room when it goes sealed (the
+// seal adds a third and some).
+const STATUS_ROOM = 3900
+const SEALED_STATUS_ROOM = 2900
+const utf8 = new TextEncoder()
 
 // What the phone app is sent of the state the desktop shows, as a JSON
 // message on the status topic; the tip and the next steps go first when it
 // does not fit.
-export function phoneStatus(topic: string, state: Record<string, unknown>) {
+export function phoneStatus(topic: string, state: Record<string, unknown>, isSealed = false) {
   let message = JSON.stringify(state)
-  if (message.length > STATUS_ROOM) message = JSON.stringify({ ...state, tip: null, steps: [] })
+  if (utf8.encode(message).length > (isSealed ? SEALED_STATUS_ROOM : STATUS_ROOM)) message = JSON.stringify({ ...state, tip: null, steps: [] })
   return { topic: statusTopic(topic), message, priority: 1 }
 }
 
@@ -85,4 +93,16 @@ export function phoneHelp(topic: string): string {
     'Tu reloj Wear OS mostrará sus notificaciones si tienes activadas las de ntfy en la app del reloj. ' +
     'Quien conozca el nombre del tema puede leer los avisos: no lo compartas (/narsil movil nuevo crea otro).'
   )
+}
+
+// What ntfy.sh is sent when a key seals it: the title and the text go inside
+// the sealed message, and only "Narsil" shows outside. Only an app that
+// holds the key reads it (the ntfy app shows noise).
+export function sealedMessage<M extends { title?: string; message: string }>(m: M, sealed: string): M {
+  return { ...m, ...(m.title ? { title: 'Narsil' } : {}), message: sealed }
+}
+
+// What goes inside the seal.
+export function sealedPayload(m: { title?: string; message: string }): string {
+  return JSON.stringify(m.title ? { title: m.title, message: m.message } : { message: m.message })
 }

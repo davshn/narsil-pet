@@ -38,6 +38,9 @@ export type Prefs = {
   // /narsil movil makes one), and whether they go.
   phoneTopic: string | null
   isPhoneOn: boolean
+  // The key that seals what goes to the topic, for your own phone app
+  // (/narsil movil clave); null: it goes in the clear, as the ntfy app reads.
+  phoneKey: string | null
 }
 
 // The tip on show: its text, why it was given (TipKind) and when. Faded: it

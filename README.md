@@ -97,6 +97,8 @@ Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a
 
 Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` lo que la banda muestra en el PC: estado, titular, consejo, uso, caché, próximos pasos, nivel y modelo. Ese tema no genera notificaciones: está pensado para que una app propia lo lea al abrirse (ver más abajo). Esos mensajes cuentan dentro de los 200 diarios.
 
+Si usas tu propia app, `/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y tu app. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si es la que usas, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
+
 #### Tu propia app para el móvil
 La app ntfy basta para recibir los avisos. Si quieres ver también el estado del PC, como en la banda, puedes hacer tu propia app web instalable (PWA). No hace falta servidor: es una página estática que habla directamente con ntfy.sh. Puedes alojarla gratis en Vercel, Netlify o GitHub Pages. Lo que necesita:
 
@@ -109,22 +111,29 @@ La app ntfy basta para recibir los avisos. Si quieres ver también el estado del
      body: JSON.stringify({ endpoint, auth: keys.auth, p256dh: keys.p256dh, topics: [tema] }),
    })
    ```
-   En el service worker, el evento `push` trae el mensaje de ntfy en `event.data.json()` (`title`, `message`, `icon`, `priority`): muéstralo con `showNotification`. Chrome exige que cada push muestre una notificación. Suscribe así solo el tema de los avisos, nunca el de `-estado`. Registra de nuevo la suscripción cada vez que se abra la app, porque ntfy.sh descarta las que fallan al entregar.
+   En el service worker, el evento `push` trae el mensaje de ntfy en `event.data.json()` (`title`, `message`, `icon`, `priority`, `actions`): muéstralo con `showNotification`. `actions` trae el botón "Abrir Claude" (`{action: "view", label, url}`): pásalo como acción de la notificación y ábrelo en `notificationclick`. Chrome exige que cada push muestre una notificación. Suscribe así solo el tema de los avisos, nunca el de `-estado`. Registra de nuevo la suscripción cada vez que se abra la app, porque ntfy.sh descarta las que fallan al entregar.
 2. **El estado, mientras la app está abierta.** Lee el último con `GET https://ntfy.sh/<tema>-estado/json?poll=1&since=latest` y escucha los siguientes con `new EventSource('https://ntfy.sh/<tema>,<tema>-estado/sse')`. Cada línea es un mensaje de ntfy; en los del tema de estado, `message` es un JSON con estos campos:
 
    | Campo | Qué es |
    | --- | --- |
    | `status`, `statusLabel` | `working`, `idle`, `waiting`, `done` o `error`, y su nombre ("TRABAJANDO"…). |
    | `headline`, `line`, `tip` | El titular, la frase de Narsil y el consejo (`null` si no hay). |
-   | `usage` | Las barras: `[{ label, percent, color, note }]` (contexto, 5 horas, semana). |
+   | `usage` | Las barras: `[{ key, label, percent, color, note, resetsAt }]` (contexto, 5 horas, semana). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja. |
    | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché (segundos Unix) y cuántos minutos dura. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
    | `steps` | Los próximos pasos sugeridos. |
    | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación. |
    | `art` | La URL del dibujo de Narsil en su etapa y pose (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
    | `at` | Cuándo se envió (segundos Unix). |
 
-   Si el JSON no cabe, llega sin `tip` ni `steps`. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado".
-3. **Instalable.** Añade un `manifest.webmanifest` con `display: "standalone"` y los iconos. `tools/build-pwa-icons.ps1` genera `icon-192.png`, `icon-512.png` y `badge.png` con la cabeza de Narsil: `powershell -ExecutionPolicy Bypass -File tools/build-pwa-icons.ps1 -OutDir <carpeta de tu app>`. En iPhone, Web Push solo funciona si añades la app a la pantalla de inicio (iOS 16.4 o posterior).
+   Si el JSON no cabe, llega sin `tip` ni `steps`. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
+3. **Cifrado (opcional).** Con `/narsil movil clave`, el `message` de cada aviso y de cada estado llega como `narsil1:` seguido, en base64url, de un nonce de 16 bytes, el texto cifrado y una etiqueta de 32 bytes; el `title` llega como "Narsil". Para abrirlo con WebCrypto, usando HMAC-SHA256 (`crypto.subtle.sign('HMAC', …)`):
+   - Deriva dos claves de la clave compartida (base64url): `enc = HMAC(clave, "enc")` y `mac = HMAC(clave, "mac")`.
+   - Comprueba que la etiqueta sea `HMAC(mac, nonce ‖ cifrado)`. Si no coincide, la clave no es la buena.
+   - Descifra con XOR, en bloques de 32 bytes: el bloque `i` (empezando en 0) usa `HMAC(enc, nonce ‖ i)`, con `i` en 4 bytes big-endian.
+   - Dentro hay un JSON `{ title, message }`: en los avisos, el título y el texto de verdad; en el estado, solo `message`, que es el JSON del estado.
+
+   Hazlo también en el service worker antes de mostrar la notificación. `hooks/seal.ts` es la referencia exacta.
+4. **Instalable.** Añade un `manifest.webmanifest` con `display: "standalone"` y los iconos. `tools/build-pwa-icons.ps1` genera `icon-192.png`, `icon-512.png` y `badge.png` con la cabeza de Narsil: `powershell -ExecutionPolicy Bypass -File tools/build-pwa-icons.ps1 -OutDir <carpeta de tu app>`. En iPhone, Web Push solo funciona si añades la app a la pantalla de inicio (iOS 16.4 o posterior).
 
 Guarda el tema en la app (en `localStorage`, por ejemplo) y no lo pongas en la URL pública: quien lo conozca puede leer tus avisos.
 
@@ -191,7 +200,7 @@ La ventana flotante necesita, además:
 | `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
 | `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
 | `/narsil nivel` | Muestra el nivel y la experiencia de Narsil, y cómo se gana. |
-| `/narsil movil` · `on` · `off` · `nuevo` · `prueba` | Activa los avisos al móvil y dice cómo seguirlos; los apaga, crea un tema nuevo o envía uno de prueba. |
+| `/narsil movil` · `on` · `off` · `nuevo` · `prueba` · `clave [off]` | Activa los avisos al móvil y dice cómo seguirlos; los apaga, crea un tema nuevo, envía uno de prueba o cifra lo que envía para tu propia app. |
 | `/narsil resumen` | Resume la sesión: turnos, archivos editados, comandos, fallos, subagentes y contexto. |
 
 ## Sistemas compatibles
@@ -223,6 +232,7 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
 - `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
 - `hooks/phone.ts`: los avisos al móvil (el mensaje para ntfy.sh con su icono, el tema y la cuenta diaria).
+- `hooks/seal.ts`: el cifrado de `/narsil movil clave` (HMAC-SHA256 en modo contador, con etiqueta).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
 - `tests/`: los tests.

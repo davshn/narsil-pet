@@ -8,6 +8,8 @@ import { emptyStats, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
+import { phoneStatus, sealedPayload } from '../hooks/phone'
+import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, sealedLength, toBase64Url } from '../hooks/seal'
 
 const BAND = {
   plugin: 'narsil-pet',
@@ -1773,6 +1775,81 @@ test('as a turn ends from the phone, the app gets what the band shows on the sta
   expect(toStatus(posts).length).toBe(1)
 })
 
+test('the state gives each limit its reset as when it comes, for the app to count down', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const posts = phoneEngine(on, store)
+  measured(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
+  await fromPhone($)
+  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
+  await finishTurn($)
+  const state = JSON.parse(String(toStatus(posts)[0]?.message))
+  const row = (key: string) => state.usage.find((r: { key: string }) => r.key === key)
+  expect(row('fiveHour').resetsAt).toBe(Math.floor(Date.parse(IN_2H05) / 1000))
+  expect(row('week').resetsAt).toBe(Math.floor(Date.parse(IN_3D) / 1000))
+  expect(row('context').resetsAt).toBeUndefined()
+})
+
+// What a sealed message holds, opened as the phone app opens it.
+async function unseal(key: string, sealed: string): Promise<string> {
+  const bytes = fromBase64Url(sealed.slice(SEAL_PREFIX.length))
+  const k = fromBase64Url(key)
+  const utf8 = new TextEncoder()
+  const encKey = await hmac(k, utf8.encode('enc'))
+  const macKey = await hmac(k, utf8.encode('mac'))
+  const nonce = bytes.slice(0, 16)
+  const cipher = bytes.slice(16, -32)
+  const tag = await hmac(macKey, bytes.slice(0, -32))
+  expect(toBase64Url(tag)).toBe(toBase64Url(bytes.slice(-32)))
+  const plain = new Uint8Array(cipher.length)
+  for (let i = 0; i * 32 < cipher.length; i++) {
+    const counter = new Uint8Array([0, 0, 0, i])
+    const stream = await hmac(encKey, new Uint8Array([...nonce, ...counter]))
+    for (let j = 0; j < 32 && i * 32 + j < cipher.length; j++) plain[i * 32 + j] = cipher[i * 32 + j] ^ stream[j]
+  }
+  return new TextDecoder().decode(plain)
+}
+
+test('/narsil movil clave seals what goes to ntfy.sh; clave off sends it in the clear again', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
+  const said = await $.command.run({ command: 'narsil', args: 'movil clave', ...BY_PHONE })
+  const key = (store.prefs as { phoneKey: string }).phoneKey
+  expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  expect(said.text).toContain(key)
+  await finishTurn($, undefined, 'Listo: he cambiado el registro.')
+
+  const alert = toPhone(posts)[0]
+  expect(alert?.title).toBe('Narsil')
+  expect(String(alert?.message)).toMatch(/^narsil1:/)
+  expect(String(alert?.message)).not.toContain('registro')
+  const opened = JSON.parse(await unseal(key, String(alert?.message)))
+  expect(opened.title).toMatch(/He terminado/)
+  expect(opened.message).toContain('he cambiado el registro')
+
+  const status = toStatus(posts)[0]
+  expect(status?.title).toBeUndefined()
+  const state = JSON.parse(JSON.parse(await unseal(key, String(status?.message))).message)
+  expect(state.status).toBe('done')
+
+  await $.command.run({ command: 'narsil', args: 'movil clave off', ...BY_PHONE })
+  expect((store.prefs as { phoneKey: string | null }).phoneKey).toBeNull()
+  await finishTurn($, undefined, 'Listo otra vez.')
+  expect(String(toPhone(posts)[1]?.message)).toContain('Listo otra vez')
+})
+
+test('a sealed message stays under the 4096 bytes ntfy.sh keeps as text', async () => {
+  const key = newKey()
+  const state = { tip: 'ñ'.repeat(1400), steps: ['á'.repeat(200)], headline: 'x' }
+  const m = phoneStatus('t', state, true)
+  expect((await seal(key, sealedPayload(m))).length).toBeLessThan(4096)
+  expect(sealedLength(new TextEncoder().encode(sealedPayload(m)).length)).toBeLessThan(4096)
+})
+
 test('the phone gets nothing until /narsil movil is turned on', async ($, on) => {
   const posts = phoneEngine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -1883,6 +1960,15 @@ test('each phone alert shows Narsil at her stage, in the pose that fits it', asy
   await fromPhone($)
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   expect(toPhone(posts).at(-1)?.icon).toBe(`${art}/etapa3/necesita-oscuro.png`)
+})
+
+test('each phone alert carries a button that opens the Claude app', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  expect(toPhone(posts).at(-1)?.actions).toEqual([{ action: 'view', label: 'Abrir Claude', url: 'https://claude.ai/code' }])
 })
 
 test('the phone gets alerts only while you write through Remote Control, never at the desk', async ($, on) => {
