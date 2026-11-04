@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
-import { MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, prompt, remember, stepsPrompt } from './advice'
+import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
 import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
 import type { PushSubscription } from './phone'
@@ -691,17 +691,58 @@ async function mayTip($: EngineInterface, kind: TipKind): Promise<boolean> {
   return true
 }
 
+// A git command's output in the session's folder; empty outside a repository,
+// without git, or when it fails.
+async function git($: EngineInterface, args: string[]): Promise<string> {
+  try {
+    const { exitCode, stdout } = await $.process.run(['git', '--no-pager', ...args], { timeoutMs: 5000 })
+    return exitCode === 0 ? stdout.trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+// What the work changed: the uncommitted diff, or the last commit when the
+// turn committed it all.
+async function readDiff($: EngineInterface): Promise<string> {
+  const pending = await git($, ['diff', 'HEAD', '--stat', '--patch', '--unified=2'])
+  if (pending) return pending
+  return git($, ['show', 'HEAD', '--stat', '--patch', '--unified=2', '--format=%s'])
+}
+
+// Where the project stands: recent commits, uncommitted files, and the
+// unfinished tasks of its task files (odd/tasks/*.md), when it has any.
+async function readProject($: EngineInterface): Promise<string> {
+  const parts: string[] = []
+  const log = await git($, ['log', '--oneline', '--no-decorate', '-10'])
+  if (log) parts.push(`Commits recientes:\n${log}`)
+  const status = await git($, ['status', '--short'])
+  if (status) parts.push(`Sin commit:\n${status}`)
+  try {
+    const files = (await $.fs.list('odd/tasks')).filter(f => f.kind === 'file' && f.name.endsWith('.md'))
+    for (const f of files.slice(0, 5)) {
+      const text = await $.fs.read(`odd/tasks/${f.name}`)
+      const pending = typeof text === 'string' ? pendingTasks(text) : []
+      if (pending.length > 0) parts.push(`Tareas pendientes (${f.name}):\n${pending.map(t => `- ${t}`).join('\n')}`)
+    }
+  } catch {
+    // no task files
+  }
+  return parts.join('\n')
+}
+
 // One small completion over what Narsil has seen; null when she has nothing
 // useful to say or the call failed.
 async function askTip($: EngineInterface, kind: TipKind): Promise<string | null> {
   try {
+    seen.diff = kind === 'review' || kind === 'asked' ? await readDiff($) : ''
     const reply = await $.model.complete({
       model: 'haiku',
       system: SYSTEM,
       prompt: prompt(describe(seen, kind), recentTips),
-      effort: 'low',
-      maxTokens: 200,
-      timeoutMs: 8000,
+      effort: 'medium',
+      maxTokens: 2000,
+      timeoutMs: 30_000,
     })
     return reply.isAnswered ? parse(reply.text) : null
   } catch {
@@ -890,13 +931,15 @@ async function offerSteps($: EngineInterface, at: number): Promise<void> {
   const { isNextStepsOn, isQuiet } = await read($, prefs)
   if (!isNextStepsOn || isQuiet) return
   try {
+    seen.diff = await readDiff($)
+    seen.project = await readProject($)
     const reply = await $.model.complete({
       model: 'haiku',
       system: STEPS_SYSTEM,
-      prompt: stepsPrompt(describe(seen, 'review')),
-      effort: 'low',
-      maxTokens: 160,
-      timeoutMs: 8000,
+      prompt: stepsPrompt(describe(seen, 'steps')),
+      effort: 'medium',
+      maxTokens: 2000,
+      timeoutMs: 30_000,
     })
     const items = reply.isAnswered ? parseSteps(reply.text) : []
     // A turn that started meanwhile makes them stale.
@@ -1312,7 +1355,7 @@ export const register: Register = on => {
       await announce($, 'question', 'Te necesito', turnAsk, 'Te necesito.')
       await startWaiting($, 'tengo una pregunta para ti.')
       seen.durationMs = e.durationMs
-      seen.answer = e.answer.slice(0, 400)
+      seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
       turnAsk = null
     } else if (e.reason === 'answer') {
       const took = duration(e.durationMs)
@@ -1323,7 +1366,7 @@ export const register: Register = on => {
       // starts processes of its own, so this returns within a second.
       await announce($, 'done', 'He terminado', summary(e.answer, took), 'Ya está, ya terminé.', false, summary(e.answer, took, Infinity, PHONE_ROOM))
       seen.durationMs = e.durationMs
-      seen.answer = e.answer.slice(0, 400)
+      seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
       tipLater($, 'review')
     } else if (e.reason === 'aborted') {
       await setMood($, 'idle', 'lo has detenido tú')

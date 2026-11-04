@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { ModelCompleteResult, On } from 'claude-code'
 
-import { STEPS_SYSTEM, SYSTEM, parse, parseSteps } from '../hooks/advice'
+import { STEPS_SYSTEM, SYSTEM, ends, parse, parseSteps } from '../hooks/advice'
 import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
@@ -49,6 +49,8 @@ function engine(
     stateReply = () => '',
     pushReply = () => '',
     account = '',
+    git = () => '',
+    files = {},
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -63,6 +65,10 @@ function engine(
     pushReply?: () => Promise<string> | string
     // what ntfy.sh's /v1/account answers
     account?: string
+    // what each git command prints (argv without the leading "git")
+    git?: (args: readonly string[]) => string
+    // the project's files the mod may read, by path
+    files?: Record<string, string>
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -111,8 +117,24 @@ function engine(
     runs.push({ argv: e.argv, env: e.init?.env ?? {} })
     // the window's server, started through PowerShell or start.sh
     if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) isUp = true
-    const stdout = e.argv[0] === 'uname' ? `${uname}\n` : ''
+    const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  // The engine hands the hooks absolute paths: `files` is keyed relative to
+  // the project, so a path matches the key it ends with.
+  const fileAt = (path: string) => Object.keys(files).find(f => path.replace(/\\/g, '/').endsWith(`/${f}`))
+  on('fs.read', (_, e) => {
+    const key = fileAt(e.path)
+    if (key === undefined) throw new Error(`ENOENT: ${e.path}`)
+    return { value: files[key]! }
+  })
+  on('fs.list', (_, e) => {
+    const dir = e.path.replace(/\\/g, '/')
+    const names = Object.keys(files)
+      .filter(f => fileAt(`${dir}/${f.split('/').pop()}`) === f)
+      .map(f => f.split('/').pop()!)
+    if (names.length === 0) throw new Error(`ENOENT: ${e.path}`)
+    return { value: names.map(name => ({ name, kind: 'file' as const, size: 0, mtimeMs: 0, isLink: false })) }
   })
   // the test engine has no clock: answer its calls here
   if (hasClock) {
@@ -342,14 +364,14 @@ const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, c
 const MINUTE = 60_000
 const TIP = 'Has tocado register.tsx: fija su comportamiento con una prueba.'
 
-type Asked = { model: string; prompt: string; system?: string }
+type Asked = { model: string; prompt: string; system?: string; effort?: string }
 
 // Stands in for the model: records each completion asked for and answers
 // with `reply`, a text or a whole result.
 function model(on: On, reply: string | ModelCompleteResult = TIP): Asked[] {
   const asked: Asked[] = []
   on('model.complete', (_, e) => {
-    asked.push({ model: e.model, prompt: e.prompt, system: e.system })
+    asked.push({ model: e.model, prompt: e.prompt, system: e.system, effort: e.effort })
     return { value: typeof reply === 'string' ? { isAnswered: true as const, text: reply, usage: USAGE } : reply }
   })
   return asked
@@ -374,6 +396,8 @@ async function tipEngine(
     os = 'linux',
     runs = [],
     stateReply,
+    git,
+    files,
   }: {
     store?: Record<string, unknown>
     hasTools?: boolean
@@ -383,9 +407,11 @@ async function tipEngine(
     os?: 'windows' | 'mac' | 'linux'
     runs?: Ran[]
     stateReply?: (body: Record<string, unknown>) => string
+    git?: (args: readonly string[]) => string
+    files?: Record<string, string>
   } = {},
 ) {
-  const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply })
+  const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply, git, files })
   const clock = mock.clock(on, { now: 1_000_000 })
   if (hasTools) on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -1242,6 +1268,84 @@ test('the next-steps prompt asks for short actionable steps in neutral wording',
   expect(parseSteps('- Uno\n2) Dos\n\n3. Tres\n4. Cuatro')).toEqual(['Uno', 'Dos', 'Tres'])
   expect(parseSteps('SKIP')).toEqual([])
 })
+
+const DIFF = 'diff --git a/hooks/net.ts b/hooks/net.ts\n+export function retry(times: number) {'
+
+test("a finished turn's tip weighs a design choice of the turn, from its diff, with Haiku at medium effort", async ($, on) => {
+  const asked = model(on)
+  const { clock } = await tipEngine($, on, { git: args => (args[0] === 'diff' ? DIFF : '') })
+
+  await finishTurn($)
+  await clock.settle()
+
+  expect(asked.length).toBe(1)
+  expect(asked[0]?.model).toBe('haiku')
+  expect(asked[0]?.effort).toBe('medium')
+  expect(asked[0]?.prompt).toContain('export function retry(times: number)')
+  expect(asked[0]?.prompt).toContain('alternativa')
+  // no routine checks: running the tests, the push, whether the error is gone
+  expect(asked[0]?.prompt).toContain('comprobaciones rutinarias')
+})
+
+test('a long answer reaches the model by both ends, where what is left is said', () => {
+  const text = `Hice el cambio. ${'detalle '.repeat(400)}Falta migrar los datos.`
+  const shown = ends(text, 300)
+  expect(shown.length).toBeLessThanOrEqual(300)
+  expect(shown.startsWith('Hice el cambio.')).toBe(true)
+  expect(shown.endsWith('Falta migrar los datos.')).toBe(true)
+  expect(ends('corta', 300)).toBe('corta')
+})
+
+test('a turn that committed its work gives the tip the last commit instead', async ($, on) => {
+  const asked = model(on)
+  const { clock } = await tipEngine($, on, { git: args => (args[0] === 'show' ? `feat: retry\n${DIFF}` : '') })
+
+  await finishTurn($)
+  await clock.settle()
+
+  expect(asked[0]?.prompt).toContain('export function retry(times: number)')
+})
+
+test('a failing tool still gets a debugging tip, without reading the diff', async ($, on) => {
+  const asked = model(on)
+  const runs: Ran[] = []
+  on('tool.call', () => ({ isError: true, result: 'boom', text: 'Error: cannot find module ./x' }))
+  const { clock } = await tipEngine($, on, { hasTools: false, runs, git: () => DIFF })
+  await $.turn.start({ text: 'pasa los tests', turnId: 'debug-diff' })
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+
+  expect(asked[0]?.prompt).toContain('depurar')
+  expect(asked[0]?.prompt).not.toContain('export function retry')
+  expect(runs.some(r => r.argv[0] === 'git')).toBe(false)
+})
+
+test('the next steps ask how the project goes on, from its log, its status and its pending tasks', async ($, on) => {
+  const asked: Asked[] = []
+  on('model.complete', (_, e) => {
+    asked.push({ model: e.model, prompt: e.prompt, system: e.system, effort: e.effort })
+    return { value: { isAnswered: true as const, text: String(e.system).includes('próximos pasos') ? STEPS : TIP, usage: USAGE } }
+  })
+  const git = (args: readonly string[]) =>
+    args[0] === 'log' ? 'feat: añade el modo oscuro' : args[0] === 'status' ? ' M hooks/net.ts' : ''
+  const files = { 'odd/tasks/retry.md': '## Tasks\n- [x] T1 base\n- [ ] T3 reintentos con backoff\n## Log\nL1 algo' }
+  const { clock } = await tipEngine($, on, { hasSteps: true, git, files })
+
+  await finishTurn($)
+  await clock.settle()
+  await clock.advance(3 * MINUTE + 2000)
+  await clock.settle()
+
+  const steps = asked.find(a => String(a.system).includes('próximos pasos'))
+  expect(steps?.effort).toBe('medium')
+  expect(steps?.prompt).toContain('feat: añade el modo oscuro')
+  expect(steps?.prompt).toContain('M hooks/net.ts')
+  expect(steps?.prompt).toContain('T3 reintentos con backoff')
+  // done tasks and the log stay out
+  expect(steps?.prompt).not.toContain('T1 base')
+  expect(steps?.system).toContain('qué nos falta por hacer')
+  expect(steps?.system).toContain('comprobaciones rutinarias')
+})
 // The engine with a clock the test moves, where every spawn starts the
 // subagent `ids` names next.
 async function agentEngine($: Engine, on: On, ids: string[]) {
@@ -2044,14 +2148,14 @@ test('her drawing has no entrance that replays, so redrawing the band never make
   }
 })
 
-test('a tip a little past the 160 characters asked for arrives whole; a runaway one ends at a sentence', () => {
-  const long = 'Ya está en GitHub, pero antes de dar por cerrada la 2.0.0, comprueba desde una instalación limpia que `claude plugin test .` sigue pasando los 93 tests tras el cambio.'
-  expect(long.length).toBeGreaterThan(160)
+test('a tip a little past the 300 characters asked for arrives whole; a runaway one ends at a sentence', () => {
+  const long = `${'Separaste el reintento en net.ts en vez de dejarlo en cada llamada. '.repeat(5)}`.trim()
+  expect(long.length).toBeGreaterThan(300)
   expect(parse(long)).toBe(long)
 
-  const runaway = `${'Prueba primero el caso que falla. '.repeat(12)}Y después el resto`
+  const runaway = `${'Prueba primero el caso que falla. '.repeat(16)}Y después el resto`
   const cut = parse(runaway) ?? ''
-  expect(cut.length).toBeLessThanOrEqual(320)
+  expect(cut.length).toBeLessThanOrEqual(450)
   expect(cut.endsWith('falla.')).toBe(true)
 })
 

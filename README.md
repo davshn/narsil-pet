@@ -45,7 +45,7 @@ En Windows aparece en la misma pantalla en la que está Claude, aunque tengas va
 Narsil te avisa en voz alta, en español, cuando termina un turno, cuando una pregunta o un permiso te espera y cuando un turno falla. En la app de escritorio, un turno que termina con una pregunta en el recuadro de siguiente paso te avisa como pregunta, con esa pregunta. Con la ventana flotante activada, el aviso aparece en ella; si la desactivas, llega como notificación del sistema.
 
 ### Consejos
-Consejos breves y concretos sobre el trabajo en curso, generados con Haiku: al terminar un turno, tras varios fallos seguidos o en un turno muy largo. Se le pide que mencione algo concreto (un archivo, un comando, un error) y que no invente datos. Con `/narsil consejo profundo` analiza la conversación completa. Las frecuencias son configurables y nunca frenan a Claude.
+Consejos sobre el trabajo en curso, generados con Haiku (esfuerzo medio): al terminar un turno, tras varios fallos seguidos o en un turno muy largo. El de fin de turno lee el diff de lo que se hizo (o el último commit, si ya se guardó) y comenta una decisión de diseño: por qué se hizo así, qué alternativa había y qué se gana o se pierde, o cómo mejorar esa funcionalidad. Nada de comprobaciones rutinarias como "ejecuta los tests" o "revisa el push"; tras varios fallos, en cambio, el consejo es de depuración. Se le pide que mencione algo concreto y que no invente datos. Con `/narsil consejo profundo` analiza la conversación completa. Las frecuencias son configurables y nunca frenan a Claude.
 
 En Windows y macOS cada consejo se abre completo en una ventanita propia con el icono de Narsil: encima de la ventana flotante si está a la vista y, si no, en la esquina del monitor donde está Claude (en macOS, donde está el ratón). No te quita el foco, se cierra sola a los 3 minutos o cuando llega otro consejo, y tiene un botón para volver a la conversación. Así la banda y la ventana flotante dejan ese espacio para lo demás. En los demás sistemas, el consejo se muestra en la banda y en la ventana flotante.
 
@@ -66,7 +66,7 @@ Cuando termina un turno, Narsil muestra cuánto le queda a la caché del prompt 
 Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`.
 
 ### Próximos pasos
-Tres minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos sacados de lo que se hizo ("Ejecuta los tests de register.tsx"). Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
+Tres minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
 
 ### Modelos
 La banda y la ventana flotante muestran el modelo del hilo principal junto al estado ("● TRABAJANDO · Narsil · Opus 4.6"), y `/narsil estado` también lo dice. Si lo cambias con `/model`, Narsil lo actualiza en unos 2 segundos. Cada subagente muestra el suyo.
