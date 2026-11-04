@@ -199,7 +199,7 @@ La ventana flotante necesita, además:
 | `/narsil consejo` | Pide un consejo ahora. |
 | `/narsil consejo profundo` | Pide un consejo que analiza toda la conversación. |
 | `/narsil consejos on` · `off` | Activa o desactiva los consejos automáticos. |
-| `/narsil consejos cada <min>` | Como mucho un consejo automático cada tantos minutos (10 por defecto). |
+| `/narsil consejos cada <min>` | Como mucho un consejo automático cada tantos minutos (30 por defecto; dos del mismo tipo seguidos esperan el doble). |
 | `/narsil consejos voz` | Dice en voz alta, o no, los consejos de fin de turno. |
 | `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
 | `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |

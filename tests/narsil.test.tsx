@@ -756,7 +756,51 @@ test('prefs stored before tips existed get the tip defaults', async ($, on) => {
   const answer = await $.command.run({ command: 'narsil', args: '', ...TYPED })
 
   expect(JSON.stringify(answer)).toContain('la voz apagada')
-  expect(JSON.stringify(answer)).toContain('Consejos activados (como mucho uno cada 10 min)')
+  expect(JSON.stringify(answer)).toContain('Consejos activados (como mucho uno cada 30 min)')
+})
+
+test('a stored 10, the old default, becomes the new 30 once; a 10 chosen after that stays', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { isAdviceOn: true, adviceEveryMinutes: 10 } }
+  await tipEngine($, on, { store })
+
+  const first = await $.command.run({ command: 'narsil', args: '', ...TYPED })
+  expect(JSON.stringify(first)).toContain('como mucho uno cada 30 min')
+  expect((store.prefs as { adviceEveryMinutes: number }).adviceEveryMinutes).toBe(30)
+
+  await $.command.run({ command: 'narsil', args: 'consejos cada 10', ...TYPED })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const again = await $.command.run({ command: 'narsil', args: '', ...TYPED })
+  expect(JSON.stringify(again)).toContain('como mucho uno cada 10 min')
+})
+
+test('another stored frequency is kept as it was', async ($, on) => {
+  await tipEngine($, on, { store: { prefs: { isAdviceOn: true, adviceEveryMinutes: 5 } } })
+  const answer = await $.command.run({ command: 'narsil', args: '', ...TYPED })
+  expect(JSON.stringify(answer)).toContain('como mucho uno cada 5 min')
+})
+
+test('with the default, a second tip waits 30 minutes', async ($, on) => {
+  const asked = model(on)
+  let shouldFail = false
+  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'Error: boom' } : { result: {} }))
+  const { clock } = await tipEngine($, on, { hasTools: false })
+  await finishTurn($)
+  await clock.settle()
+  expect(asked.length).toBe(1)
+
+  // a tip of another kind, 20 minutes later: still too soon
+  await clock.advance(20 * MINUTE)
+  shouldFail = true
+  await $.turn.start({ text: 'sigue', turnId: 'late' })
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+  expect(asked.length).toBe(1)
+
+  await clock.advance(11 * MINUTE)
+  await $.turn.start({ text: 'otra vez', turnId: 'later' })
+  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+  expect(asked.length).toBe(2)
 })
 
 // --- How much Claude has spent ---

@@ -26,12 +26,19 @@ const pet = atom({ plugin: 'narsil-pet', key: 'pet' } as const, {
   line: '¡Hola! Soy Narsil. Te cuento todo lo que hago.',
   detail: '',
 })
+// At most one automatic tip every so many minutes, unless the person sets
+// another. Until 2.8.0 it was 10, and every saved prefs carries it.
+const ADVICE_EVERY_MINUTES = 30
+const OLD_ADVICE_EVERY_MINUTES = 10
+// Set once a stored 10 has been moved to the new default: a 10 chosen after
+// that is the person's own.
+const ADVICE_MIGRATED_KEY = 'adviceEvery30'
 const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isHidden: false,
   isMuted: false,
   isFloating: true,
   isAdviceOn: true,
-  adviceEveryMinutes: 10,
+  adviceEveryMinutes: ADVICE_EVERY_MINUTES,
   isAdviceSpoken: false,
   isNextStepsOn: true,
   cacheMinutes: null,
@@ -1106,6 +1113,10 @@ export const register: Register = on => {
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
       await update($, prefs, p => ({ ...p, ...saved }))
+      if (!(await $.store.get(ADVICE_MIGRATED_KEY).catch(() => true))) {
+        if (saved.adviceEveryMinutes === OLD_ADVICE_EVERY_MINUTES) await setAdvice($, { adviceEveryMinutes: ADVICE_EVERY_MINUTES })
+        await $.store.set(ADVICE_MIGRATED_KEY, true).catch(() => undefined)
+      }
     }
     hostSession = (await $.env.get('CLAUDE_CODE_HOST_SESSION_ID').catch(() => undefined)) ?? ''
     const spent = await $.session.usage().catch(() => undefined)
