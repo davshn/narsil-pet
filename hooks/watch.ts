@@ -7,10 +7,10 @@ import { took } from './agents'
 
 // The same step failing this many times in a row, or the same file edited
 // this many times in one turn, reads as a loop.
-export const REPEAT_FAILS = 3
-export const REPEAT_EDITS = 6
+export const REPEAT_FAILS = 5
+export const REPEAT_EDITS = 10
 // How long a permission or a question may wait before Narsil insists.
-export const NUDGE_AFTER_MS = 2 * 60_000
+export const NUDGE_AFTER_MS = 5 * 60_000
 // How long after the last turn, with nothing new, Narsil sums the session up.
 export const IDLE_SUMMARY_MS = 30 * 60_000
 // The files kept by name for the summary; past this they are only counted.

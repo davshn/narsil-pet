@@ -1,6 +1,6 @@
-import type { SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { SessionContextBreakdown, SessionContextUsage, SessionRateLimit } from 'claude-code'
 
-import type { Meter, Usage } from '../types'
+import type { ContextDetail, Meter, Usage } from '../types'
 
 // How much of Claude's limits this session has spent: the context window and
 // the account's 5-hour and weekly windows, as the status line reads them.
@@ -72,7 +72,7 @@ export function minutesToFull(samples: readonly ContextSample[], now: number): n
   return Math.max(0, Math.round((100 - last.percent) / perMinute))
 }
 
-export type UsageRow = { key: 'context' | 'fiveHour' | 'week'; label: string; percent: number; note: string }
+export type UsageRow = { key: string; label: string; percent: number; note: string; color?: string }
 
 // The bars to draw, in order, each with what it says beside its percentage.
 // `toFull`: minutes until the context fills (minutesToFull), when known.
@@ -102,35 +102,86 @@ function percentLabel(percent: number): string {
   return `${Math.round(percent)} %`
 }
 
+// --- What fills the context window, as /context breaks it down ---
+
+// One color per part, in the order they are listed; the free space is grey.
+const PART_COLORS = ['#7C6CF0', '#2FA7D8', '#22B573', '#F5B400', '#F07A3A', '#E0559B', '#5B8DEF', '#9C6ADE']
+const FREE_COLOR = '#9A98AD'
+
+// The parts worth showing: what occupies the window, then the compaction
+// reserve and the space left. Tool schemas loaded on demand sit outside the
+// window, and empty rows say nothing.
+export function contextDetailOf(b: SessionContextBreakdown, at: number): ContextDetail {
+  const shown = b.categories.filter(c => c.kind !== 'deferred' && c.tokens > 0)
+  const order = { used: 0, buffer: 1, free: 2 } as const
+  const parts = [...shown]
+    .sort((x, y) => order[x.kind as keyof typeof order] - order[y.kind as keyof typeof order] || (x.kind === 'used' ? y.tokens - x.tokens : 0))
+    .map((c, i) => ({
+      name: c.kind === 'free' ? 'Libre' : c.kind === 'buffer' ? 'Reserva de compactación' : c.name,
+      tokens: c.tokens,
+      color: c.kind === 'used' ? PART_COLORS[i % PART_COLORS.length]! : FREE_COLOR,
+    }))
+  return { parts, total: b.totalTokens, window: b.rawMaxTokens, at }
+}
+
+// The detail as bars, each part's share of the window.
+export function contextDetailRows(d: ContextDetail): UsageRow[] {
+  const window = Math.max(1, d.window)
+  return d.parts.map((p, i) => ({
+    key: `part-${i}`,
+    label: p.name,
+    percent: (p.tokens / window) * 100,
+    note: tokensLabel(p.tokens),
+    color: p.color,
+  }))
+}
+
+// One sentence for the detail, for what cannot see it.
+export function contextDetailSummary(d: ContextDetail): string {
+  const head = `Contexto: ${tokensLabel(d.total)} / ${tokensLabel(d.window)}`
+  return `${head}. ${d.parts.map(p => `${p.name} ${tokensLabel(p.tokens)}`).join(', ')}`
+}
+
 // One sentence for what cannot see the bars.
 export function usageSummary(rows: readonly UsageRow[]): string {
   return `Uso: ${rows.map(r => `${r.label.toLowerCase()} ${percentLabel(r.percent)}${r.note ? ` (${r.note})` : ''}`).join(', ')}`
 }
 
 const BAR = { labelWidth: 58, width: 150, rowHeight: 17 }
+// The detail's labels are longer ("Reserva de compactación", "MCP tools").
+const DETAIL_LABEL_WIDTH = 150
 
 // The size the bars are drawn at, in CSS pixels.
-export function usageBox(rows: readonly UsageRow[]): { width: number; height: number } {
+export function usageBox(rows: readonly UsageRow[], labelWidth = BAR.labelWidth): { width: number; height: number } {
   // room for the longest note, "120k / 200k · lleno en ~2 h 05 min"
-  return { width: BAR.labelWidth + BAR.width + 250, height: rows.length * BAR.rowHeight }
+  return { width: labelWidth + BAR.width + 250, height: rows.length * BAR.rowHeight }
+}
+
+function escapeXml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// The detail drawn like the bars, with room for its longer labels.
+export function contextDetailSvg(d: ContextDetail): string {
+  return usageSvg(contextDetailRows(d), DETAIL_LABEL_WIDTH)
 }
 
 // The bars as one small SVG for the desktop band: drawn as an image there,
 // like Narsil herself. Each bar fills from empty when it is drawn.
-export function usageSvg(rows: readonly UsageRow[]): string {
-  const { width, height } = usageBox(rows)
+export function usageSvg(rows: readonly UsageRow[], labelWidth = BAR.labelWidth): string {
+  const { width, height } = usageBox(rows, labelWidth)
   const body = rows
     .map((r, i) => {
       const y = i * BAR.rowHeight
       const fill = Math.round((Math.max(0, Math.min(100, r.percent)) / 100) * BAR.width)
-      const color = levelColor(r.percent)
+      const color = r.color ?? levelColor(r.percent)
       return (
-        `<text class="t" x="0" y="${y + 11}">${r.label}</text>` +
-        `<rect class="track" x="${BAR.labelWidth}" y="${y + 4}" width="${BAR.width}" height="8" rx="4"/>` +
-        `<rect x="${BAR.labelWidth}" y="${y + 4}" width="${fill}" height="8" rx="4" fill="${color}">` +
+        `<text class="t" x="0" y="${y + 11}">${escapeXml(r.label)}</text>` +
+        `<rect class="track" x="${labelWidth}" y="${y + 4}" width="${BAR.width}" height="8" rx="4"/>` +
+        `<rect x="${labelWidth}" y="${y + 4}" width="${fill}" height="8" rx="4" fill="${color}">` +
         `<animate attributeName="width" from="0" to="${fill}" dur=".8s" fill="freeze"/></rect>` +
-        `<text class="t b" x="${BAR.labelWidth + BAR.width + 8}" y="${y + 11}" style="fill:${color}">${percentLabel(r.percent)}</text>` +
-        (r.note ? `<text class="t d" x="${BAR.labelWidth + BAR.width + 46}" y="${y + 11}">${r.note}</text>` : '')
+        `<text class="t b" x="${labelWidth + BAR.width + 8}" y="${y + 11}" style="fill:${color}">${percentLabel(r.percent)}</text>` +
+        (r.note ? `<text class="t d" x="${labelWidth + BAR.width + 46}" y="${y + 11}">${escapeXml(r.note)}</text>` : '')
       )
     })
     .join('')

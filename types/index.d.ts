@@ -63,6 +63,14 @@ export type Usage = {
   week: Meter | null
 }
 
+// What fills the context window, as /context breaks it down: each part (a
+// category of /context, the compaction reserve, the space left) with its
+// tokens and the color it is drawn in, the tokens in use and the window
+// measured against, and when it was read. Shown in place of the bars while
+// the person has the detail open.
+export type ContextPart = { name: string; tokens: number; color: string }
+export type ContextDetail = { parts: readonly ContextPart[]; total: number; window: number; at: number }
+
 // The prompt cache since the last turn ended (`at`): how long it lasts and
 // the whole minutes it has left, 0 once it has gone cold.
 export type Cache = { at: number; minutes: number; left: number }
@@ -112,6 +120,6 @@ export type Spending = { today: number; total: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null; contextDetail: ContextDetail | null }
   }
 }

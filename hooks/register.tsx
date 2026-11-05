@@ -11,7 +11,7 @@ import { newKey, seal, unseal } from './seal'
 import { SPEND_KEY, addSpend, localDay, spendLabel, spendOf } from './spend'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
-import { NO_USAGE, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
+import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, loopWarning, nudgeText, statsOf, summaryText } from './watch'
 import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
 import type { XpReason } from './xp'
@@ -53,6 +53,9 @@ const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
 const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
+// What fills the context window, while the person has the detail open (a
+// press on the context bar); null shows the bars.
+const contextDetail = atom({ plugin: 'narsil-pet', key: 'contextDetail' } as const, null)
 // The subagents running now, or just ended, in the order they started; and
 // their chips as the band and the window show them (agents.ts).
 const agents = atom({ plugin: 'narsil-pet', key: 'agents' } as const, [])
@@ -626,7 +629,30 @@ async function setUsage($: EngineInterface, next: Usage): Promise<void> {
   if (JSON.stringify(await read($, usage)) === JSON.stringify(next)) return
   if (next.context) await trackContext($, next.context.percent)
   await update($, usage, () => next)
+  if (await read($, contextDetail)) await readContextDetail($).catch(() => undefined)
   await pushOverlay($)
+}
+
+// The breakdown as /context counts it, estimated locally: no request is sent.
+async function readContextDetail($: EngineInterface): Promise<void> {
+  const spent = await $.session.usage({ breakdown: 'summary' })
+  const b = spent.context.breakdown
+  if (!b) return
+  const detail = contextDetailOf(b, await $.clock.now())
+  await update($, contextDetail, () => detail)
+}
+
+// A press on the context bar opens the detail, and another closes it.
+async function toggleContextDetail($: EngineInterface): Promise<void> {
+  if (await read($, contextDetail)) {
+    await update($, contextDetail, () => null)
+    return
+  }
+  try {
+    await readContextDetail($)
+  } catch {
+    $.ui.toast('Narsil: no pude leer el detalle del contexto.')
+  }
 }
 
 // How fast the context window fills: its readings, the estimate they give,
@@ -902,7 +928,7 @@ async function endAgent($: EngineInterface, id: string, reason: string): Promise
 const PLAN_CACHE_MINUTES = 60
 const API_CACHE_MINUTES = 5
 // How long after a finished turn Narsil offers next steps.
-const STEPS_AFTER_MS = 3 * 60_000
+const STEPS_AFTER_MS = 15 * 60_000
 
 let stepsAskedFor: number | null = null
 
@@ -1448,6 +1474,8 @@ export const register: Register = on => {
     const shown = kept && !kept.isFaded && !kept.isWindowed ? kept : null
     const spent = await read($, usage)
     const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
+    const detail = spent.context ? await read($, contextDetail) : null
+    const showDetail = () => toggleContextDetail($)
     // A small serpent per running subagent, with its task.
     const helpers = (await read($, agentChips)).slice(0, MAX_AGENTS_SHOWN)
     // The cache's clock while Claude waits, and the next steps on offer.
@@ -1487,13 +1515,29 @@ export const register: Register = on => {
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>
           ) : null}
-          {meters.length > 0 ? (
+          {detail ? (
+            <Box flexDirection="column">
+              <Box flexDirection="row" gap={1}>
+                <Text dimColor>{contextDetailSummary(detail).split('.')[0]}</Text>
+                <Button key="usage-context" plain dimColor label="◂ volver" onPress={showDetail} />
+              </Box>
+              {contextDetailRows(detail).map(r => (
+                <Box key={`context-${r.key}`} flexDirection="row">
+                  <Text dimColor>{`${r.label.padEnd(24).slice(0, 24)} `}</Text>
+                  <Text color={r.color}>{textBar(r.percent)}</Text>
+                  <Text bold color={r.color}>{` ${Math.round(r.percent)} %`}</Text>
+                  <Text dimColor>{` ${r.note}`}</Text>
+                </Box>
+              ))}
+            </Box>
+          ) : meters.length > 0 ? (
             <Box flexDirection="row" gap={2}>
               {meters.map(m => (
                 <Box key={`usage-${m.key}`} flexDirection="row">
                   <Text dimColor>{`${m.label} `}</Text>
                   <Text color={levelColor(m.percent)}>{textBar(m.percent)}</Text>
                   <Text bold color={levelColor(m.percent)}>{` ${Math.round(m.percent)} %`}</Text>
+                  {m.key === 'context' ? <Button key="usage-context" plain dimColor label=" ▸ detalle" onPress={showDetail} /> : null}
                 </Box>
               ))}
             </Box>
@@ -1549,8 +1593,14 @@ export const register: Register = on => {
               <Button key="tip-dismiss" label="×" onPress={dismiss} />
             </Box>
           ) : null}
-          {meters.length > 0 ? (
+          {detail ? (
+            <Svg source={contextDetailSvg(detail)} alt={contextDetailSummary(detail)} />
+          ) : meters.length > 0 ? (
             <Svg source={usageSvg(meters)} alt={usageSummary(meters)} />
+          ) : null}
+          {/* An Svg takes no presses: the control sits under the bars. */}
+          {meters.some(m => m.key === 'context') ? (
+            <Button key="usage-context" plain dimColor label={detail ? '◂ Volver a los límites' : '▸ Ver cómo se llena el contexto'} onPress={showDetail} />
           ) : null}
           {helpers.length > 0 ? (
             <Box flexDirection="row" gap={2} flexWrap="wrap" minWidth={0}>

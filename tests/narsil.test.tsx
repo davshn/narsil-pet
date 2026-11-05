@@ -848,6 +848,60 @@ test('the band shows bars for the context, the 5-hour window and the week', asyn
   expect((state?.body.usage as unknown[]).length).toBe(3)
 })
 
+// /context's rows, as `$.session.usage({ breakdown })` answers them.
+const BREAKDOWN = {
+  categories: [
+    { name: 'System prompt', tokens: 4_000, color: 'promptBorder', isDeferred: false, kind: 'used' },
+    { name: 'Messages', tokens: 70_000, color: 'permission', isDeferred: false, kind: 'used' },
+    { name: 'MCP tools', tokens: 10_000, color: 'inactive', isDeferred: false, kind: 'used' },
+    { name: 'Deferred tools', tokens: 9_000, color: 'inactive', isDeferred: true, kind: 'deferred' },
+    { name: 'Autocompact buffer', tokens: 33_000, color: 'inactive', isDeferred: false, kind: 'buffer' },
+    { name: 'Free space', tokens: 83_000, color: 'inactive', isDeferred: false, kind: 'free' },
+  ],
+  totalTokens: 84_000,
+  maxTokens: 200_000,
+  rawMaxTokens: 200_000,
+  percentage: 42,
+}
+
+test('a press on the context bar shows what fills the context, and another goes back to the bars', async ($, on) => {
+  engine(on)
+  measured(on)
+  const asked: unknown[] = []
+  on('session.usage', (_, e) => {
+    asked.push(e?.breakdown)
+    return { value: { startedAt: 0, context: { tokens: 84_000, window: 200_000, percent: 42, ...(e?.breakdown ? { breakdown: BREAKDOWN } : {}) }, rateLimits: [] } } as never
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
+
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await desk.press({ key: 'usage-context' })
+  await desk.unmount()
+  // estimated locally: no token-count requests
+  expect(asked).toContain('summary')
+  expect(asked).not.toContain('full')
+
+  const open = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const bars = await open.findAll({ type: 'Svg' })
+  expect(bars.find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
+  const detail = bars.find(svg => String(svg.props.alt).startsWith('Contexto:'))
+  // biggest first, the reserve and the free space last, on-demand tools left out
+  expect(detail?.props.alt).toBe('Contexto: 84k / 200k. Messages 70k, MCP tools 10k, System prompt 4k, Reserva de compactación 33k, Libre 83k')
+  expect(String(detail?.props.source)).toContain('35 %')
+  await open.unmount()
+
+  const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: /^Messages/ })).toBeDefined()
+  await term.press({ key: 'usage-context' })
+  await term.unmount()
+
+  const back = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await back.find({ type: 'Text', text: /^Messages/ })).toBeUndefined()
+  expect(await back.find({ type: 'Text', text: ' 42 %' })).toBeDefined()
+  await back.unmount()
+})
+
 test('with no reading yet, no bars are drawn', async ($, on) => {
   engine(on)
   measured(on)
@@ -1121,7 +1175,7 @@ test('Narsil speaks of herself in the first person', async ($, on) => {
   expect(spoken()).toContain('Te necesito.')
 
   shouldFail = true
-  for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   expect(spoken()).toContain('Creo que esto se está repitiendo.')
   expect(spoken().some(t => String(t).includes('Narsil'))).toBe(false)
 })
@@ -1264,7 +1318,11 @@ test('a few minutes after a turn Narsil offers next steps, and one click puts it
   await clock.settle()
   expect(kinds).toEqual(['tip'])
 
-  await clock.advance(3 * MINUTE + 2000)
+  await clock.advance(14 * MINUTE)
+  await clock.settle()
+  expect(kinds).toEqual(['tip'])
+
+  await clock.advance(MINUTE + 2000)
   await clock.settle()
   expect(kinds).toEqual(['tip', 'steps'])
   const state = posts.filter(p => p.url.endsWith('/state')).at(-1)
@@ -1377,7 +1435,7 @@ test('the next steps ask how the project goes on, from its log, its status and i
 
   await finishTurn($)
   await clock.settle()
-  await clock.advance(3 * MINUTE + 2000)
+  await clock.advance(15 * MINUTE + 2000)
   await clock.settle()
 
   const steps = asked.find(a => String(a.system).includes('próximos pasos'))
@@ -1514,7 +1572,7 @@ function events(posts: Posted[], title: string): Posted[] {
   return posts.filter(p => p.url.endsWith('/event') && p.body.title === title)
 }
 
-test('the same command failing three times in a row is warned about once, as a loop', async ($, on) => {
+test('the same command failing five times in a row is warned about once, as a loop', async ($, on) => {
   model(on, 'SKIP')
   let shouldFail = true
   on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
@@ -1531,13 +1589,16 @@ test('the same command failing three times in a row is warned about once, as a l
   expect(events(posts, 'Veo un bucle')).toHaveLength(0)
 
   shouldFail = true
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  for (let i = 0; i < 2; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  await clock.settle()
+  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
+
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await clock.settle()
   const warned = events(posts, 'Veo un bucle')
   expect(warned).toHaveLength(1)
   expect(warned[0]!.body.kind).toBe('question')
-  expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 3 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
+  expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 5 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
   expect(windowTip(posts)).toBe(warned[0]!.body.text)
 })
 
@@ -1547,41 +1608,45 @@ test('a success starts the count over, and a new turn too', async ($, on) => {
   on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
   const { posts, clock } = await tipEngine($, on, { hasTools: false })
   await $.turn.start({ text: 'arregla', turnId: 'a' })
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   shouldFail = false
   await $.tool.call({ tool: 'Bash', command: 'npm test' })
   shouldFail = true
   await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await $.turn.start({ text: 'otra vez', turnId: 'b' })
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   await clock.settle()
 
   expect(events(posts, 'Veo un bucle')).toHaveLength(0)
 })
 
-test('the same file edited six times in one turn is warned about as a loop', async ($, on) => {
+test('the same file edited ten times in one turn is warned about as a loop', async ($, on) => {
   model(on, 'SKIP')
   const { posts, clock } = await tipEngine($, on)
   await $.turn.start({ text: 'arregla', turnId: 'edits' })
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 9; i++) {
+    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
+  }
+  await clock.settle()
+  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
+
+  for (let i = 0; i < 2; i++) {
     await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
   }
   await clock.settle()
 
   const warned = events(posts, 'Veo un bucle')
   expect(warned).toHaveLength(1)
-  expect(warned[0]!.body.text).toBe('app.ts lleva 6 ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?')
+  expect(warned[0]!.body.text).toBe('app.ts lleva 10 ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?')
 })
 
-test('a permission left waiting two minutes is insisted on once, even while you look', async ($, on) => {
+test('a permission left waiting five minutes is insisted on once, even while you look', async ($, on) => {
   model(on, 'SKIP')
   on('classic.PermissionRequest', () => ({}))
   const { posts, clock } = await tipEngine($, on)
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm i' }, permission_mode: 'default' })
 
-  await clock.advance(MINUTE + 50_000)
+  await clock.advance(4 * MINUTE + 50_000)
   await clock.settle()
   expect(events(posts, 'Sigo esperándote')).toHaveLength(0)
 
@@ -1593,7 +1658,7 @@ test('a permission left waiting two minutes is insisted on once, even while you 
   expect(nudged).toHaveLength(1)
   expect(nudged[0]!.body.kind).toBe('question')
   expect(nudged[0]!.body.force).toBe(true)
-  expect(nudged[0]!.body.text).toBe('Sigo esperándote desde hace 2 min: pido permiso para usar Bash.')
+  expect(nudged[0]!.body.text).toBe('Sigo esperándote desde hace 5 min: pido permiso para usar Bash.')
 })
 
 test('a permission or question answered in time is not insisted on', async ($, on) => {

@@ -54,6 +54,8 @@ Barras con el uso de la ventana de contexto, del límite de 5 horas y del límit
 
 La barra de contexto calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
 
+Pulsa «▸ Ver cómo se llena el contexto» (en la terminal, «▸ detalle» junto a la barra) y las barras cambian por el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición mientras está abierto. «◂ Volver» devuelve las barras.
+
 Debajo, Narsil muestra lo que ha costado Claude en este ordenador: hoy (desde tu medianoche) y en total desde que empezó a contarlo ("💵 Hoy $3.46 · total $45.60"). Suma todas las conversaciones y cuenta cada una una sola vez, con la misma cifra que da `/cost`. Con un plan Pro o Max no es lo que pagas, sino lo que costarían esos tokens en la API. Cada ordenador lleva su propia cuenta.
 
 ### Reacciones a lo que ejecuta Claude
@@ -66,7 +68,7 @@ Cuando termina un turno, Narsil muestra cuánto le queda a la caché del prompt 
 Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`.
 
 ### Próximos pasos
-Tres minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
+Quince minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
 
 ### Modelos
 La banda y la ventana flotante muestran el modelo del hilo principal junto al estado ("● TRABAJANDO · Narsil · Opus 4.6"), y `/narsil estado` también lo dice. Si lo cambias con `/model`, Narsil lo actualiza en unos 2 segundos. Cada subagente muestra el suyo.
@@ -81,10 +83,10 @@ Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y e
 Si el subagente corría en segundo plano, Narsil además avisa con voz y en la ventana flotante cuando termina.
 
 ### Detector de bucles
-Si un mismo paso falla 3 veces seguidas en un turno (por ejemplo `npm test`, aunque haya ediciones entre medias) o un mismo archivo se edita 6 veces en un turno, Narsil avisa una sola vez: "Esto se está repitiendo: ¿lo replanteamos?". El aviso aparece como consejo en la banda y en la ventana flotante. Si ese paso sale bien una vez, la cuenta vuelve a empezar.
+Si un mismo paso falla 5 veces seguidas en un turno (por ejemplo `npm test`, aunque haya ediciones entre medias) o un mismo archivo se edita 10 veces en un turno, Narsil avisa una sola vez: "Esto se está repitiendo: ¿lo replanteamos?". El aviso aparece como consejo en la banda y en la ventana flotante. Si ese paso sale bien una vez, la cuenta vuelve a empezar.
 
 ### Permisos que esperan
-Si un permiso, una pregunta o un plan llevan 2 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
+Si un permiso, una pregunta o un plan llevan 5 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
 
 ### Experiencia
 Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada vez que los tests pasan y 3 por cada subagente que termina bien. Del nivel 1 al 2 hacen falta 100 XP, del 2 al 3 otros 200, y así sucesivamente. El nivel ("⭐ Nivel 3 · 120/300 XP") aparece en la banda y en la ventana flotante, y Narsil celebra cada nivel nuevo. La experiencia se guarda entre sesiones y la suman todas las conversaciones abiertas.
