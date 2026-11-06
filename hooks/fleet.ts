@@ -2,7 +2,7 @@
 // conversation's own fresh entry, the most important first, a page at a time.
 // Pure.
 
-import type { FleetSession, FleetView, Status } from '../types'
+import type { Fleet, FleetSession, FleetView, Status } from '../types'
 
 // The band cannot scroll: it shows this many conversations a page.
 export const FLEET_PAGE = 4
@@ -18,6 +18,13 @@ export function fleetOf(hub: readonly FleetSession[], own: FleetSession): FleetS
   return [own, ...hub.filter(s => s.sessionId !== own.sessionId)].sort(
     (a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) || b.changedAt - a.changedAt,
   )
+}
+
+// How many conversations are in each state, for /narsil estado.
+export function countOfStates(list: readonly FleetSession[]): Fleet {
+  const counts: Fleet = { working: 0, idle: 0, waiting: 0, done: 0, error: 0, total: list.length }
+  for (const s of list) if (s.status in RANK) counts[s.status] += 1
+  return counts
 }
 
 // One page of the list, the page kept within the list.

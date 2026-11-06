@@ -51,7 +51,7 @@ check('the page is served with its key, and the key is not a placeholder', async
 })
 
 check('another host name (a page rebound to this address) is refused everywhere', async () => {
-  for (const [method, url] of [['GET', '/'], ['GET', '/window'], ['GET', '/summary'], ['POST', '/open'], ['POST', '/dismiss']]) {
+  for (const [method, url] of [['GET', '/'], ['GET', '/window'], ['GET', '/sessions'], ['POST', '/open'], ['POST', '/dismiss']]) {
     const res = await request(method, url, { host: `attacker.example:${port}` })
     assert.equal(res.status, 403, `${method} ${url}`)
   }

@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Fleet, FleetSession, Mood, Pet, Prefs, Stats, TaskItem, TaskStatus, Usage } from '../types'
-import { NO_VIEW, fleetOf, openOf, pageOf, toggleOpen } from './fleet'
+import type { FleetSession, Mood, Pet, Prefs, Stats, TaskItem, TaskStatus, Usage } from '../types'
+import { NO_VIEW, countOfStates, fleetOf, openOf, pageOf, toggleOpen } from './fleet'
 import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
@@ -10,11 +10,10 @@ import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
 import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
 import type { PushSubscription } from './phone'
 import { newKey, seal, unseal } from './seal'
-import { SPEND_KEY, addSpend, localDay, spendLabel, spendOf } from './spend'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
-import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, loopWarning, nudgeText, statsOf, summaryText } from './watch'
+import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
 import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
@@ -49,8 +48,6 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isPhoneOn: false,
   phoneKey: null,
 })
-// Every open conversation, by state: counted by the floating window.
-const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 // Every open conversation as the hub serves it, the most important first;
 // empty while the hub is out of reach.
 const sessions = atom({ plugin: 'narsil-pet', key: 'sessions' } as const, [])
@@ -86,8 +83,6 @@ const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
 // The main thread's model, as a name ("Opus 5.5"): read at start and with
 // each heartbeat, since no event tells of a /model change.
-// What Claude has cost on this computer, for the band (hooks/spend.ts).
-const spending = atom({ plugin: 'narsil-pet', key: 'spending' } as const, null)
 const mainModel = atom({ plugin: 'narsil-pet', key: 'model' } as const, null)
 // A new level or stage being celebrated, and when it began.
 const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
@@ -389,15 +384,6 @@ async function beat($: EngineInterface): Promise<void> {
   // A hub that went down (or never started) is started again, at most once a minute.
   if (!(await pushOverlay($))) void ensureOverlay($).catch(() => undefined)
   await readSessions($)
-  try {
-    const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
-    if (!ok) return
-    const next = JSON.parse(text) as Fleet
-    const now = await read($, fleet)
-    if (JSON.stringify(now) !== JSON.stringify(next)) await update($, fleet, () => next)
-  } catch {
-    // no window running: nothing to count
-  }
 }
 
 async function stopOverlay($: EngineInterface): Promise<void> {
@@ -556,8 +542,7 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     $,
     async (topic, _isLast, isSealed) => {
       const ntfy = ntfyRow(await ntfyAccount($), 1)
-      const spend = await read($, spending)
-      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation: head, ...cacheTimes, ...(spend ? { spend } : {}), sessions: everyone }, isSealed)
+      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation: head, ...cacheTimes, sessions: everyone }, isSealed)
     },
     force,
   )
@@ -681,7 +666,7 @@ async function phoneCommand($: EngineInterface, arg: string): Promise<string | u
   const { phoneTopic } = await save({ phoneTopic: p.phoneTopic ?? newTopic(crypto.randomUUID()), isPhoneOn: true })
   const today = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), dayOf(await $.clock.now()))
   return (
-    `Narsil: avisos al móvil activados (hoy ${today.sent} de ${PHONE_DAILY}). Mientras me escribes por Remote Control, te aviso cuando termino, te necesito o algo falla; en el escritorio no te envío nada. ` +
+    `Narsil: avisos al móvil activados (hoy ${today.sent} de ${PHONE_DAILY}). Mientras me escribes por Remote Control, en cualquier conversación, te aviso cuando una termina, te necesita o falla, con la lista de todas; en cuanto escribes en el escritorio no te envío nada. ` +
     `${phoneHelp(phoneTopic ?? '')} /narsil movil prueba envía uno; /narsil movil off los apaga.`
   )
 }
@@ -737,19 +722,6 @@ async function surfaceReport($: EngineInterface): Promise<string> {
     return `${name}${state}: ${asked === undefined ? 'nunca ha pedido la banda' : `pidió la banda ${ago(now - asked)}`}`
   })
   return `Superficies: ${parts.join(' · ')}`
-}
-
-// This conversation's running cost into the computer's count, and the
-// band's figures from it; with no report, only the day turns over.
-async function recordSpend($: EngineInterface, usd: number | undefined): Promise<void> {
-  const now = await $.clock.now()
-  const day = localDay(now)
-  const kept = spendOf(await $.store.get(SPEND_KEY).catch(() => undefined), day)
-  const next = usd === undefined || !sessionId ? { ...kept, ...(kept.day === day ? {} : { day, today: 0 }) } : addSpend(kept, sessionId, usd, day)
-  if (usd !== undefined && sessionId) await $.store.set(SPEND_KEY, next).catch(() => undefined)
-  // Nothing counted yet (or a host with no cost ledger): no line at all.
-  const shown = next.total > 0 ? { today: next.today, total: next.total } : null
-  if (JSON.stringify(await read($, spending)) !== JSON.stringify(shown)) await update($, spending, () => shown)
 }
 
 async function setUsage($: EngineInterface, next: Usage): Promise<void> {
@@ -935,7 +907,7 @@ async function openTipWindow($: EngineInterface, text: string): Promise<boolean>
 }
 
 // 'context': the /compact suggestion, which is not the model's.
-async function showTip($: EngineInterface, text: string, kind: TipKind | 'context' | 'loop' | 'summary'): Promise<void> {
+async function showTip($: EngineInterface, text: string, kind: TipKind | 'context' | 'summary'): Promise<void> {
   remember(recentTips, text, RECENT_TIPS)
   const at = await $.clock.now()
   const isWindowed = await openTipWindow($, text)
@@ -1126,12 +1098,8 @@ async function pickStep($: EngineInterface, step: string): Promise<void> {
   await pushOverlay($)
 }
 
-// --- Loops, a permission left waiting, and the session's summary ---
+// --- A permission left waiting, and the session's summary ---
 
-// How many times in a row each step (tool and what it was on) has failed this
-// turn, and the loops already warned about: each once a turn.
-let failStreaks = new Map<string, number>()
-let loopsWarned = new Set<string>()
 // What waits for you now, a permission or a question, since when, and whether
 // Narsil has already insisted.
 let waiting: { since: number; what: string; isNudged: boolean } | null = null
@@ -1143,8 +1111,6 @@ let summarizedFor: number | null = null
 let statsKey = ''
 // This conversation as the phone tells it apart (conversationTag).
 let conversation = ''
-// Its session id, which its cost is counted under (hooks/spend.ts).
-let sessionId = ''
 let isStatsPruned = false
 
 async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
@@ -1164,7 +1130,6 @@ async function loadStats($: EngineInterface): Promise<void> {
   }
   statsKey = id ? `${STATS_PREFIX}${id}` : ''
   conversation = id ? conversationTag(id) : ''
-  sessionId = id
   if (!statsKey || (await read($, stats))) return
   const kept = statsOf(await $.store.get(statsKey).catch(() => undefined))
   if (kept) await update($, stats, s => s ?? kept)
@@ -1182,15 +1147,6 @@ async function saveStats($: EngineInterface): Promise<void> {
   } catch {
     // a store that cannot list or delete keeps them all
   }
-}
-
-function warnLoop($: EngineInterface, key: string, text: string | null): void {
-  if (!text || loopsWarned.has(key)) return
-  loopsWarned.add(key)
-  void (async () => {
-    await announce($, 'question', 'Veo un bucle', text, 'Creo que esto se está repitiendo.')
-    await showTip($, text, 'loop')
-  })().catch(() => undefined)
 }
 
 async function startWaiting($: EngineInterface, what: string): Promise<void> {
@@ -1296,7 +1252,6 @@ export const register: Register = on => {
     // The stats survive a reload of the mod, and Claude Code restarting with
     // this conversation: only a new conversation starts them.
     await loadStats($)
-    await recordSpend($, spent?.cost?.usd)
     await readModel($)
     if (!(await read($, stats))) await bumpStats($, s => s)
     const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
@@ -1343,7 +1298,7 @@ export const register: Register = on => {
     }
     if (arg === 'estado') {
       await beat($)
-      const counted = fleetSummary(await read($, fleet))
+      const counted = fleetSummary(countOfStates(await fleetNow($)))
       const s = await read($, pet)
       return {
         text:
@@ -1391,7 +1346,6 @@ export const register: Register = on => {
   // The engine measures after each turn and when a limit moves a point.
   on('session.measure', async ($, e, next) => {
     await setUsage($, usageOf(e))
-    await recordSpend($, e.cost?.usd)
 
     return next(e)
   })
@@ -1406,8 +1360,6 @@ export const register: Register = on => {
       failuresThisTurn = 0
       triedThisTurn = new Set()
       turnAsk = null
-      failStreaks = new Map()
-      loopsWarned = new Set()
       backgroundAtStop = 0
       background = []
       stopWaiting()
@@ -1456,7 +1408,7 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     // Another mod's own call (narsil-check reads its session at start) is
-    // neither Claude's work nor a loop.
+    // not Claude's work.
     if (!isClaudesCall(next.origin)) return next(e)
     if (e.tool === ASK_BOX_TOOL) {
       const ask = (e as { ask?: unknown }).ask
@@ -1492,7 +1444,6 @@ export const register: Register = on => {
       const edits = (seen.touched.get(detail) ?? 0) + 1
       seen.touched.set(detail, edits)
       await bumpStats($, s => addFile(s, detail))
-      warnLoop($, `edit:${detail}`, loopWarning(detail, 0, edits))
     }
     if (isShell) await bumpStats($, s => ({ ...s, commands: s.commands + 1 }))
     const command = isShell && typeof (e as { command?: unknown }).command === 'string' ? (e as { command: string }).command : ''
@@ -1502,17 +1453,7 @@ export const register: Register = on => {
     const isTest = TEST_COMMAND.test(command)
     if (e.agentId !== undefined) await touchAgent($, e.agentId)
     const result = await next(e)
-    // The same step failing again and again, with other work in between, is
-    // a loop; one success of it starts its count over.
-    const step = `${e.tool}:${detail}`
-    if (result.isError) {
-      const streak = (failStreaks.get(step) ?? 0) + 1
-      failStreaks.set(step, streak)
-      await bumpStats($, s => ({ ...s, failures: s.failures + 1 }))
-      warnLoop($, `fail:${step}`, loopWarning(isShell ? `El comando «${detail}»` : `${e.tool} sobre ${detail}`, streak, 0))
-    } else {
-      failStreaks.delete(step)
-    }
+    if (result.isError) await bumpStats($, s => ({ ...s, failures: s.failures + 1 }))
     if (isTest && !result.isError) {
       await setMood($, mood, detail, areTestsFailing ? '¡Recuperados! Los tests vuelven a pasar.' : '¡Los tests pasan! 🎉')
       areTestsFailing = false

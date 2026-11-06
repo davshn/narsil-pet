@@ -34,7 +34,6 @@ const REOPEN_AFTER_CLOSE_MS = 60_000
 const DONE_EVENT_MS = 20_000
 const SESSION = /^local_[A-Za-z0-9-]{1,64}$/
 const EVENT_KINDS = new Set(['done', 'question', 'error'])
-const STATUSES = ['working', 'idle', 'waiting', 'done', 'error']
 // Which conversation comes first, and whose state Narsil wears: an error,
 // then what needs you, then what works, then what finished.
 const PRIORITY = { error: 0, waiting: 1, working: 2, done: 3, idle: 4 }
@@ -79,13 +78,6 @@ function liveSessions() {
   )
 }
 
-function summary() {
-  const counts = Object.fromEntries(STATUSES.map(status => [status, 0]))
-  const live = liveSessions()
-  for (const entry of live) if (entry.status in counts) counts[entry.status]++
-  return { ...counts, total: live.length }
-}
-
 // Every live conversation for the mods, most important first, without the
 // drawings (each mod draws its own).
 function sessionList() {
@@ -93,7 +85,7 @@ function sessionList() {
 }
 
 function snapshot() {
-  return JSON.stringify({ sessions: liveSessions(), summary: summary(), event })
+  return JSON.stringify({ sessions: liveSessions(), event })
 }
 
 function broadcast() {
@@ -299,7 +291,6 @@ const server = http.createServer(async (req, res) => {
     return
   }
   if (req.method === 'GET' && url.pathname === '/window') return send(200, 'application/json', JSON.stringify(bounds && { ...bounds, age: Date.now() - bounds.at }))
-  if (req.method === 'GET' && url.pathname === '/summary') return send(200, 'application/json', JSON.stringify(summary()))
   if (req.method === 'GET' && url.pathname === '/sessions') {
     if (!isTrusted) return send(403, 'text/plain', 'forbidden')
     return send(200, 'application/json', JSON.stringify(sessionList()))

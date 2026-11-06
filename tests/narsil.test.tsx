@@ -9,7 +9,6 @@ import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
 import { phoneStatus, sealedPayload } from '../hooks/phone'
-import { addSpend, spendOf, usdLabel } from '../hooks/spend'
 import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, sealedLength, toBase64Url, unseal as openSealed } from '../hooks/seal'
 
 const BAND = {
@@ -267,8 +266,11 @@ test('a permission a settings hook answers raises no alarm', async ($, on) => {
 })
 
 test('the open conversations are counted by state for /narsil estado, and the band lists them instead', async ($, on) => {
-  engine(on, { working: 2, idle: 1, waiting: 0, done: 1, error: 0, total: 4 })
+  const fleet = [other('local_a', 'working', 'running', 'a'), other('local_b', 'working', 'running', 'b'), other('local_c', 'done', 'celebrating', 'c')]
+  engine(on, null, { hasClock: false, fleet })
+  const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
 
   const answer = await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
 
@@ -413,8 +415,11 @@ test('the task tools leave this conversation its list, for the band and the hub'
 })
 
 test('the counts agree in number with how many conversations each holds', async ($, on) => {
-  engine(on, { working: 1, idle: 2, waiting: 2, done: 2, error: 2, total: 9 })
+  const states = ['working', 'idle', 'waiting', 'waiting', 'done', 'done', 'error', 'error']
+  engine(on, null, { hasClock: false, fleet: states.map((status, i) => other(`local_${i}`, status, 'idle', `c${i}`)) })
+  const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
 
   const answer = await $.command.run({ command: 'narsil', args: 'estado', ...TYPED })
 
@@ -1318,7 +1323,8 @@ test('Narsil speaks of herself in the first person', async ($, on) => {
 
   shouldFail = true
   for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  expect(spoken()).toContain('Creo que esto se está repitiendo.')
+  // no loop alert any more
+  expect(spoken()).not.toContain('Creo que esto se está repitiendo.')
   expect(spoken().some(t => String(t).includes('Narsil'))).toBe(false)
 })
 
@@ -1720,7 +1726,7 @@ test('the subagent chips show each type with its own mark', () => {
   expect(agentChip({ ...at, type: 'mi-agente' }, 0).text).toBe('🐍✨ Tarea')
 })
 
-// --- Loops, a permission left waiting, and the session's summary ---
+// --- A permission left waiting, and the session's summary ---
 
 // The tip the floating window was last sent, whole.
 function windowTip(posts: Posted[]): unknown {
@@ -1731,34 +1737,18 @@ function events(posts: Posted[], title: string): Posted[] {
   return posts.filter(p => p.url.endsWith('/event') && p.body.title === title)
 }
 
-test('the same command failing five times in a row is warned about once, as a loop', async ($, on) => {
+test('a command failing again and again, or a file edited again and again, raises no loop alert', async ($, on) => {
   model(on, 'SKIP')
   let shouldFail = true
   on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
   const { posts, clock } = await tipEngine($, on, { hasTools: false })
   await $.turn.start({ text: 'arregla los tests', turnId: 'loop' })
-
-  for (let i = 0; i < 2; i++) {
-    shouldFail = true
-    await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-    shouldFail = false
-    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
-  }
+  for (let i = 0; i < 6; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
+  shouldFail = false
+  for (let i = 0; i < 11; i++) await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
   await clock.settle()
   expect(events(posts, 'Veo un bucle')).toHaveLength(0)
-
-  shouldFail = true
-  for (let i = 0; i < 2; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await clock.settle()
-  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
-
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await clock.settle()
-  const warned = events(posts, 'Veo un bucle')
-  expect(warned).toHaveLength(1)
-  expect(warned[0]!.body.kind).toBe('question')
-  expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 5 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
-  expect(windowTip(posts)).toBe(warned[0]!.body.text)
+  expect(String(windowTip(posts) ?? '')).not.toContain('se está repitiendo')
 })
 
 // The test engine makes every call as the engine: a call another mod makes
@@ -1766,44 +1756,6 @@ test('the same command failing five times in a row is warned about once, as a lo
 test('only the tools Claude calls are its work; a call another mod makes is not', () => {
   expect(isClaudesCall({ plugin: 'engine', tier: 'core' })).toBe(true)
   expect(isClaudesCall({ plugin: 'narsil-check', tier: 'user' } as never)).toBe(false)
-})
-
-test('a success starts the count over, and a new turn too', async ($, on) => {
-  model(on, 'SKIP')
-  let shouldFail = true
-  on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
-  const { posts, clock } = await tipEngine($, on, { hasTools: false })
-  await $.turn.start({ text: 'arregla', turnId: 'a' })
-  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  shouldFail = false
-  await $.tool.call({ tool: 'Bash', command: 'npm test' })
-  shouldFail = true
-  await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await $.turn.start({ text: 'otra vez', turnId: 'b' })
-  for (let i = 0; i < 4; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
-  await clock.settle()
-
-  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
-})
-
-test('the same file edited ten times in one turn is warned about as a loop', async ($, on) => {
-  model(on, 'SKIP')
-  const { posts, clock } = await tipEngine($, on)
-  await $.turn.start({ text: 'arregla', turnId: 'edits' })
-  for (let i = 0; i < 9; i++) {
-    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
-  }
-  await clock.settle()
-  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
-
-  for (let i = 0; i < 2; i++) {
-    await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
-  }
-  await clock.settle()
-
-  const warned = events(posts, 'Veo un bucle')
-  expect(warned).toHaveLength(1)
-  expect(warned[0]!.body.text).toBe('app.ts lleva 10 ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?')
 })
 
 test('a permission left waiting five minutes is insisted on once, even while you look', async ($, on) => {
@@ -2624,52 +2576,18 @@ test('with ntfy.sh count out of reach, the state goes without that row', async (
   expect(state.usage.some((r: { key: string }) => r.key === 'ntfy')).toBe(false)
 })
 
-test('the band no longer shows what Claude has cost', async ($, on) => {
-  const store: Record<string, unknown> = {}
-  engine(on, null, { store })
-  measured(on)
-  let id = 'session-a'
-  on('session.id', () => ({ value: id }))
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  // nothing reported yet: no line
-  expect((await bandTexts($, 'desktop')).some(t => t.startsWith('💵'))).toBe(false)
-
-  await $.session.measure({ ...MEASURED, cost: { usd: 0.5 }, changed: ['cost'] } as never)
-  await $.session.measure({ ...MEASURED, cost: { usd: 1.25 }, changed: ['cost'] } as never)
-  expect((await bandTexts($, 'desktop')).some(t => t.startsWith('💵'))).toBe(false)
-
-  // another conversation adds its own; this one, reporting the same again, adds nothing
-  id = 'session-b'
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
-  expect((await bandTexts($, 'terminal')).some(t => t.startsWith('💵'))).toBe(false)
-  await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
-  expect((store.spend as { total: number }).total).toBe(3.25)
-})
-
-test('a new day starts today at zero and keeps the total; a conversation that starts its count over subtracts nothing', () => {
-  let s = spendOf(undefined, '2026-11-01')
-  s = addSpend(s, 'a', 4, '2026-11-01')
-  s = addSpend(s, 'a', 5, '2026-11-02')
-  expect([s.today, s.total]).toEqual([1, 5])
-  s = addSpend(s, 'a', 0.5, '2026-11-02')
-  expect([s.today, s.total]).toEqual([1, 5])
-  s = addSpend(s, 'a', 1.5, '2026-11-02')
-  expect([s.today, s.total]).toEqual([2, 6])
-  expect(spendOf({ day: 'x', today: -1, total: 3 }, '2026-11-02')).toEqual({ day: '2026-11-02', today: 0, total: 0, sessions: {} })
-  expect([usdLabel(0), usdLabel(0.004), usdLabel(12.345)]).toEqual(['$0', '<$0.01', '$12.35'])
-})
-
-test('the phone app gets the cost with the state', async ($, on) => {
+test('what Claude costs is no longer counted, kept, shown or sent to the phone', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const posts = phoneEngine(on, store)
-  on('session.measure', (_, e) => ({ changed: e.changed }))
+  measured(on)
   on('session.id', () => ({ value: 'session-a' }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.session.measure({ ...MEASURED, cost: { usd: 0.75 }, changed: ['cost'] } as never)
+  await $.session.measure({ ...MEASURED, cost: { usd: 1.25 }, changed: ['cost'] } as never)
+  for (const surface of ['desktop', 'terminal'] as const) expect((await bandTexts($, surface)).some(t => t.startsWith('💵'))).toBe(false)
+  expect(store.spend).toBeUndefined()
   await fromPhone($)
   await finishTurn($)
-  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).spend).toEqual({ today: 0.75, total: 0.75 })
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).spend).toBeUndefined()
 })
 
 test('a state with many conversations drops their headlines, then the last ones, to fit ntfy.sh', () => {

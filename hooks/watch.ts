@@ -5,10 +5,6 @@
 import type { Stats } from '../types'
 import { took } from './agents'
 
-// The same step failing this many times in a row, or the same file edited
-// this many times in one turn, reads as a loop.
-export const REPEAT_FAILS = 5
-export const REPEAT_EDITS = 10
 // How long a permission or a question may wait before Narsil insists.
 export const NUDGE_AFTER_MS = 5 * 60_000
 // How long after the last turn, with nothing new, Narsil sums the session up.
@@ -32,14 +28,6 @@ export function addFile(stats: Stats, file: string): Stats {
   if (!file || stats.files.includes(file)) return stats
   if (stats.files.length >= MAX_FILES) return { ...stats, moreFiles: stats.moreFiles + 1 }
   return { ...stats, files: [...stats.files, file] }
-}
-
-// The loop warning, or null: `failStreak` is how many times in a row the same
-// step has failed, `edits` how many times this turn the file was edited.
-export function loopWarning(what: string, failStreak: number, edits: number): string | null {
-  if (failStreak === REPEAT_FAILS) return `${what} ha fallado ${failStreak} veces seguidas. Esto se está repitiendo: ¿lo replanteamos?`
-  if (edits === REPEAT_EDITS) return `${what} lleva ${edits} ediciones en este turno. Esto se está repitiendo: ¿lo replanteamos?`
-  return null
 }
 
 export function nudgeText(what: string, waitedMs: number): string {

@@ -36,8 +36,21 @@ Una banda encima del prompt muestra a Narsil con una postura y una animación pr
 
 La banda funciona en la terminal, en la app de escritorio, en VS Code y en la app móvil.
 
+### Todas las conversaciones en un solo sitio
+Narsil es una sola para todas las conversaciones abiertas. Su dibujo y su titular muestran la más importante: primero un **ERROR**, luego lo que **TE NECESITA**, luego lo que está **TRABAJANDO** y por último lo **TERMINADO**. Si es otra conversación, el titular empieza por su nombre ("web: Me he detenido por un error").
+
+Debajo, la banda lista cada conversación con su estado, su nombre y su propia barra de contexto, de 4 en 4 (◂ ▸ para pasar de página). La conversación abierta, que de entrada es esta, muestra:
+
+- **Contexto**: su barra, sus tokens y cuándo se llenará. Al pulsar la palabra «Contexto» aparece en qué se llena.
+- **Sus tareas**, con su estado (○ pendiente, ◐ en curso, ● hecha, ⟳ en segundo plano). Salen de `TodoWrite`, `TaskCreate`/`TaskUpdate`, del plan de la app de escritorio y del trabajo que sigue en segundo plano cuando Claude para.
+- **Sus subagentes**.
+
+Al pulsar el nombre de otra conversación, se abre esa en su lugar.
+
+Para reunirlas, cada conversación manda su estado a un pequeño servidor local (el de la ventana flotante), que arranca con la primera conversación aunque la ventana esté desactivada.
+
 ### Ventana flotante
-Una pequeña ventana siempre visible que aparece cuando Claude está minimizado o cuando algo te espera, y se oculta sola cuando vuelves a Claude. Muestra la conversación que más te necesita y la lista de todas las conversaciones abiertas con su estado ("3 conversaciones: 1 trabajando · 2 paradas"). Al hacer clic, te lleva a esa conversación.
+Una pequeña ventana siempre visible que aparece cuando Claude está minimizado o cuando algo te espera, y se oculta sola cuando vuelves a Claude. Muestra a Narsil con la conversación más importante (o la del aviso que te espera), los límites de la cuenta y la lista de todas las conversaciones, con scroll si son muchas. Al pulsar una conversación se despliega con su contexto (la palabra «Contexto» muestra en qué se llena), sus tareas, sus subagentes, su caché y sus próximos pasos, y con un botón para abrirla. Si cierras la ventana, vuelve con el siguiente aviso (pasado un minuto).
 
 En Windows aparece en la misma pantalla en la que está Claude, aunque tengas varios monitores.
 
@@ -50,13 +63,11 @@ Consejos sobre el trabajo en curso, generados con Haiku (esfuerzo medio): al ter
 En Windows y macOS cada consejo se abre completo en una ventanita propia con el icono de Narsil: encima de la ventana flotante si está a la vista y, si no, en la esquina del monitor donde está Claude (en macOS, donde está el ratón). No te quita el foco, se cierra sola a los 3 minutos o cuando llega otro consejo, y tiene un botón para volver a la conversación. Así la banda y la ventana flotante dejan ese espacio para lo demás. En los demás sistemas, el consejo se muestra en la banda y en la ventana flotante.
 
 ### Uso del contexto y de los límites
-Barras con el uso de la ventana de contexto, del límite de 5 horas y del límite semanal, con el tiempo que falta para que se reinicien.
+Los límites de la cuenta (5 horas y semanal) aparecen una sola vez, con el tiempo que falta para que se reinicien. No hay una barra de contexto general: cada conversación tiene la suya, en su fila.
 
-La barra de contexto calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
+La barra de contexto de cada conversación calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
 
-Pulsa «▸ Ver cómo se llena el contexto» (en la terminal, «▸ detalle» junto a la barra) y las barras cambian por el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición mientras está abierto. «◂ Volver» devuelve las barras.
-
-Debajo, Narsil muestra lo que ha costado Claude en este ordenador: hoy (desde tu medianoche) y en total desde que empezó a contarlo ("💵 Hoy $3.46 · total $45.60"). Suma todas las conversaciones y cuenta cada una una sola vez, con la misma cifra que da `/cost`. Con un plan Pro o Max no es lo que pagas, sino lo que costarían esos tokens en la API. Cada ordenador lleva su propia cuenta.
+Pulsa la palabra «Contexto» de la conversación abierta y aparece el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición. Otra pulsación lo cierra.
 
 ### Reacciones a lo que ejecuta Claude
 - **Tests**: celebra cuando pasan, se da cuenta cuando fallan y celebra cuando se recuperan. Reconoce npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle y más.
@@ -82,9 +93,6 @@ Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y e
 
 Si el subagente corría en segundo plano, Narsil además avisa con voz y en la ventana flotante cuando termina.
 
-### Detector de bucles
-Si un mismo paso falla 5 veces seguidas en un turno (por ejemplo `npm test`, aunque haya ediciones entre medias) o un mismo archivo se edita 10 veces en un turno, Narsil avisa una sola vez: "Esto se está repitiendo: ¿lo replanteamos?". El aviso aparece como consejo en la banda y en la ventana flotante. Si ese paso sale bien una vez, la cuenta vuelve a empezar.
-
 ### Permisos que esperan
 Si un permiso, una pregunta o un plan llevan 5 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
 
@@ -97,9 +105,9 @@ Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y
 Si Narsil te resulta demasiado, `/narsil discreto` la calla: sin voz, sin avisos al terminar un turno y sin consejos ni próximos pasos automáticos. Sigue avisándote, sin hablar, cuando te necesita o hay un error, y la banda sigue mostrando lo que hace. `/narsil normal` lo devuelve todo como lo tenías.
 
 ### Avisos en el móvil y el reloj
-Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a tu móvil lo que te necesita: cuando Narsil termina, cuando te necesita o cuando algo falla. Solo envía mientras le escribes a la conversación desde Remote Control (el móvil o la web); en cuanto vuelves a escribir en el escritorio, deja de enviar. Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
+Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a tu móvil lo que te necesita: cuando una conversación termina, te necesita o falla. Solo envía mientras tu último mensaje, en cualquier conversación, salió de Remote Control (el móvil o la web): así también te avisan las conversaciones que empezaste en el escritorio. En cuanto vuelves a escribir en el escritorio, en cualquiera de ellas, deja de enviar. Cada aviso acaba con la lista de todas las conversaciones abiertas y su estado ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
 
-Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` lo que la banda muestra en el PC: estado, titular, consejo, uso, caché, próximos pasos, nivel y modelo. Ese tema no genera notificaciones: está pensado para que una app propia lo lea al abrirse (ver más abajo). Esos mensajes cuentan dentro de los 200 diarios.
+Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` un estado único para todas las conversaciones: el de la más importante (estado, titular, consejo, límites, caché, próximos pasos, nivel y modelo) y la lista de todas. Ese tema no genera notificaciones: está pensado para que una app propia lo lea al abrirse (ver más abajo). Esos mensajes cuentan dentro de los 200 diarios.
 
 Si usas tu propia app, `/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y tu app. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si es la que usas, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
 
@@ -120,18 +128,18 @@ La app ntfy basta para recibir los avisos. Si quieres ver también el estado del
 
    | Campo | Qué es |
    | --- | --- |
-   | `status`, `statusLabel` | `working`, `idle`, `waiting`, `done` o `error`, y su nombre ("TRABAJANDO"…). |
-   | `headline`, `line`, `tip` | El titular, la frase de Narsil y el consejo (`null` si no hay). |
-   | `usage` | Las barras: `[{ key, label, percent, color, note, resetsAt }]` (contexto, 5 horas, semana y, si ntfy.sh responde, `ntfy`: los mensajes del día desde tu red, con `note` como "128/250 mensajes"). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja, salvo en `ntfy`, donde `note` no es un reinicio. ntfy.sh cuenta por IP y su día empieza a una hora propia de cada IP, no a medianoche: `GET https://ntfy.sh/v1/account` la da en `stats.reset_at`. |
-   | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché (segundos Unix) y cuántos minutos dura. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
+   | `status`, `statusLabel` | El de la conversación más importante (primero `error`, luego `waiting`, `working`, `done` e `idle`) y su nombre ("TRABAJANDO"…). |
+   | `headline`, `line`, `tip` | Su titular, la frase de Narsil y el consejo (`null` si no hay, o si la más importante es otra conversación que la que envía). |
+   | `usage` | Las barras de la cuenta: `[{ key, label, percent, color, note, resetsAt }]` (5 horas, semana y, si ntfy.sh responde, `ntfy`; el contexto va en cada conversación de `sessions`: los mensajes del día desde tu red, con `note` como "128/250 mensajes"). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja, salvo en `ntfy`, donde `note` no es un reinicio. ntfy.sh cuenta por IP y su día empieza a una hora propia de cada IP, no a medianoche: `GET https://ntfy.sh/v1/account` la da en `stats.reset_at`. |
+   | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché de la más importante (segundos Unix) y cuántos minutos dura, si es la que envía. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
    | `steps` | Los próximos pasos sugeridos. |
-   | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación. |
-   | `art` | La URL del dibujo de Narsil en su etapa y pose (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
+   | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación más importante. |
+   | `art` | La URL del dibujo de Narsil en su etapa y en la pose de la más importante (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
    | `at` | Cuándo se envió (segundos Unix). |
-   | `conversation` | La conversación que lo envía: 8 caracteres hexadecimales, los mismos cada vez. Guarda el último estado de cada una para mostrar varias conversaciones a la vez. Sus avisos llevan la misma marca como etiqueta `conv-<conversation>` en `tags`. |
-   | `spend` | Lo que ha costado Claude en este ordenador, en dólares: `{ today, total }`, como lo muestra la banda. Es de la cuenta, no de la conversación: muéstralo una vez, del estado más reciente. |
+   | `conversation` | La conversación más importante: 8 caracteres hexadecimales, los mismos cada vez. Sus avisos llevan la misma marca como etiqueta `conv-<conversation>` en `tags`. |
+   | `sessions` | Todas las conversaciones abiertas, la más importante primero: `[{ conversation, title, status, statusLabel, headline, context, isThis }]`, con `context` el % de su ventana de contexto (`null` sin medir) e `isThis` la que envía. Cada estado trae la lista entera: basta con el último. |
 
-   Si el JSON no cabe, llega sin `tip` ni `steps`. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
+   Si el JSON no cabe, llega sin `tip` ni `steps`; si aún no cabe, `sessions` llega sin `headline` y luego sin las últimas conversaciones. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
 3. **Cifrado (opcional).** Con `/narsil movil clave`, el `message` de cada aviso y de cada estado llega como `narsil1:` seguido, en base64url, de un nonce de 16 bytes, el texto cifrado y una etiqueta de 32 bytes; el `title` llega como "Narsil". Para abrirlo con WebCrypto, usando HMAC-SHA256 (`crypto.subtle.sign('HMAC', …)`):
    - Deriva dos claves de la clave compartida (base64url): `enc = HMAC(clave, "enc")` y `mac = HMAC(clave, "mac")`.
    - Comprueba que la etiqueta sea `HMAC(mac, nonce ‖ cifrado)`. Si no coincide, la clave no es la buena.
@@ -238,7 +246,8 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 - `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
 - `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
 - `hooks/phone.ts`: los avisos al móvil (el mensaje para ntfy.sh con su icono, el tema y la cuenta diaria).
-- `hooks/spend.ts`: lo que ha costado Claude en este ordenador, hoy y en total, sumando cada conversación una sola vez.
+- `hooks/fleet.ts`: todas las conversaciones como una lista: el orden por importancia, las páginas de la banda y cuál está abierta.
+- `hooks/tasks.ts`: la lista de tareas de una conversación, tal como la dejan `TodoWrite`, `TaskCreate`/`TaskUpdate` y el plan de la app de escritorio.
 - `hooks/seal.ts`: el cifrado de `/narsil movil clave` (HMAC-SHA256 en modo contador, con etiqueta).
 - `hooks/sprite.ts`: las animaciones de Narsil.
 - `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
