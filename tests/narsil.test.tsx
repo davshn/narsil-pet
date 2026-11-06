@@ -412,6 +412,18 @@ test('the task tools leave this conversation its list, for the band and the hub'
     { id: '1', text: 'Uno', status: 'completed' },
     { id: '2', text: 'Dos', status: 'in_progress' },
   ])
+
+  // the app's next-step box closes the turn and checks the plan off, with no
+  // last update_plan
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'A', status: 'in_progress' }, { content: 'B', status: 'pending' }] } as never)
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'Listo.' } as never)
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.tasks).toEqual([
+    { id: '1', text: 'A', status: 'completed' },
+    { id: '2', text: 'B', status: 'completed' },
+  ])
+  const closed = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await closed.find({ type: 'Text', text: '  ● B' })).toBeDefined()
+  await closed.unmount()
 })
 
 test('the counts agree in number with how many conversations each holds', async ($, on) => {

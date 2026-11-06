@@ -5,7 +5,10 @@
 import type { TaskItem, TaskStatus } from '../types'
 
 export const PLAN_TOOL = 'mcp__ccd_turn__update_plan'
-export const TASK_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate', PLAN_TOOL])
+// The app's next-step box: it closes the turn and checks the plan off, with
+// no last update_plan.
+export const WRAP_UP_TOOL = 'mcp__ccd_turn__wrap_up'
+export const TASK_TOOLS = new Set(['TodoWrite', 'TaskCreate', 'TaskUpdate', PLAN_TOOL, WRAP_UP_TOOL])
 
 // The most a conversation shares of its list: the rest is left out.
 export const MAX_TASKS = 30
@@ -53,6 +56,7 @@ export function applyTaskCall(list: readonly TaskItem[], tool: string, input: Re
     )
   }
   if (tool === PLAN_TOOL) return applyPlan(list, input)
+  if (tool === WRAP_UP_TOOL) return list.map(t => (t.status === 'pending' || t.status === 'in_progress' ? { ...t, status: 'completed' as const } : t))
   return list
 }
 
