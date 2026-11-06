@@ -1,0 +1,38 @@
+# Fleet view: one Narsil for every open conversation
+
+Objective: the band, the floating window and the phone show every open conversation and its state; Narsil's image shows the most important one.
+Branch: `feat/fleet-view` · Delivery: ask-on-risk · Tests: `claude plugin test .` and `node tests/overlay-server.check.cjs`.
+
+## Specs
+
+- **S1 Shared hub.** The local overlay server collects every conversation's state, whether or not the floating window is on, and serves the list to every conversation. Priority: "error->te necesita-> trabajando--> termine" (then idle).
+- **S2 Narsil's image.** "la imagen de narsil solo mostraria lo mas importante error->te necesita-> trabajando--> termine", in the band and in the floating window.
+- **S3 Conversation list.** "deberiamos ver en la ventana principal tanto en la banda como la ventana externa el estado de todas las conversaciones, con scroll si son muchas". One row per conversation: its state, its title and its own context bar with its percent. The band cannot scroll (Box overflow is only visible/hidden): it pages instead.
+- **S4 One conversation's detail.** "al hacer click en el titulo de conversacion deberiamos poder ver sus sub agentes/ tareas y sus respectivos estados". Inside it: "su contexto, sus tareas con su estado (no es necesario barra de avance) y sus sub agentes, al clickear aca su contexto veria como se lleno su propio contexto".
+- **S5 No general context bar.** "la barra de contexto general tambien se iria por que no existe un contexto general y se reemplazaria por las barras de contexto de cada conversacion". The account limits (5 hours, week) stay, shown once.
+- **S6 Removed sections.** "podemos quitar la seccion del final la de conversaciones abiertas terminadas etc." · "la del cache la mantenemos, la del dinero tambien podriamos eliminarla".
+- **S7 Context detail on the word.** "el detalle de como se llena el contexto deberia aparecer cuando se de click en la palabra contexto."
+- **S8 Phone alerts.** "las notificaciones se enviarian al celular cuando se pida algo desde el celular como ahora y haya cambios, es decir alguna tarea pase de trabajando a terminado, o de trabajando a error, etc" · A conversation started at the desk alerts too while you write from the phone in another: "si claro me avisas al movil". "las notificaciones del celular cuando se envien llevarian la info de todas las sesiones funcionando en ese momento".
+- **S9 Loop alert removed.** "eliminariamos la alerta de bucle, no la he sentido tan util".
+- **S10 Tips unchanged.** "los consejos seguirian funcionando como ahora en cada ventana".
+- **S11 narsil-pwa follow-up.** "solo hay un front que consume las notificaciones y es el de narsil-pwa cuando termines las tareas de movil puedes dejarle los pendientes a modificar usando la lista de pendientes del mod narsil-check."
+
+## Tasks
+
+| ID | Specs | Route | Status | Commit |
+| --- | --- | --- | --- | --- |
+| T1 | S1 | inline | done | feat: hub commit (see Log L6) |
+| T2 | S2 S3 S4 S5 S6 S7 (band) | inline | pending | |
+| T3 | S2 S3 S4 S5 S6 S7 (window) | inline | pending | |
+| T4 | S8 | inline | pending | |
+| T5 | S6 S9 (removals) | inline | pending | |
+| T6 | S11 | inline | pending | |
+
+## Log
+
+- **L1 (2026-11-06, user):** "quiero hacerlo en los dos y tambien en la ventana externa, el diseno lo pensamos luego, quisiera poder mostrar todas las sesiones en curso y sus estados, la imagen de narsil solo mostraria lo mas importante error->te necesita-> trabajando--> termine, y las notificaciones se enviarian al celular cuando se pida algo desde el celular como ahora y haya cambios, es decir alguna tarea pase de trabajando a terminado, o de trabajando a error, etc, (eliminariamos la alerta de bucle, no la he sentido tan util) las notificaciones del celular cuando se envien llevarian la info de todas las sesiones funcionando en ese momento, algo asi es mi idea, como lo hacemos? los consejos seguirian funcionando como ahora en cada ventana"
+- **L2 (user):** "si claro me avisas al movil, y tienes razon solo hay un front que consume las notificaciones y es el de narsil-pwa cuando termines las tareas de movil puedes dejarle los pendientes a modificar usando la lista de pendientes del mod narsil-check. en cuanto al diseno podemos quitar la seccion del final la de conversaciones abiertas terminadas etc. la del cache la mantenemos, la del dinero tambien podriamos eliminarla, la verdad no es tan util deberiamos ver en la ventana principal tanto en la banda como la ventana externa el estado de todas las conversaciones, con scroll si son muchas, el detalle de como se llena el contexto deberia aparecer cuando se de click en la palabra contexto. que opinas, donde ponemos las barras de cada conversacion con su porcentaje de avance y con sus estados? al hacer click en el titulo de conversacion deberiamos poder ver sus sub agentes/ tareas y sus respectivos estados"
+- **L3 (user):** "entonces otro cambio, me parece bien lo que me dices del contexto, entonces la barra de contexto general tambien se iria por que no existe un contexto general y se reemplazaria por las barras de contexto de cada conversacion, el avance entonces no existe cuando entre a una de esas conversaciones estaria de nuevo su contexto, sus tareas con su estado (no es necesario barra de avance) y sus sub agentes, al clickear aca su contexto veria como se lleno su propio contexto y ya"
+- **L4:** Design agreed: Narsil and the headline of the conversation that matters on top; account limits once; the list of conversations (state, title, context bar, cache clock), the current one marked; a row opens to its context (click → its breakdown), its tasks and its subagents; the tip and next steps of this window below. The band pages 4 rows at a time.
+- **L5:** Next: T1.
+- **L6 (T1 done):** The server starts with every conversation, window or not (`NARSIL_WINDOW=0` when the floating window is off; Edge or a Chromium browser is now optional). Closing the window no longer quits the server; an event reopens a wanted window after 60 s. `POST /window?on=1|0` replaces quitting on `/narsil flotante`. `GET /sessions` (token only) lists every live conversation, error first, then waiting, working, done, idle, without drawings; the mod reads it each heartbeat into the `sessions` state. Protocol `narsil 3`. Evidence: `node tests/overlay-server.check.cjs` 6 passed; `claude plugin test .` 125 pass (needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` in this shell); the new mod test failed against the previous `hooks/register.tsx` (RED) and passes now. Not covered: a real Edge or macOS window opening and closing. Next: T2.

@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Fleet, Mood, Pet, Prefs, Stats, Usage } from '../types'
+import type { Fleet, FleetSession, Mood, Pet, Prefs, Stats, Usage } from '../types'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
@@ -49,6 +49,9 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
 })
 // Every open conversation, by state: counted by the floating window.
 const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
+// Every open conversation as the hub serves it, the most important first;
+// empty while the hub is out of reach.
+const sessions = atom({ plugin: 'narsil-pet', key: 'sessions' } as const, [])
 // Narsil's tip on show, if any: under the headline and in the window.
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
@@ -157,7 +160,7 @@ async function overlayToken($: EngineInterface): Promise<string> {
 // What this version's window server answers a ping. A server another version
 // started answers otherwise ("narsil" before the drawing was sent only on a
 // change): it outlives the mod's updates, so it is closed and started anew.
-const OVERLAY_PROTOCOL = 'narsil 2'
+const OVERLAY_PROTOCOL = 'narsil 3'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -186,7 +189,8 @@ async function startOverlay($: EngineInterface): Promise<void> {
       await $.clock.sleep(300).catch(() => undefined)
     }
   }
-  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
+  // The server serves every conversation; the window opens only when wanted.
+  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190', NARSIL_WINDOW: (await read($, prefs)).isFloating ? '1' : '0' }
   if (os === 'mac') {
     // start.sh finds Node and a Chromium browser and starts the server behind.
     await run($, ['/bin/sh', `${$.plugin.root}/overlay/start.sh`], env)
@@ -197,8 +201,9 @@ async function startOverlay($: EngineInterface): Promise<void> {
     "$edge = @(\"${env:ProgramFiles(x86)}\\Microsoft\\Edge\\Application\\msedge.exe\", \"$env:ProgramFiles\\Microsoft\\Edge\\Application\\msedge.exe\") | Where-Object { Test-Path $_ } | Select-Object -First 1",
     "$node = (Get-Command node -ErrorAction SilentlyContinue).Source",
     "if (-not $node) { $node = \"$env:ProgramFiles\\nodejs\\node.exe\" }",
-    'if (-not $edge -or -not (Test-Path $node)) { exit 3 }',
-    '$env:NARSIL_EDGE = $edge',
+    // Without Edge the server still serves the conversations, with no window.
+    'if (-not (Test-Path $node)) { exit 3 }',
+    'if ($edge) { $env:NARSIL_EDGE = $edge }',
     'Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList (\'"\' + $env:NARSIL_SERVER + \'"\')',
   ].join('; ')
   await powershell($, script, { ...env, NARSIL_SERVER: `${root}\\overlay\\server.cjs` })
@@ -221,9 +226,9 @@ function conversationLink(): string {
 // restarted), not with every heartbeat.
 let sentSvg = ''
 
-async function pushOverlay($: EngineInterface): Promise<void> {
-  const { isFloating } = await read($, prefs)
-  if (!isFloating) return
+// Every conversation pushes its state, window or not: the hub serves it to
+// the others. Returns whether the hub took it.
+async function pushOverlay($: EngineInterface): Promise<boolean> {
   const s = await read($, pet)
   const svg = sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined)
   const state = await shownState($)
@@ -243,10 +248,40 @@ async function pushOverlay($: EngineInterface): Promise<void> {
   const reply = await send(withSvg)
   if (reply === null) {
     sentSvg = ''
-    return
+    return false
   }
   if (withSvg) sentSvg = svg
   else if (reply === 'need-svg' && (await send(true)) !== null) sentSvg = svg
+  return true
+}
+
+// Every open conversation, as the hub serves it.
+async function readSessions($: EngineInterface): Promise<void> {
+  try {
+    const { ok, text } = await $.http.fetch(`${OVERLAY}/sessions`, { headers: { 'x-narsil-token': await overlayToken($) } })
+    if (!ok) return
+    const list = JSON.parse(text) as FleetSession[]
+    if (!Array.isArray(list)) return
+    const next = list.map(s => ({
+      sessionId: String(s.sessionId),
+      title: String(s.title ?? ''),
+      mood: s.mood,
+      status: s.status,
+      headline: String(s.headline ?? ''),
+      model: s.model ?? null,
+      changedAt: Number(s.changedAt) || 0,
+    }))
+    if (JSON.stringify(next) !== JSON.stringify(await read($, sessions))) await update($, sessions, () => next)
+  } catch {
+    // the hub out of reach: the list stays as it was
+  }
+}
+
+// The floating window on or off; the hub stays for the conversations.
+async function setWindow($: EngineInterface, isOn: boolean): Promise<void> {
+  await $.http
+    .fetch(`${OVERLAY}/window?on=${isOn ? 1 : 0}`, { method: 'POST', headers: { 'x-narsil-token': await overlayToken($) } })
+    .catch(() => undefined)
 }
 
 // What the floating window and the phone app show of this conversation, as
@@ -297,7 +332,9 @@ async function beat($: EngineInterface): Promise<void> {
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
-  await pushOverlay($)
+  // A hub that went down (or never started) is started again, at most once a minute.
+  if (!(await pushOverlay($))) void ensureOverlay($).catch(() => undefined)
+  await readSessions($)
   try {
     const { ok, text } = await $.http.fetch(`${OVERLAY}/summary`)
     if (!ok) return
@@ -1168,12 +1205,10 @@ export const register: Register = on => {
     // A new conversation: Narsil is happy to see you.
     await setMood($, 'greeting')
 
-    // The floating window shows itself while Claude is minimized or an event
-    // waits for you; the heartbeat keeps it in sync, and it closes itself
-    // once the beats stop.
-    if ((await read($, prefs)).isFloating) {
-      $.clock.after(10, () => startOverlay($))
-    }
+    // The hub serves every conversation to the others; its floating window
+    // shows itself while Claude is minimized or an event waits for you. The
+    // heartbeat keeps it in sync, and it closes itself once the beats stop.
+    $.clock.after(10, () => startOverlay($))
     $.clock.every(2000, () => beat($))
 
     return next(e)
@@ -1222,10 +1257,11 @@ export const register: Register = on => {
       await $.store.set(PREFS_KEY, saved).catch(() => undefined)
       if (saved.isFloating) {
         await startOverlay($)
+        await setWindow($, true)
         await pushOverlay($)
         return { text: 'Narsil: ventana flotante activada (aparece con Claude minimizado o cuando algo te espera).' }
       }
-      await stopOverlay($)
+      await setWindow($, false)
       return { text: 'Narsil: ventana flotante desactivada (los avisos irán como notificación del sistema).' }
     }
     const patch = change[arg]

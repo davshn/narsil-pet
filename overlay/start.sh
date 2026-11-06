@@ -1,8 +1,8 @@
 #!/bin/sh
-# macOS: starts Narsil's floating window server (server.cjs) in the
-# background and returns at once. The server opens the window in a Chromium
-# browser's app mode (Chrome, Edge or Brave) when it is wanted. Exits 3 when
-# Node or such a browser is missing.
+# macOS: starts Narsil's hub (server.cjs) in the background and returns at
+# once. The server opens the floating window in a Chromium browser's app mode
+# (Chrome, Edge or Brave) when it is wanted; without such a browser it still
+# serves the conversations. Exits 3 when Node is missing.
 for app in \
   "/Applications/Google Chrome.app" "$HOME/Applications/Google Chrome.app" \
   "/Applications/Microsoft Edge.app" "$HOME/Applications/Microsoft Edge.app" \
@@ -21,7 +21,7 @@ for candidate in /opt/homebrew/bin/node /usr/local/bin/node "$HOME/.volta/bin/no
   fi
 done
 
-if [ -z "$NARSIL_BROWSER_APP" ] || [ -z "$node" ]; then
+if [ -z "$node" ]; then
   exit 3
 fi
 export NARSIL_BROWSER_APP

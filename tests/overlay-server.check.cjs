@@ -57,7 +57,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 2', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 3', 'the protocol the mod checks')
 })
 
 check("the page's actions need its key", async () => {
@@ -81,6 +81,32 @@ check("the mod's state needs its token, as before", async () => {
   const res = await request('POST', '/state', { headers: { ...json, 'x-narsil-token': 'mod-token' }, body })
   assert.equal(res.status, 200)
   assert.equal(res.text, 'need-svg')
+})
+
+check('every conversation is served to the mods alone, the most important first, without drawings', async () => {
+  const mod = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
+  const push = (sessionId, status) =>
+    request('POST', '/state', { headers: mod, body: JSON.stringify({ sessionId, mood: 'm', status, headline: status, svg: '<svg/>' }) })
+  await push('local_done', 'done')
+  await push('local_work', 'working')
+  await push('local_ask', 'waiting')
+  await push('local_fail', 'error')
+  assert.equal((await request('GET', '/sessions')).status, 403, 'without the token')
+  assert.equal((await request('GET', '/sessions', { headers: { 'x-narsil-page': 'f'.repeat(32) } })).status, 403, 'with a page key')
+  const res = await request('GET', '/sessions', { headers: { 'x-narsil-token': 'mod-token' } })
+  assert.equal(res.status, 200)
+  const list = JSON.parse(res.text).filter(s => s.sessionId !== 'local_abc')
+  assert.deepEqual(list.map(s => s.sessionId), ['local_fail', 'local_ask', 'local_work', 'local_done'])
+  assert.ok(list.every(s => !('svg' in s)), 'no drawings')
+})
+
+check('the window turns on and off for the mod alone, and the server stays', async () => {
+  assert.equal((await request('POST', '/window?on=0')).status, 403)
+  const mod = { 'x-narsil-token': 'mod-token' }
+  assert.equal((await request('POST', '/window?on=0', { headers: mod })).status, 204)
+  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
+  assert.equal((await request('POST', '/window?on=1', { headers: mod })).status, 204)
+  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
 })
 
 ;(async () => {

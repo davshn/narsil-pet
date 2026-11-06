@@ -52,6 +52,18 @@ export type Tip = { text: string; kind: string; at: number; isFaded?: boolean; i
 // The open conversations, by state, as the floating window counts them.
 export type Fleet = Record<Status, number> & { total: number }
 
+// One open conversation as the hub serves it to every other: its state and
+// what its own band shows, the most important conversation first.
+export type FleetSession = {
+  sessionId: string
+  title: string
+  mood: Mood
+  status: Status
+  headline: string
+  model: string | null
+  changedAt: number
+}
+
 // One limit's fill, 0 to 100, and when its window starts over (ISO 8601).
 export type Meter = { percent: number; resetsAt?: string }
 
@@ -120,6 +132,6 @@ export type Spending = { today: number; total: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null; contextDetail: ContextDetail | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; sessions: readonly FleetSession[]; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null; contextDetail: ContextDetail | null }
   }
 }

@@ -1,10 +1,11 @@
-// Narsil's floating window: a tiny local server that the mod pushes state and
-// events to, a browser app window that draws them, and a keeper that shows the
-// window only while Claude is minimized or an event waits for you. On Windows
-// the window is Edge's and the keeper is watch.ps1; on macOS it is a Chromium
-// browser's (start.sh finds one) and the keeper runs here, in Node.
-// It shuts itself (and the window) down when Claude stops sending heartbeats
-// or, on Windows, the window is closed.
+// Narsil's hub: a tiny local server every open conversation pushes its state
+// and events to, and reads the others' from. When the floating window is
+// wanted it also opens a browser app window that draws them, and a keeper that
+// shows the window only while Claude is minimized or an event waits for you.
+// On Windows the window is Edge's and the keeper is watch.ps1; on macOS it is
+// a Chromium browser's (start.sh finds one) and the keeper runs here, in Node.
+// Closing the window leaves the server running for the conversations; it
+// shuts itself (and the window) down when Claude stops sending heartbeats.
 'use strict'
 
 const crypto = require('crypto')
@@ -27,13 +28,16 @@ const WINDOW_SIZE = '--window-size=330,450'
 const LINK = /^claude:\/\/code\/continue\?session=local_[A-Za-z0-9-]{1,64}&source=desktop_action$/
 
 const HEARTBEAT_TIMEOUT_MS = 30_000
+// After you close the window, an event does not open it again this soon.
+const REOPEN_AFTER_CLOSE_MS = 60_000
 // A "done" note leaves by itself; a question or an error waits for you.
 const DONE_EVENT_MS = 20_000
 const SESSION = /^local_[A-Za-z0-9-]{1,64}$/
 const EVENT_KINDS = new Set(['done', 'question', 'error'])
 const STATUSES = ['working', 'idle', 'waiting', 'done', 'error']
-// Which conversation the window shows first: whoever needs you most.
-const PRIORITY = { waiting: 0, error: 1, working: 2, done: 3, idle: 4 }
+// Which conversation comes first, and whose state Narsil wears: an error,
+// then what needs you, then what works, then what finished.
+const PRIORITY = { error: 0, waiting: 1, working: 2, done: 3, idle: 4 }
 const SESSION_TIMEOUT_MS = 30_000
 // The page's own key, new each run: its actions carry it, and no other web
 // page can read it (a page of another site cannot read this one).
@@ -57,6 +61,11 @@ let lastAnswer = null
 let pendingOpens = []
 let isQuitting = false
 let keeper = null
+// Whether the window is wanted (the floating window is on), whether it is
+// open now, and when you closed it last.
+let isWindowWanted = process.env.NARSIL_WINDOW !== '0'
+let isWindowOpen = false
+let closedAt = Number.NEGATIVE_INFINITY
 // Where the window last said it is on screen (in CSS pixels, from the top
 // left of the main screen), so the tip window can open above it on macOS.
 let bounds = null
@@ -75,6 +84,12 @@ function summary() {
   const live = liveSessions()
   for (const entry of live) if (entry.status in counts) counts[entry.status]++
   return { ...counts, total: live.length }
+}
+
+// Every live conversation for the mods, most important first, without the
+// drawings (each mod draws its own).
+function sessionList() {
+  return liveSessions().map(({ svg, ...entry }) => entry)
 }
 
 function snapshot() {
@@ -102,7 +117,8 @@ function killWindow(done) {
 function quit() {
   if (isQuitting) return
   isQuitting = true
-  if (keeper) keeper.kill()
+  stopKeeper()
+  if (!isWindowOpen) return process.exit(0)
   killWindow(() => process.exit(0))
   setTimeout(() => process.exit(0), 5000).unref()
 }
@@ -121,17 +137,41 @@ const BROWSER_ARGS = [
 ]
 
 function openWindow() {
+  if (isWindowOpen || isQuitting) return
+  if (isMac ? !browserApp : !edge) return
+  isWindowOpen = true
+  lastAnswer = null
   if (isMac) return keepMac()
   const child = spawn(edge, BROWSER_ARGS, { detached: true, stdio: 'ignore' })
   // The first process of a private profile is the window's own: when it
-  // exits, the person closed the window.
-  child.on('exit', () => setTimeout(quit, 1500))
+  // exits, the person closed the window. The server stays for the others.
+  child.on('exit', () => windowGone())
   child.unref()
   keeper = spawn('powershell.exe', [...POWERSHELL, path.join(__dirname, 'watch.ps1')], {
     env: { ...process.env, NARSIL_PORT: String(port), NARSIL_TOKEN: token },
     stdio: 'ignore',
     windowsHide: true,
   })
+}
+
+function stopKeeper() {
+  const k = keeper
+  keeper = null
+  if (k) k.kill()
+}
+
+function windowGone() {
+  if (!isWindowOpen) return
+  isWindowOpen = false
+  closedAt = Date.now()
+  stopKeeper()
+}
+
+function closeWindow() {
+  if (!isWindowOpen) return
+  isWindowOpen = false
+  stopKeeper()
+  killWindow(() => undefined)
 }
 
 function clearEvent() {
@@ -206,7 +246,7 @@ function onMacState(state) {
 }
 
 function keepMac() {
-  if (!browserApp || isQuitting) return
+  if (!browserApp || isQuitting || !isWindowOpen) return
   const reader = keeper = spawn('osascript', ['-l', 'JavaScript', path.join(__dirname, 'mac-claude.js')], { stdio: ['ignore', 'ignore', 'pipe'] })
   let rest = ''
   let isBusy = false
@@ -247,8 +287,8 @@ const server = http.createServer(async (req, res) => {
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
   const isPage = isTrusted || req.headers['x-narsil-page'] === PAGE_KEY
 
-  // The protocol, as the mod checks it: "narsil 2" keeps each drawing until a new one comes.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 2')
+  // The protocol, as the mod checks it: "narsil 3" serves every conversation to the mods.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 3')
   if (req.method === 'GET' && url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE)
   if (req.method === 'GET' && (url.pathname === '/icon.png' || url.pathname === '/favicon.ico')) return send(200, 'image/png', ICON)
   if (req.method === 'GET' && url.pathname === '/events') {
@@ -260,6 +300,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method === 'GET' && url.pathname === '/window') return send(200, 'application/json', JSON.stringify(bounds && { ...bounds, age: Date.now() - bounds.at }))
   if (req.method === 'GET' && url.pathname === '/summary') return send(200, 'application/json', JSON.stringify(summary()))
+  if (req.method === 'GET' && url.pathname === '/sessions') {
+    if (!isTrusted) return send(403, 'text/plain', 'forbidden')
+    return send(200, 'application/json', JSON.stringify(sessionList()))
+  }
   if (req.method === 'GET' && url.pathname === '/tick') {
     if (!isTrusted) return send(403, 'text/plain', 'forbidden')
     return send(200, 'text/plain', tick(url.searchParams.get('claude') || 'fg', url.searchParams.get('window') === '1'))
@@ -314,6 +358,13 @@ const server = http.createServer(async (req, res) => {
     if (!svg) return send(200, 'text/plain', 'need-svg')
     return send(204, 'text/plain', '')
   }
+  // The floating window turned on or off: the server stays either way.
+  if (url.pathname === '/window') {
+    isWindowWanted = url.searchParams.get('on') === '1'
+    if (isWindowWanted) openWindow()
+    else closeWindow()
+    return send(204, 'text/plain', '')
+  }
   if (url.pathname === '/event') {
     if (!data || !EVENT_KINDS.has(data.kind)) return send(400, 'text/plain', 'bad event')
     lastBeat = Date.now()
@@ -328,6 +379,8 @@ const server = http.createServer(async (req, res) => {
         at: Date.now(),
         isForced: data.force === true,
       }
+      // A window you closed comes back for what waits, after a while.
+      if (isWindowWanted && !isWindowOpen && (data.force === true || Date.now() - closedAt >= REOPEN_AFTER_CLOSE_MS)) openWindow()
       broadcast()
     }
     return send(204, 'text/plain', '')
@@ -340,7 +393,9 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.on('error', () => process.exit(0)) // another overlay already owns the port
-server.listen(port, '127.0.0.1', openWindow)
+server.listen(port, '127.0.0.1', () => {
+  if (isWindowWanted) openWindow()
+})
 
 setInterval(() => {
   if (Date.now() - lastBeat > HEARTBEAT_TIMEOUT_MS) quit()

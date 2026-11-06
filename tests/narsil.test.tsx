@@ -110,7 +110,7 @@ function engine(
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 2' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 3' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
@@ -1220,6 +1220,23 @@ test('an older window server left running is closed and replaced by this version
   expect(posts.find(p => p.url.endsWith('/event'))?.body.kind).toBe('question')
   // the new server gets the drawing at once
   expect(posts.some(p => p.url.endsWith('/state') && typeof p.body.svg === 'string')).toBe(true)
+})
+
+test('with the window off, the conversation still reaches the hub: started with no window, and pushed to', async ($, on) => {
+  const runs: Ran[] = []
+  const posts = engine(on, null, { os: 'windows', runs, isOverlayDown: true, hasClock: false, store: noWindow() })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('tool.call', () => ({ result: {} }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+
+  const server = runs.find(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))
+  expect(server?.env.NARSIL_WINDOW).toBe('0')
+  await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.status).toBe('working')
+  // an alert still goes as a system notification, not to a window
+  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(posts.some(p => p.url.endsWith('/event'))).toBe(false)
 })
 
 test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
