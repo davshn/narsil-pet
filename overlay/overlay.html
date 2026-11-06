@@ -29,39 +29,52 @@
   .close:hover { opacity: 1; background: var(--row-hover); }
   .focus { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border-radius: 10px; padding: 2px 0 4px; }
   .focus:hover { background: var(--row); }
-  #sprite, #sprite svg { width: 168px; height: 150px; }
-  .has-event #sprite, .has-event #sprite svg, .has-tip #sprite, .has-tip #sprite svg { width: 120px; height: 107px; }
+  #sprite, #sprite svg { width: 120px; height: 107px; }
+  .has-event #sprite, .has-event #sprite svg, .has-tip #sprite, .has-tip #sprite svg { width: 96px; height: 86px; }
   .status { font-weight: 800; letter-spacing: .6px; font-size: 12px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
   .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .s-working .status::before { animation: blink 1s ease-in-out infinite; }
-  .headline { font-weight: 600; text-align: center; -webkit-line-clamp: 3; }
+  .headline { font-weight: 600; text-align: center; -webkit-line-clamp: 2; }
   .line { font-size: 12px; color: var(--dim); text-align: center; -webkit-line-clamp: 2; }
+  .line:empty { display: none; }
   .tip { display: none; -webkit-line-clamp: 4; position: relative; overflow: visible; margin-top: 6px; padding: 5px 9px; border-radius: 10px; background: var(--row-hover); font-size: 12px; text-align: center; }
   .tip.shown { display: -webkit-box; }
   .tip::before { content: ''; position: absolute; top: -6px; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top: 0; border-bottom-color: var(--row-hover); }
-  .usage { display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
+  .xp { font-size: 11px; color: var(--dim); text-align: center; }
+  .xp:empty { display: none; }
+  /* The account's limits, once. */
+  .usage { flex-shrink: 0; display: flex; flex-direction: column; gap: 3px; font-size: 11px; }
   .meter { display: grid; grid-template-columns: 56px minmax(0, 1fr) 38px; align-items: center; gap: 6px; }
   .meter .label { color: var(--dim); }
-  .meter .track { height: 7px; border-radius: 4px; background: var(--row-hover); overflow: hidden; }
-  .meter .fill { height: 100%; border-radius: 4px; transition: width .6s ease-out; }
-  .meter .pct { font-weight: 700; text-align: right; }
-  .summary { font-size: 11px; color: var(--dim); text-align: center; }
-  .agents { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; margin-top: 6px; }
-  .agents:empty { display: none; }
-  .agent { max-width: 100%; padding: 2px 8px; border-radius: 9px; background: var(--row); color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cache { font-size: 11px; color: var(--dim); text-align: center; }
-  .cache:empty { display: none; }
-  .steps { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; font-size: 11px; }
-  .steps:empty { display: none; }
-  .step { padding: 3px 8px; border-radius: 8px; background: var(--row); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .step::before { content: "➜ "; color: var(--dim); }
-  .list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
-  .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 7px; padding: 4px 8px; border-radius: 7px; background: var(--row); cursor: pointer; }
+  .bar { height: 6px; border-radius: 3px; background: var(--row-hover); overflow: hidden; }
+  .bar > span { display: block; height: 100%; border-radius: 3px; transition: width .6s ease-out; }
+  .pct { font-weight: 700; text-align: right; }
+  /* Every open conversation; scrolls when there are many. */
+  .list { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+  .conv { flex-shrink: 0; border-radius: 7px; background: var(--row); }
+  .row { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; column-gap: 7px; row-gap: 3px; padding: 4px 8px; border-radius: 7px; cursor: pointer; }
   .row:hover { background: var(--row-hover); }
   .row .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .row .name small { color: var(--dim); margin-left: 4px; }
   .row .tag { font-size: 10px; font-weight: 800; letter-spacing: .4px; color: var(--accent); }
+  .row .fill { grid-column: 2 / 4; display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: center; gap: 6px; font-size: 10px; }
+  .more { display: none; flex-direction: column; gap: 4px; padding: 2px 10px 8px 25px; font-size: 11px; }
+  .conv.open .more { display: flex; }
+  /* Opened, the context shows below with its word: not twice. */
+  .conv.open .row .fill { display: none; }
+  .ctx { display: grid; grid-template-columns: auto minmax(0, 1fr) 34px; align-items: center; gap: 6px; }
+  .word { border: 0; padding: 0; background: none; color: var(--text); font: inherit; font-weight: 700; text-decoration: underline dotted; cursor: pointer; }
+  .note { color: var(--dim); }
+  .note:empty { display: none; }
+  .parts { display: flex; flex-direction: column; gap: 2px; }
+  .part { display: grid; grid-template-columns: 104px minmax(0, 1fr) 34px; align-items: center; gap: 6px; }
+  .part .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dim); }
+  .task, .agent, .step { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .task.completed { color: var(--dim); text-decoration: line-through; }
+  .task.in_progress, .task.running { color: var(--working); }
+  .step::before { content: "➜ "; color: var(--dim); }
+  .go { align-self: flex-start; border: 0; border-radius: 6px; padding: 2px 8px; background: var(--row-hover); color: var(--text); font: inherit; cursor: pointer; }
   .s-working { --accent: var(--working); } .s-idle { --accent: var(--idle); } .s-waiting { --accent: var(--waiting); }
   .s-done { --accent: var(--done); } .s-error { --accent: var(--error); }
   .k-done { --accent: var(--done); } .k-question { --accent: var(--waiting); } .k-error { --accent: var(--error); }
@@ -79,13 +92,9 @@
     <div class="headline clamp" id="headline">Me estoy despertando…</div>
     <div class="line clamp" id="line"></div>
     <div class="tip clamp" id="tip" title="Consejo de Narsil"></div>
-    <div class="agents" id="agents"></div>
-    <div class="cache" id="cache"></div>
-    <div class="cache" id="xp"></div>
-    <div class="steps" id="steps" title="Próximos pasos: vuelve a la conversación para elegir uno"></div>
+    <div class="xp" id="xp"></div>
   </div>
   <div class="usage" id="usage"></div>
-  <div class="summary" id="summary"></div>
   <div class="list" id="list"></div>
 </div>
 <script>
@@ -94,33 +103,40 @@
   const KEY = document.querySelector('meta[name="narsil-key"]').content
   const post = url => fetch(url, { method: 'POST', headers: { 'x-narsil-page': KEY } })
   const LABEL = { working: 'TRABAJANDO', idle: 'PARADA', waiting: 'TE NECESITA', done: 'TERMINADA', error: 'ERROR' }
-  // A count agrees in number: "1 parada", "2 paradas", "2 te necesitan".
-  const COUNT = {
-    working: ['trabajando', 'trabajando'],
-    idle: ['parada', 'paradas'],
-    waiting: ['te necesita', 'te necesitan'],
-    done: ['terminada', 'terminadas'],
-    error: ['con error', 'con error'],
-  }
-  const ORDER = ['working', 'waiting', 'error', 'done', 'idle']
+  const TASK_ICON = { pending: '○', in_progress: '◐', completed: '●', running: '⟳' }
   let shownSvg = null
   let focusId = null
+  // The conversation opened in the list, and whether its context's breakdown shows.
+  let openId = null
+  let isContextOpen = false
+  let last = null
 
-  // How much the focused conversation has spent: context, 5 hours, week.
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+  const levelColor = percent => (percent >= 85 ? 'var(--error)' : percent >= 60 ? 'var(--waiting)' : 'var(--done)')
+  // A bar and its percent, in the given color.
+  function bar(percent, color) {
+    const track = el('span', 'bar')
+    const fill = el('span')
+    fill.style.width = Math.max(0, Math.min(100, percent)) + '%'
+    fill.style.background = color
+    track.append(fill)
+    const pct = el('span', 'pct', Math.round(percent) + ' %')
+    pct.style.color = color
+    return [track, pct]
+  }
+
+  // The account's limits (5 hours, week): the same for every conversation.
   function drawUsage(rows) {
     $('usage').replaceChildren(
       ...rows.map(r => {
-        const row = document.createElement('div')
-        row.className = 'meter'
+        const row = el('div', 'meter')
         row.title = r.note || ''
-        row.innerHTML = '<span class="label"></span><span class="track"><span class="fill"></span></span><span class="pct"></span>'
-        row.querySelector('.label').textContent = r.label
-        const fill = row.querySelector('.fill')
-        fill.style.display = 'block'
-        fill.style.width = Math.max(0, Math.min(100, r.percent)) + '%'
-        fill.style.background = r.color
-        row.querySelector('.pct').textContent = Math.round(r.percent) + ' %'
-        row.querySelector('.pct').style.color = r.color
+        row.append(el('span', 'label', r.label), ...bar(r.percent, r.color))
         return row
       }),
     )
@@ -128,75 +144,97 @@
 
   const open = session => post('/open' + (session ? '?session=' + encodeURIComponent(session) : ''))
 
-  function render({ sessions, summary, event }) {
-    // The conversation an event is about comes first; else whoever needs you most.
+  // One conversation of the list: its state and context; opened, what fills
+  // its context, its tasks, subagents, cache and next steps.
+  function drawConversation(s) {
+    const conv = el('div', 'conv s-' + s.status + (s.sessionId === openId ? ' open' : ''))
+    const row = el('div', 'row')
+    row.title = s.headline
+    const name = el('span', 'name', s.title || 'conversación')
+    name.append(el('small', '', s.headline))
+    row.append(el('span', 'dot'), name, el('span', 'tag', LABEL[s.status]))
+    if (s.context) {
+      const fill = el('span', 'fill')
+      fill.append(...bar(s.context.percent, levelColor(s.context.percent)))
+      row.append(fill)
+    }
+    row.addEventListener('click', () => {
+      openId = openId === s.sessionId ? null : s.sessionId
+      isContextOpen = false
+      if (last) render(last)
+    })
+    const more = el('div', 'more')
+    if (s.context) {
+      const ctx = el('div', 'ctx')
+      const word = el('button', 'word', 'Contexto')
+      word.title = 'Ver cómo se llena el contexto'
+      word.addEventListener('click', () => {
+        isContextOpen = !isContextOpen
+        if (last) render(last)
+      })
+      ctx.append(word, ...bar(s.context.percent, levelColor(s.context.percent)))
+      more.append(ctx, el('span', 'note', s.context.note || ''))
+      const detail = s.contextDetail
+      if (isContextOpen && detail && Array.isArray(detail.parts)) {
+        const parts = el('div', 'parts')
+        const room = Math.max(1, detail.window)
+        for (const p of detail.parts) {
+          const part = el('div', 'part')
+          part.append(el('span', 'label', p.name), ...bar((p.tokens / room) * 100, p.color))
+          parts.append(part)
+        }
+        more.append(parts)
+      }
+    }
+    for (const t of s.tasks || []) more.append(el('div', 'task ' + t.status, TASK_ICON[t.status] + ' ' + t.text))
+    for (const agent of s.agents || []) {
+      const chip = el('div', 'agent', agent.text)
+      chip.style.color = agent.color
+      more.append(chip)
+    }
+    if (s.cache) more.append(el('div', 'note', s.cache))
+    for (const text of s.steps || []) more.append(el('div', 'step', text))
+    const go = el('button', 'go', 'Abrir la conversación')
+    go.addEventListener('click', () => open(s.sessionId))
+    more.append(go)
+    conv.append(row, more)
+    return conv
+  }
+
+  function render(state) {
+    last = state
+    const { sessions, event } = state
+    // Narsil wears the conversation an event is about; else the most important.
     const focus = (event && sessions.find(s => s.sessionId === event.sessionId)) || sessions[0]
     focusId = focus ? focus.sessionId : null
     if (focus) {
       // Replace the drawing only when it changes, so its animation runs on.
       if (focus.svg !== shownSvg) {
-        $('sprite').innerHTML = focus.svg
+        $('sprite').innerHTML = focus.svg || ''
         shownSvg = focus.svg
       }
       $('focus').className = 'focus s-' + focus.status
-      $('status').textContent = LABEL[focus.status] + (focus.model ? ' · ' + focus.model : '') + (summary.total > 1 ? ' · ' + focus.title : '')
+      $('status').textContent = LABEL[focus.status] + (focus.model ? ' · ' + focus.model : '') + (sessions.length > 1 ? ' · ' + focus.title : '')
       $('headline').textContent = focus.headline
       $('headline').title = focus.headline
-      $('line').textContent = focus.line
+      $('line').textContent = focus.line || ''
       // Narsil's tip, as a speech bubble under her.
       $('tip').textContent = focus.tip ? '💡 ' + focus.tip : ''
       $('tip').className = 'tip clamp' + (focus.tip ? ' shown' : '')
       $('tip').title = focus.tip || ''
-      // A small serpent per subagent: its task, type and time, or how it ended.
-      $('agents').replaceChildren(
-        ...(focus.agents || []).map(agent => {
-          const chip = document.createElement('span')
-          chip.className = 'agent'
-          chip.textContent = agent.text
-          chip.title = agent.text
-          chip.style.color = agent.color
-          return chip
-        }),
-      )
-      // The prompt cache's clock, and the next steps Narsil offers.
-      $('cache').textContent = focus.cache || ''
       $('xp').textContent = focus.xp || ''
-      $('steps').replaceChildren(
-        ...(focus.steps || []).map(text => {
-          const step = document.createElement('div')
-          step.className = 'step'
-          step.textContent = text
-          return step
-        }),
-      )
-      drawUsage(focus.usage || [])
+      drawUsage((focus.usage || []).filter(r => r.key !== 'context'))
     }
     $('card').className = 'card' + (event ? ' has-event' : '') + (focus && focus.tip ? ' has-tip' : '')
     $('event').className = 'event' + (event ? ' k-' + event.kind : '')
     $('event-title').textContent = event ? event.title : ''
     $('event-text').textContent = event ? event.text : ''
 
-    const counted = ORDER.filter(s => summary[s] > 0).map(s => summary[s] + ' ' + COUNT[s][summary[s] === 1 ? 0 : 1])
-    $('summary').textContent = summary.total > 1 ? summary.total + ' conversaciones: ' + counted.join(' · ') : ''
-
-    $('list').replaceChildren(
-      ...sessions
-        .filter(s => s.sessionId !== focusId)
-        .slice(0, 4)
-        .map(s => {
-          const row = document.createElement('div')
-          row.className = 'row s-' + s.status
-          row.title = s.headline
-          row.innerHTML = '<span class="dot"></span><span class="name"></span><span class="tag"></span>'
-          row.querySelector('.name').textContent = s.title
-          const small = document.createElement('small')
-          small.textContent = s.headline
-          row.querySelector('.name').append(small)
-          row.querySelector('.tag').textContent = LABEL[s.status]
-          row.addEventListener('click', () => open(s.sessionId))
-          return row
-        }),
-    )
+    // Keep the list's scroll where you left it.
+    const list = $('list')
+    const scrolled = list.scrollTop
+    list.replaceChildren(...sessions.map(drawConversation))
+    list.scrollTop = scrolled
   }
 
   new EventSource('/events').onmessage = message => render(JSON.parse(message.data))
