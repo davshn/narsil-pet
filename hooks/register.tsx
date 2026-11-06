@@ -281,6 +281,8 @@ async function readSessions($: EngineInterface): Promise<void> {
       context: s.context && typeof s.context.percent === 'number' ? { percent: s.context.percent, note: String(s.context.note ?? '') } : null,
       contextDetail: s.contextDetail && Array.isArray(s.contextDetail.parts) ? s.contextDetail : null,
       cache: typeof s.cache === 'string' ? s.cache : null,
+      cacheEndsAt: typeof s.cacheEndsAt === 'number' ? s.cacheEndsAt : null,
+      cacheMinutes: typeof s.cacheMinutes === 'number' ? s.cacheMinutes : null,
       agents: Array.isArray(s.agents) ? s.agents : [],
       tasks: Array.isArray(s.tasks) ? s.tasks : [],
       conversation: typeof s.conversation === 'string' ? s.conversation : '',
@@ -321,6 +323,8 @@ async function ownEntry($: EngineInterface): Promise<FleetSession> {
     context: s.context,
     contextDetail: s.contextDetail,
     cache: s.cache,
+    cacheEndsAt: s.cacheEndsAt,
+    cacheMinutes: s.cacheMinutes,
     agents: s.agents,
     tasks: s.tasks,
     conversation: s.conversation,
@@ -345,6 +349,8 @@ async function shownState($: EngineInterface) {
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
+    // when its cache runs out, for the others and the phone to count down
+    ...(await read($, cache).then(c => ({ cacheEndsAt: c ? Math.floor((c.at + c.minutes * 60_000) / 1000) : null, cacheMinutes: c ? c.minutes : null }))),
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
     model: await read($, mainModel),
@@ -507,7 +513,7 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
 // One state for every conversation: its head is the most important one
 // (this one's own fields when it is this one), and `sessions` lists them all.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
-  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, conversation: _v, ...own } = await shownState($)
+  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, conversation: _v, cacheEndsAt: _e, cacheMinutes: _m, ...own } = await shownState($)
   const list = await fleetNow($)
   const top = list[0]!
   const isOwnTop = top.sessionId === own.sessionId
@@ -516,8 +522,8 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     : { ...own, title: top.title, mood: top.mood, status: top.status, statusLabel: STATUS_LABEL[top.status], headline: top.headline, line: '', model: top.model, tip: null, steps: [] }
   const art = artUrl(POSE[shown.status], stageOf(levelOf(await read($, xp)).level))
   const at = Math.floor((await $.clock.now()) / 1000)
-  const c = isOwnTop ? await read($, cache) : null
-  const cacheTimes = c ? { cacheEndsAt: Math.floor((c.at + c.minutes * 60_000) / 1000), cacheMinutes: c.minutes } : {}
+  // the most important conversation's cache; each one's goes in `sessions`
+  const cacheTimes = top.cacheEndsAt !== null ? { cacheEndsAt: top.cacheEndsAt, cacheMinutes: top.cacheMinutes } : {}
   const spent = await read($, usage)
   // The account's limits: each conversation has its own context, in `sessions`.
   const rows = shown.usage
@@ -533,6 +539,8 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     statusLabel: STATUS_LABEL[s.status],
     headline: s.headline,
     context: s.context ? Math.round(s.context.percent) : null,
+    cacheEndsAt: s.cacheEndsAt,
+    cacheMinutes: s.cacheMinutes,
     isThis: s.sessionId === own.sessionId,
   }))
   const head = isOwnTop ? conversation : top.conversation

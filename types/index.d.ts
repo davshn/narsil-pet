@@ -71,6 +71,9 @@ export type FleetSession = {
   context: { percent: number; note: string } | null
   contextDetail: ContextDetail | null
   cache: string | null
+  // when its prompt cache runs out (Unix seconds) and how long it lasts; null with no cache
+  cacheEndsAt: number | null
+  cacheMinutes: number | null
   agents: readonly AgentChip[]
   tasks: readonly TaskItem[]
   // how the phone tells it apart (conversationTag); '' when unknown

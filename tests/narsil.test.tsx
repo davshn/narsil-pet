@@ -2465,7 +2465,7 @@ test('while you write from the phone in another conversation this one alerts too
 
 test('an alert lists every open conversation, and the state leads with the most important and lists them all', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
-  const fleet = [other('local_web', 'error', 'failed', 'web', { conversation: 'abcd1234', context: { percent: 90, note: '' } })]
+  const fleet = [other('local_web', 'error', 'failed', 'web', { conversation: 'abcd1234', context: { percent: 90, note: '' }, cacheEndsAt: 1234, cacheMinutes: 5 })]
   const posts = engine(on, null, { store, fleet, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('tool.call', () => ({ result: {} }))
@@ -2485,6 +2485,13 @@ test('an alert lists every open conversation, and the state leads with the most 
     ['web', 'error', false],
     ['landing', 'done', true],
   ])
+  // every conversation's cache, for the app to count each down
+  const [web, landing] = state.sessions
+  expect([web.cacheEndsAt, web.cacheMinutes]).toEqual([1234, 5])
+  // the head's cache is the most important conversation's, though another sends
+  expect([state.cacheEndsAt, state.cacheMinutes]).toEqual([1234, 5])
+  expect(landing.cacheMinutes).toBeGreaterThan(0)
+  expect(landing.cacheEndsAt).toBe(Math.floor(1_002_000 / 1000) + landing.cacheMinutes * 60)
 })
 
 test('each alert and state names its conversation the same way, and two conversations differently', async ($, on) => {
