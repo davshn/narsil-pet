@@ -52,6 +52,11 @@ export type Tip = { text: string; kind: string; at: number; isFaded?: boolean; i
 // The open conversations, by state, as the floating window counts them.
 export type Fleet = Record<Status, number> & { total: number }
 
+// One task of a conversation's list (hooks/tasks.ts); `running` is
+// background work still in flight.
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'running'
+export type TaskItem = { id: string; text: string; status: TaskStatus }
+
 // One open conversation as the hub serves it to every other: its state and
 // what its own band shows, the most important conversation first.
 export type FleetSession = {
@@ -62,7 +67,17 @@ export type FleetSession = {
   headline: string
   model: string | null
   changedAt: number
+  // its context window's fill, and what fills it (null until measured)
+  context: { percent: number; note: string } | null
+  contextDetail: ContextDetail | null
+  cache: string | null
+  agents: readonly AgentChip[]
+  tasks: readonly TaskItem[]
 }
+
+// What the band has open: one conversation (null: this one; '' none), its
+// context's breakdown or not, and which page of the list.
+export type FleetView = { open: string | null; isContext: boolean; page: number }
 
 // One limit's fill, 0 to 100, and when its window starts over (ISO 8601).
 export type Meter = { percent: number; resetsAt?: string }
@@ -132,6 +147,6 @@ export type Spending = { today: number; total: number }
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; sessions: readonly FleetSession[]; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null; contextDetail: ContextDetail | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; fleet: Fleet | null; sessions: readonly FleetSession[]; tasks: readonly TaskItem[]; view: FleetView; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; spending: Spending | null; contextDetail: ContextDetail | null }
   }
 }

@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Fleet, FleetSession, Mood, Pet, Prefs, Stats, Usage } from '../types'
+import type { Fleet, FleetSession, Mood, Pet, Prefs, Stats, TaskItem, TaskStatus, Usage } from '../types'
+import { NO_VIEW, fleetOf, openOf, pageOf, toggleOpen } from './fleet'
+import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
@@ -52,6 +54,17 @@ const fleet = atom({ plugin: 'narsil-pet', key: 'fleet' } as const, null)
 // Every open conversation as the hub serves it, the most important first;
 // empty while the hub is out of reach.
 const sessions = atom({ plugin: 'narsil-pet', key: 'sessions' } as const, [])
+// This conversation's task list, as its task tools leave it (tasks.ts).
+const tasks = atom({ plugin: 'narsil-pet', key: 'tasks' } as const, [])
+// Which conversation the band has open, its context's breakdown, the page.
+const fleetView = atom({ plugin: 'narsil-pet', key: 'view' } as const, NO_VIEW)
+
+const TASK_COLOR: Record<TaskStatus, string> = {
+  pending: STATUS_COLOR.idle,
+  in_progress: STATUS_COLOR.working,
+  completed: STATUS_COLOR.done,
+  running: STATUS_COLOR.working,
+}
 // Narsil's tip on show, if any: under the headline and in the window.
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
@@ -270,6 +283,11 @@ async function readSessions($: EngineInterface): Promise<void> {
       headline: String(s.headline ?? ''),
       model: s.model ?? null,
       changedAt: Number(s.changedAt) || 0,
+      context: s.context && typeof s.context.percent === 'number' ? { percent: s.context.percent, note: String(s.context.note ?? '') } : null,
+      contextDetail: s.contextDetail && Array.isArray(s.contextDetail.parts) ? s.contextDetail : null,
+      cache: typeof s.cache === 'string' ? s.cache : null,
+      agents: Array.isArray(s.agents) ? s.agents : [],
+      tasks: Array.isArray(s.tasks) ? s.tasks : [],
     }))
     if (JSON.stringify(next) !== JSON.stringify(await read($, sessions))) await update($, sessions, () => next)
   } catch {
@@ -284,13 +302,42 @@ async function setWindow($: EngineInterface, isOn: boolean): Promise<void> {
     .catch(() => undefined)
 }
 
+// This conversation's id as the hub keys it.
+function ownId(): string {
+  return /^local_[A-Za-z0-9-]{1,64}$/.test(hostSession) ? hostSession : 'local_unknown'
+}
+
+// This conversation as one entry of the list, fresh: the hub's copy is a
+// heartbeat old. It keeps the hub's time of its last change while its state
+// holds.
+async function ownEntry($: EngineInterface): Promise<FleetSession> {
+  const s = await shownState($)
+  const copy = (await read($, sessions)).find(x => x.sessionId === s.sessionId)
+  const changedAt = copy && copy.status === s.status ? copy.changedAt : await $.clock.now()
+  return {
+    sessionId: s.sessionId,
+    title: s.title,
+    mood: s.mood,
+    status: s.status,
+    headline: s.headline,
+    model: s.model,
+    changedAt,
+    context: s.context,
+    contextDetail: s.contextDetail,
+    cache: s.cache,
+    agents: s.agents,
+    tasks: s.tasks,
+  }
+}
+
 // What the floating window and the phone app show of this conversation, as
 // the band shows it.
 async function shownState($: EngineInterface) {
   const s = await read($, pet)
   const status = statusOf(s.mood)
+  const context = (await read($, usage)).context
   return {
-    sessionId: hostSession,
+    sessionId: ownId(),
     title: sessionTitle,
     mood: s.mood,
     status,
@@ -304,6 +351,10 @@ async function shownState($: EngineInterface) {
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
     model: await read($, mainModel),
+    // its fill, with the tokens and when it will be full
+    context: context ? { percent: context.percent, note: usageRows({ ...NO_USAGE, context }, 0, contextToFull)[0]?.note ?? '' } : null,
+    contextDetail: await read($, contextDetail),
+    tasks: [...(await read($, tasks)), ...background] as readonly TaskItem[],
   }
 }
 
@@ -450,7 +501,7 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
 // subagents), and gives the cache and each limit's reset as when they come
 // (seconds), for the app to count down.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
-  const { agents: _, cache: __, ...shown } = await shownState($)
+  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, ...shown } = await shownState($)
   const art = artUrl(POSE[shown.status], stageOf(levelOf(await read($, xp)).level))
   const at = Math.floor((await $.clock.now()) / 1000)
   const c = await read($, cache)
@@ -666,7 +717,8 @@ async function setUsage($: EngineInterface, next: Usage): Promise<void> {
   if (JSON.stringify(await read($, usage)) === JSON.stringify(next)) return
   if (next.context) await trackContext($, next.context.percent)
   await update($, usage, () => next)
-  if (await read($, contextDetail)) await readContextDetail($).catch(() => undefined)
+  // Kept current for every conversation to open: estimated locally, no request.
+  if (next.context) await readContextDetail($).catch(() => undefined)
   await pushOverlay($)
 }
 
@@ -679,17 +731,23 @@ async function readContextDetail($: EngineInterface): Promise<void> {
   await update($, contextDetail, () => detail)
 }
 
-// A press on the context bar opens the detail, and another closes it.
-async function toggleContextDetail($: EngineInterface): Promise<void> {
-  if (await read($, contextDetail)) {
-    await update($, contextDetail, () => null)
+// A press on the word "Contexto" of the open conversation shows what fills
+// it, and another goes back. This conversation's own is read afresh.
+async function toggleContextDetail($: EngineInterface, isOwn: boolean): Promise<void> {
+  const v = await read($, fleetView)
+  if (v.isContext) {
+    await update($, fleetView, w => ({ ...w, isContext: false }))
     return
   }
-  try {
-    await readContextDetail($)
-  } catch {
-    $.ui.toast('Narsil: no pude leer el detalle del contexto.')
+  if (isOwn) {
+    try {
+      await readContextDetail($)
+    } catch {
+      $.ui.toast('Narsil: no pude leer el detalle del contexto.')
+      return
+    }
   }
+  await update($, fleetView, w => ({ ...w, isContext: true }))
 }
 
 // How fast the context window fills: its readings, the estimate they give,
@@ -1108,6 +1166,8 @@ function stopWaiting(): void {
 // as the main loop stopped: the turn ended, but the work did not. It wakes
 // the session again when it reports, so the finish waits for that turn.
 let backgroundAtStop = 0
+// That work, as tasks of this conversation.
+let background: readonly TaskItem[] = []
 
 function backgroundText(n: number): string {
   return n === 1 ? 'esperando 1 proceso en segundo plano' : `esperando ${n} procesos en segundo plano`
@@ -1310,6 +1370,7 @@ export const register: Register = on => {
       failStreaks = new Map()
       loopsWarned = new Set()
       backgroundAtStop = 0
+      background = []
       stopWaiting()
       await update($, cache, () => null)
       await update($, steps, () => null)
@@ -1361,6 +1422,15 @@ export const register: Register = on => {
     if (e.tool === ASK_BOX_TOOL) {
       const ask = (e as { ask?: unknown }).ask
       turnAsk = typeof ask === 'string' && ask.trim() ? ask.trim() : null
+    }
+    // The main conversation's task list, kept as its tools leave it.
+    if (TASK_TOOLS.has(e.tool) && e.agentId === undefined) {
+      const result = await next(e)
+      if (!result.isError && !('deny' in result && result.deny)) {
+        await update($, tasks, list => applyTaskCall(list, e.tool, e as unknown as Record<string, unknown>, 'result' in result ? result.result : undefined))
+        await pushOverlay($)
+      }
+      return result
     }
     if (ASKING_TOOLS.has(e.tool)) {
       const isPlan = e.tool === 'ExitPlanMode'
@@ -1428,6 +1498,7 @@ export const register: Register = on => {
   // in turn.complete, whether the turn is a finish or a pause.
   on('classic.Stop', async ($, e, next) => {
     backgroundAtStop = e.background_tasks?.length ?? 0
+    background = backgroundTasks(e.background_tasks)
     return next(e)
   })
 
@@ -1525,108 +1596,150 @@ export const register: Register = on => {
     if (e.props.hasSurvey || isHidden) return next(e)
 
     const state = await read($, pet)
-    const status = statusOf(state.mood)
-    const label = STATUS_LABEL[status]
-    const color = STATUS_COLOR[status]
-    const title = headline(state.mood, state.detail)
-    const others = fleetSummary(await read($, fleet))
+    const own = await ownEntry($)
+    const list = fleetOf(await read($, sessions), own)
+    // Narsil wears the most important conversation's state.
+    const top = list[0] ?? own
+    const isOwnTop = top.sessionId === own.sessionId
+    const mood: Mood = top.mood in FACE ? top.mood : state.mood
+    const label = STATUS_LABEL[top.status]
+    const color = STATUS_COLOR[top.status]
+    const title = isOwnTop ? top.headline : `${top.title || 'Otra conversación'}: ${top.headline}`
+    const aside = isOwnTop ? state.line : ''
     const kept = await read($, tip)
     const shown = kept && !kept.isFaded && !kept.isWindowed ? kept : null
-    const spent = await read($, usage)
-    const meters = hasUsage(spent) ? usageRows(spent, await $.clock.now(), contextToFull) : []
-    const detail = spent.context ? await read($, contextDetail) : null
-    const showDetail = () => toggleContextDetail($)
-    // A small serpent per running subagent, with its task.
-    const helpers = (await read($, agentChips)).slice(0, MAX_AGENTS_SHOWN)
-    // The cache's clock while Claude waits, and the next steps on offer.
-    const clockShown = await read($, cache)
-    const cost = await read($, spending)
+    // The account's limits, once: each conversation has its own context.
+    const limits = usageRows({ ...(await read($, usage)), context: null }, await $.clock.now())
+    const v = await read($, fleetView)
+    const opened = openOf(v, own.sessionId)
+    const { rows, page, pages } = pageOf(list, v.page)
+    const entry = list.find(s => s.sessionId === opened) ?? null
+    const detail = entry && v.isContext ? entry.contextDetail : null
     const offered = (await read($, steps))?.items ?? []
     const xpNow = await read($, xp)
-    const celebrated = (await read($, milestone)) ?? undefined
+    const celebrated = isOwnTop ? ((await read($, milestone)) ?? undefined) : undefined
     const level = xpLabel(xpNow)
-    const modelShown = await read($, mainModel)
+    const modelShown = top.model
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
     }
+    const toggle = (id: string) => () => update($, fleetView, w => toggleOpen(w, id, own.sessionId))
+    const toPage = (n: number) => () => update($, fleetView, w => ({ ...w, page: n }))
+    const showDetail = () => toggleContextDetail($, opened === own.sessionId)
+    const rowTitle = (s: FleetSession) => `${s.sessionId === opened ? '▾' : '▸'} ${s.title || 'conversación'}${s.sessionId === own.sessionId ? ' (esta)' : ''}`
+    const percentOf = (s: FleetSession) => Math.round(s.context?.percent ?? 0)
 
-    if (e.surface === 'terminal') {
-      const { Box, Button, Text } = $.ui.resolve(e)
+    const { Box, Button, Text, Svg } = $.ui.resolve(e)
+    const isTerminal = e.surface === 'terminal'
+    const pager =
+      pages > 1 ? (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>{`Conversaciones ${page + 1}/${pages}`}</Text>
+          {page > 0 ? <Button key="page-prev" plain label="◂" onPress={toPage(page - 1)} /> : null}
+          {page < pages - 1 ? <Button key="page-next" plain label="▸" onPress={toPage(page + 1)} /> : null}
+        </Box>
+      ) : null
+    const rowsShown = rows.map(s => (
+      <Box key={`row-${s.sessionId}`} flexDirection="row" gap={1} minWidth={0}>
+        <Text color={STATUS_COLOR[s.status]}>{`● ${STATUS_LABEL[s.status]}`}</Text>
+        <Button key={`conv-${s.sessionId}`} plain label={rowTitle(s)} onPress={toggle(s.sessionId)} />
+        {s.context ? <Text color={levelColor(percentOf(s))}>{textBar(percentOf(s))}</Text> : null}
+        {s.context ? <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text> : null}
+        {s.cache ? <Text dimColor wrap="truncate-end">{s.cache}</Text> : null}
+      </Box>
+    ))
+    // The open conversation: its context (the word opens what fills it), its
+    // tasks and its subagents.
+    const openShown = entry ? (
+      <Box flexDirection="column" minWidth={0}>
+        <Box flexDirection="row" gap={1}>
+          <Button key="usage-context" plain label={detail ? '◂ Contexto' : 'Contexto'} onPress={showDetail} />
+          {entry.context ? <Text color={levelColor(percentOf(entry))}>{textBar(percentOf(entry))}</Text> : <Text dimColor>sin medir aún</Text>}
+          {entry.context ? <Text bold color={levelColor(percentOf(entry))}>{`${percentOf(entry)} %`}</Text> : null}
+          {entry.context?.note ? <Text dimColor wrap="truncate-end">{entry.context.note}</Text> : null}
+        </Box>
+        {detail && isTerminal
+          ? contextDetailRows(detail).map(r => (
+              <Box key={`context-${r.key}`} flexDirection="row">
+                <Text dimColor>{`${r.label.padEnd(24).slice(0, 24)} `}</Text>
+                <Text color={r.color}>{textBar(r.percent)}</Text>
+                <Text bold color={r.color}>{` ${Math.round(r.percent)} %`}</Text>
+                <Text dimColor>{` ${r.note}`}</Text>
+              </Box>
+            ))
+          : null}
+        {detail && !isTerminal ? <Svg source={contextDetailSvg(detail)} alt={contextDetailSummary(detail)} /> : null}
+        {entry.tasks.length > 0 ? <Text dimColor>Tareas:</Text> : null}
+        {entry.tasks.map(t => (
+          <Text key={`task-${t.id}`} color={TASK_COLOR[t.status]} dimColor={t.status === 'completed'} wrap="truncate-end">{`  ${TASK_ICON[t.status]} ${t.text}`}</Text>
+        ))}
+        {entry.agents.slice(0, MAX_AGENTS_SHOWN).map((chip, i) => (
+          <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
+        ))}
+      </Box>
+    ) : null
+    const stepsShown =
+      offered.length > 0 ? (
+        <Box flexDirection={isTerminal ? 'row' : 'column'} gap={1} flexWrap="wrap" alignItems="flex-start" minWidth={0}>
+          <Text dimColor>{isTerminal ? '➜ ¿Y ahora?' : '➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:'}</Text>
+          <Box flexDirection="row" gap={1} flexWrap="wrap" minWidth={0}>
+            {offered.map((step, i) => (
+              <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
+            ))}
+          </Box>
+        </Box>
+      ) : null
+    const tipShown = shown ? (
+      <Box flexDirection="row" gap={1} alignItems="flex-start" minWidth={0}>
+        <Box flexDirection="column" flexShrink={1} minWidth={0}>
+          {tipLines(shown.text, isTerminal ? Math.max(20, e.props.bodyColumns - 8) : TIP_LINE).map(line => (
+            <Text dimColor={isTerminal} wrap="truncate-end">
+              {line}
+            </Text>
+          ))}
+        </Box>
+        <Button key="tip-dismiss" label="×" onPress={dismiss} />
+      </Box>
+    ) : null
+
+    if (isTerminal) {
       return (
         <Box flexDirection="column">
           <Box flexDirection="row">
-            <Text color={color}>{FACE[state.mood]} </Text>
+            <Text color={color}>{FACE[mood]} </Text>
             <Text bold color={color}>
               {label}
             </Text>
             {modelShown ? <Text dimColor>{` · ${modelShown}`}</Text> : null}
             <Text wrap="truncate-end"> · {title}</Text>
           </Box>
-          {shown ? (
-            <Box flexDirection="row" gap={1}>
-              <Box flexDirection="column" flexShrink={1} minWidth={0}>
-                {tipLines(shown.text, Math.max(20, e.props.bodyColumns - 8)).map(line => (
-                  <Text dimColor wrap="truncate-end">
-                    {line}
-                  </Text>
-                ))}
-              </Box>
-              <Button key="tip-dismiss" label="×" onPress={dismiss} />
-            </Box>
-          ) : null}
-          {detail ? (
-            <Box flexDirection="column">
-              <Box flexDirection="row" gap={1}>
-                <Text dimColor>{contextDetailSummary(detail).split('.')[0]}</Text>
-                <Button key="usage-context" plain dimColor label="◂ volver" onPress={showDetail} />
-              </Box>
-              {contextDetailRows(detail).map(r => (
-                <Box key={`context-${r.key}`} flexDirection="row">
-                  <Text dimColor>{`${r.label.padEnd(24).slice(0, 24)} `}</Text>
-                  <Text color={r.color}>{textBar(r.percent)}</Text>
-                  <Text bold color={r.color}>{` ${Math.round(r.percent)} %`}</Text>
-                  <Text dimColor>{` ${r.note}`}</Text>
-                </Box>
-              ))}
-            </Box>
-          ) : meters.length > 0 ? (
+          {tipShown}
+          {limits.length > 0 ? (
             <Box flexDirection="row" gap={2}>
-              {meters.map(m => (
+              {limits.map(m => (
                 <Box key={`usage-${m.key}`} flexDirection="row">
                   <Text dimColor>{`${m.label} `}</Text>
                   <Text color={levelColor(m.percent)}>{textBar(m.percent)}</Text>
                   <Text bold color={levelColor(m.percent)}>{` ${Math.round(m.percent)} %`}</Text>
-                  {m.key === 'context' ? <Button key="usage-context" plain dimColor label=" ▸ detalle" onPress={showDetail} /> : null}
                 </Box>
               ))}
             </Box>
           ) : null}
-          {helpers.map((chip, i) => (
-            <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
-          ))}
+          {pager}
+          {rowsShown}
+          {openShown}
           <Text dimColor>{level}</Text>
-          {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
-          {cost ? <Text dimColor>{spendLabel(cost)}</Text> : null}
-          {offered.length > 0 ? (
-            <Box flexDirection="row" gap={1} flexWrap="wrap">
-              <Text dimColor>➜ ¿Y ahora?</Text>
-              {offered.map((step, i) => (
-                <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
-              ))}
-            </Box>
-          ) : null}
-          {others ? <Text dimColor>{others}</Text> : null}
+          {stepsShown}
         </Box>
       )
     }
 
-    const { Box, Button, Text, Svg } = $.ui.resolve(e)
     return (
       <Box flexDirection="row" alignItems="center" gap={2}>
         {/* Not isInteractive: the desktop's interactive frame shows no embedded
             images, the art's PNGs among them; drawn as an image, it does. */}
-        <Svg source={sprite(state.mood, stageOf(levelOf(xpNow).level), celebrated)} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
+        <Svg source={sprite(mood, stageOf(levelOf(xpNow).level), celebrated)} alt={`Narsil: ${label}, ${title}`} width={132} height={118} />
         {/* minWidth 0: long text wraps or is cut inside the band, never widens it. */}
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
           <Box flexDirection="row" gap={1}>
@@ -1640,48 +1753,17 @@ export const register: Register = on => {
           <Text bold wrap="truncate-end">
             {title}
           </Text>
-          <Text dimColor wrap="truncate-end">
-            {state.line}
-          </Text>
-          {shown ? (
-            <Box flexDirection="row" gap={1} alignItems="flex-start" minWidth={0}>
-              <Box flexDirection="column" flexShrink={1} minWidth={0}>
-                {tipLines(shown.text, TIP_LINE).map(line => (
-                  <Text wrap="truncate-end">{line}</Text>
-                ))}
-              </Box>
-              <Button key="tip-dismiss" label="×" onPress={dismiss} />
-            </Box>
+          {aside ? (
+            <Text dimColor wrap="truncate-end">
+              {aside}
+            </Text>
           ) : null}
-          {detail ? (
-            <Svg source={contextDetailSvg(detail)} alt={contextDetailSummary(detail)} />
-          ) : meters.length > 0 ? (
-            <Svg source={usageSvg(meters)} alt={usageSummary(meters)} />
-          ) : null}
-          {/* An Svg takes no presses: the control sits under the bars. */}
-          {meters.some(m => m.key === 'context') ? (
-            <Button key="usage-context" plain dimColor label={detail ? '◂ Volver a los límites' : '▸ Ver cómo se llena el contexto'} onPress={showDetail} />
-          ) : null}
-          {helpers.length > 0 ? (
-            <Box flexDirection="row" gap={2} flexWrap="wrap" minWidth={0}>
-              {helpers.map((chip, i) => (
-                <Text key={`agent-${i}`} color={chip.color} wrap="truncate-end">{chip.text}</Text>
-              ))}
-            </Box>
-          ) : null}
-          {clockShown ? <Text color={cacheColor(clockShown)}>{cacheLabel(clockShown)}</Text> : null}
-          {cost ? <Text dimColor>{spendLabel(cost)}</Text> : null}
-          {offered.length > 0 ? (
-            <Box flexDirection="column" gap={1} alignItems="flex-start" minWidth={0}>
-              <Text dimColor>➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:</Text>
-              <Box flexDirection="row" gap={1} flexWrap="wrap" minWidth={0}>
-                {offered.map((step, i) => (
-                  <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
-                ))}
-              </Box>
-            </Box>
-          ) : null}
-          {others ? <Text dimColor>{others}</Text> : null}
+          {tipShown}
+          {limits.length > 0 ? <Svg source={usageSvg(limits)} alt={usageSummary(limits)} /> : null}
+          {pager}
+          {rowsShown}
+          {openShown}
+          {stepsShown}
         </Box>
       </Box>
     )

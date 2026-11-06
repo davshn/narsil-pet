@@ -51,6 +51,7 @@ function engine(
     account = '',
     git = () => '',
     files = {},
+    fleet = [],
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -69,6 +70,8 @@ function engine(
     git?: (args: readonly string[]) => string
     // the project's files the mod may read, by path
     files?: Record<string, string>
+    // the other conversations the hub serves at /sessions
+    fleet?: Record<string, unknown>[]
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -107,6 +110,10 @@ function engine(
     if (!isUp) return { value: { status: 503, ok: false, headers: {}, text: '' } }
     if (e.init?.method === 'POST' && e.init.body) {
       posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: JSON.parse(e.init.body) })
+    }
+    if (e.url.endsWith('/sessions')) {
+      const isTrusted = e.init?.headers?.['x-narsil-token'] === 'secret-token'
+      return { value: { status: isTrusted ? 200 : 403, ok: isTrusted, headers: {}, text: JSON.stringify(fleet) } }
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
@@ -259,7 +266,7 @@ test('a permission a settings hook answers raises no alarm', async ($, on) => {
   expect(posts.find(p => p.url.endsWith('/event'))).toBeUndefined()
 })
 
-test('the open conversations are counted by state', async ($, on) => {
+test('the open conversations are counted by state for /narsil estado, and the band lists them instead', async ($, on) => {
   engine(on, { working: 2, idle: 1, waiting: 0, done: 1, error: 0, total: 4 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
@@ -267,8 +274,142 @@ test('the open conversations are counted by state', async ($, on) => {
 
   expect(JSON.stringify(answer)).toContain('4 conversaciones abiertas: 2 trabajando · 1 terminada · 1 parada')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: '4 conversaciones abiertas: 2 trabajando · 1 terminada · 1 parada' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /conversaciones abiertas/ })).toBeUndefined()
   await ui.unmount()
+})
+
+// The labels of a drawing's buttons (find matches a Button by its type alone).
+const labels = async (ui: Awaited<ReturnType<Engine['ui']['mount']>>) => (await ui.findAll({ type: 'Button' })).map(b => b.props.label)
+
+// Another conversation as the hub serves it.
+const other = (sessionId: string, status: string, mood: string, title: string, extra: Record<string, unknown> = {}) => ({
+  sessionId,
+  title,
+  mood,
+  status,
+  headline: `${title} va`,
+  model: 'Opus',
+  changedAt: 5,
+  context: { percent: 30, note: '60k / 200k' },
+  contextDetail: null,
+  cache: null,
+  agents: [],
+  tasks: [],
+  ...extra,
+})
+
+test('the band lists every open conversation with its state and context, and Narsil wears the most important', async ($, on) => {
+  const fleet = [
+    other('local_work', 'working', 'running', 'api'),
+    other('local_fail', 'error', 'failed', 'web', { context: { percent: 90, note: '180k / 200k' } }),
+  ]
+  engine(on, null, { hasClock: false, fleet })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    // the error comes first, and Narsil shows it, with its conversation
+    expect(await ui.find({ type: 'Text', text: /ERROR/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /web: web va/ })).toBeDefined()
+    // one row per conversation, this one marked; each with its own context
+    for (const title of ['▸ web', '▸ api', '▾ landing (esta)']) expect(await labels(ui)).toContain(title)
+    expect(await ui.find({ type: 'Text', text: '90 %' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '30 %' })).toBeDefined()
+    await ui.unmount()
+  }
+  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const art = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Narsil:'))
+  expect(art?.props.alt).toBe('Narsil: ERROR, web: web va')
+  await desk.unmount()
+})
+
+test('a conversation opened from the band shows its context, what fills it, its tasks and its subagents', async ($, on) => {
+  const detail = { parts: [{ name: 'Messages', tokens: 50_000, color: '#7C6CF0' }], total: 50_000, window: 200_000, at: 1 }
+  const fleet = [
+    other('local_work', 'working', 'running', 'api', {
+      contextDetail: detail,
+      agents: [{ text: '🐍 Explore · busca el bug', color: '#3B8BFF' }],
+      tasks: [
+        { id: '1', text: 'Leer el código', status: 'completed' },
+        { id: '2', text: 'Arreglar el bug', status: 'in_progress' },
+      ],
+    }),
+  ]
+  engine(on, null, { hasClock: false, fleet })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Arreglar el bug/ })).toBeUndefined()
+  await ui.press({ key: 'conv-local_work' })
+  await ui.unmount()
+
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await labels(ui)).toContain('▾ api')
+  expect(await ui.find({ type: 'Text', text: '  ● Leer el código' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  ◐ Arreglar el bug' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '🐍 Explore · busca el bug' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '60k / 200k' })).toBeDefined()
+  // the word opens what fills its context
+  await ui.press({ key: 'usage-context' })
+  await ui.unmount()
+
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^Messages/ })).toBeDefined()
+  // its title again closes it
+  await ui.press({ key: 'conv-local_work' })
+  await ui.unmount()
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /Arreglar el bug/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the band pages through many conversations, four at a time', async ($, on) => {
+  const fleet = ['a', 'b', 'c', 'd', 'e'].map((t, i) => ({ ...other(`local_${t}`, 'done', 'celebrating', t), changedAt: 100 - i }))
+  engine(on, null, { hasClock: false, fleet })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Conversaciones 1/2' })).toBeDefined()
+  expect(await labels(ui)).not.toContain('▸ e')
+  await ui.press({ key: 'page-next' })
+  await ui.unmount()
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: 'Conversaciones 2/2' })).toBeDefined()
+  expect(await labels(ui)).toContain('▸ e')
+  await ui.unmount()
+})
+
+test('the task tools leave this conversation its list, for the band and the hub', async ($, on) => {
+  const posts = engine(on)
+  on('tool.call', (_, e) => ({ result: e.tool === 'TaskCreate' ? { task: { id: '7', subject: 'Escribir el test' } } : {} }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Leer', status: 'completed', activeForm: 'Leyendo' }] } as never)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Escribir el test', description: '' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '7', status: 'in_progress' } as never)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: '  ● Leer' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '  ◐ Escribir el test' })).toBeDefined()
+  await ui.unmount()
+  const last = posts.filter(p => p.url.endsWith('/state')).at(-1)
+  expect(last?.body.tasks).toEqual([
+    { id: '1', text: 'Leer', status: 'completed' },
+    { id: '7', text: 'Escribir el test', status: 'in_progress' },
+  ])
+
+  // the desktop app's own plan replaces the list, and moves it along
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', items: [{ content: 'Uno', status: 'in_progress' }, { content: 'Dos', status: 'pending' }] } as never)
+  await $.tool.call({ tool: 'mcp__ccd_turn__update_plan', advance: true } as never)
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.tasks).toEqual([
+    { id: '1', text: 'Uno', status: 'completed' },
+    { id: '2', text: 'Dos', status: 'in_progress' },
+  ])
 })
 
 test('the counts agree in number with how many conversations each holds', async ($, on) => {
@@ -557,7 +698,7 @@ test('the floating window keeps the tip after it leaves the band, for 15 minutes
 
 test('a long tip and headline wrap or are cut inside the band, never widen it', async ($, on) => {
   model(on, `${'Divide la tarea en pasos pequeños antes de seguir con register.tsx; '.repeat(3)}`.trim())
-  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 20_000, window: 200_000, percent: 10 }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 20_000, window: 200_000, percent: 10 }, rateLimits: [{ kind: 'five_hour', percentUsed: 18 }] } }) as never)
   const { clock } = await tipEngine($, on)
   await $.tool.call({ tool: 'Bash', command: `npm run build -- ${'--flag '.repeat(40)}` })
   await finishTurn($)
@@ -822,7 +963,7 @@ function measured(on: On): void {
   on('session.measure', (_, e) => ({ changed: e.changed }))
 }
 
-test('the band shows bars for the context, the 5-hour window and the week', async ($, on) => {
+test('the band shows the 5-hour window and the week once, and the context in its conversation', async ($, on) => {
   const posts = engine(on)
   measured(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -831,7 +972,9 @@ test('the band shows bars for the context, the 5-hour window and the week', asyn
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
-  expect(bars?.props.alt).toBe('Uso: contexto 42 % (84k / 200k), 5 horas 18 % (reinicia en 2 h 05 min), semana 91 % (reinicia en 3 d 4 h)')
+  // no general context bar: there is no general context
+  expect(bars?.props.alt).toBe('Uso: 5 horas 18 % (reinicia en 2 h 05 min), semana 91 % (reinicia en 3 d 4 h)')
+  expect(await desk.find({ type: 'Text', text: '42 %' })).toBeDefined()
   expect(bars?.props.isInteractive).toBeUndefined()
   // Green while there is room, red past 85 %.
   expect(String(bars?.props.source)).toContain('#22B573')
@@ -840,7 +983,8 @@ test('the band shows bars for the context, the 5-hour window and the week', asyn
 
   const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await term.find({ type: 'Text', text: '████░░░░░░' })).toBeDefined()
-  expect(await term.find({ type: 'Text', text: ' 42 %' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: '42 %' })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: '84k / 200k' })).toBeDefined()
   expect(await term.find({ type: 'Text', text: ' 91 %' })).toBeDefined()
   await term.unmount()
 
@@ -864,7 +1008,7 @@ const BREAKDOWN = {
   percentage: 42,
 }
 
-test('a press on the context bar shows what fills the context, and another goes back to the bars', async ($, on) => {
+test('a press on the word Contexto shows what fills the context, and another goes back to the bars', async ($, on) => {
   engine(on)
   measured(on)
   const asked: unknown[] = []
@@ -876,6 +1020,7 @@ test('a press on the context bar shows what fills the context, and another goes 
   await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await labels(desk)).toContain('Contexto')
   await desk.press({ key: 'usage-context' })
   await desk.unmount()
   // estimated locally: no token-count requests
@@ -884,7 +1029,6 @@ test('a press on the context bar shows what fills the context, and another goes 
 
   const open = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const bars = await open.findAll({ type: 'Svg' })
-  expect(bars.find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
   const detail = bars.find(svg => String(svg.props.alt).startsWith('Contexto:'))
   // biggest first, the reserve and the free space last, on-demand tools left out
   expect(detail?.props.alt).toBe('Contexto: 84k / 200k. Messages 70k, MCP tools 10k, System prompt 4k, Reserva de compactación 33k, Libre 83k')
@@ -898,7 +1042,7 @@ test('a press on the context bar shows what fills the context, and another goes 
 
   const back = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await back.find({ type: 'Text', text: /^Messages/ })).toBeUndefined()
-  expect(await back.find({ type: 'Text', text: ' 42 %' })).toBeDefined()
+  expect(await back.find({ type: 'Text', text: '42 %' })).toBeDefined()
   await back.unmount()
 })
 
@@ -917,15 +1061,15 @@ test('with no reading yet, no bars are drawn', async ($, on) => {
   await term.unmount()
 })
 
-test('off a plan, only the context bar shows, read when the session starts', async ($, on) => {
+test('off a plan, no limits show, and the context is read when the session starts', async ($, on) => {
   engine(on)
   on('session.usage', () => ({ value: { startedAt: 0, context: { tokens: 150_000, window: 200_000, percent: 75 }, rateLimits: [] } }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
-  expect(bars?.props.alt).toBe('Uso: contexto 75 % (150k / 200k)')
-  expect(String(bars?.props.source)).toContain('#F5B400')
+  expect((await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
+  const fill = (await desk.findAll({ type: 'Text' })).find(t => t.text === '75 %')
+  expect(fill?.props.color).toBe('#F5B400')
   await desk.unmount()
 })
 
@@ -958,9 +1102,8 @@ test('the context bar tells when it will fill, and Narsil suggests /compact once
   at(5)
   await $.session.measure(contextAt(60))
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
   // 2 % a minute: the remaining 40 % in 20 min
-  expect(bars?.props.alt).toBe('Uso: contexto 60 % (120k / 200k · lleno en ~20 min)')
+  expect(await desk.find({ type: 'Text', text: '120k / 200k · lleno en ~20 min' })).toBeDefined()
   await desk.unmount()
   expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
 
@@ -984,8 +1127,7 @@ test('a context that is not growing shows no estimate and no nudge', async ($, o
   await $.session.measure(contextAt(20))
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
-  expect(bars?.props.alt).toBe('Uso: contexto 20 % (40k / 200k)')
+  expect(await desk.find({ type: 'Text', text: '40k / 200k' })).toBeDefined()
   await desk.unmount()
   expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
 })
@@ -2436,7 +2578,7 @@ test('with ntfy.sh count out of reach, the state goes without that row', async (
   expect(state.usage.some((r: { key: string }) => r.key === 'ntfy')).toBe(false)
 })
 
-test('the band shows what Claude has cost today and in all, summed over conversations, each counted once', async ($, on) => {
+test('the band no longer shows what Claude has cost', async ($, on) => {
   const store: Record<string, unknown> = {}
   engine(on, null, { store })
   measured(on)
@@ -2448,13 +2590,13 @@ test('the band shows what Claude has cost today and in all, summed over conversa
 
   await $.session.measure({ ...MEASURED, cost: { usd: 0.5 }, changed: ['cost'] } as never)
   await $.session.measure({ ...MEASURED, cost: { usd: 1.25 }, changed: ['cost'] } as never)
-  expect(await bandTexts($, 'desktop')).toContain('💵 Hoy $1.25 · total $1.25')
+  expect((await bandTexts($, 'desktop')).some(t => t.startsWith('💵'))).toBe(false)
 
   // another conversation adds its own; this one, reporting the same again, adds nothing
   id = 'session-b'
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
-  expect(await bandTexts($, 'terminal')).toContain('💵 Hoy $3.25 · total $3.25')
+  expect((await bandTexts($, 'terminal')).some(t => t.startsWith('💵'))).toBe(false)
   await $.session.measure({ ...MEASURED, cost: { usd: 2 }, changed: ['cost'] } as never)
   expect((store.spend as { total: number }).total).toBe(3.25)
 })
