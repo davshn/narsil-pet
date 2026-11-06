@@ -959,7 +959,7 @@ async function tickCache($: EngineInterface): Promise<void> {
 
 // One small completion for what to ask next, once per finished turn.
 async function offerSteps($: EngineInterface, at: number): Promise<void> {
-  if (stepsAskedFor === at || (await read($, steps))?.at === at) return
+  if (backgroundAtStop > 0 || stepsAskedFor === at || (await read($, steps))?.at === at) return
   stepsAskedFor = at
   const { isNextStepsOn, isQuiet } = await read($, prefs)
   if (!isNextStepsOn || isQuiet) return
@@ -1067,6 +1067,15 @@ function stopWaiting(): void {
   waiting = null
 }
 
+// Background work (a shell, a monitor, a background subagent) still running
+// as the main loop stopped: the turn ended, but the work did not. It wakes
+// the session again when it reports, so the finish waits for that turn.
+let backgroundAtStop = 0
+
+function backgroundText(n: number): string {
+  return n === 1 ? 'esperando 1 proceso en segundo plano' : `esperando ${n} procesos en segundo plano`
+}
+
 async function summarize($: EngineInterface): Promise<string> {
   const now = await $.clock.now()
   const s = (await read($, stats)) ?? emptyStats(now)
@@ -1083,7 +1092,7 @@ async function tickWatch($: EngineInterface): Promise<void> {
     void announce($, 'question', 'Sigo esperándote', text, 'Sigo esperándote.', true).catch(() => undefined)
   }
   const c = await read($, cache)
-  if (c && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0 && !(await read($, prefs)).isQuiet) {
+  if (c && backgroundAtStop === 0 && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0 && !(await read($, prefs)).isQuiet) {
     summarizedFor = c.at
     await showTip($, await summarize($), 'summary')
   }
@@ -1264,6 +1273,7 @@ export const register: Register = on => {
       turnAsk = null
       failStreaks = new Map()
       loopsWarned = new Set()
+      backgroundAtStop = 0
       stopWaiting()
       await update($, cache, () => null)
       await update($, steps, () => null)
@@ -1378,6 +1388,13 @@ export const register: Register = on => {
     return result
   })
 
+  // The main loop stops: what background work is still in flight decides,
+  // in turn.complete, whether the turn is a finish or a pause.
+  on('classic.Stop', async ($, e, next) => {
+    backgroundAtStop = e.background_tasks?.length ?? 0
+    return next(e)
+  })
+
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined) {
@@ -1397,6 +1414,10 @@ export const register: Register = on => {
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
       turnAsk = null
+    } else if (e.reason === 'answer' && backgroundAtStop > 0) {
+      await setMood($, 'running', backgroundText(backgroundAtStop))
+      seen.durationMs = e.durationMs
+      seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
     } else if (e.reason === 'answer') {
       const took = duration(e.durationMs)
       await setMood($, 'celebrating', `en ${took}`)

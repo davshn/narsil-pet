@@ -2294,6 +2294,30 @@ test('a turn that ends asking in the desktop app next-step box alerts as a quest
   expect(toPhone(posts).at(-1)?.title).toBe('Narsil · He terminado · landing')
 })
 
+test('a turn that ends with background work still running waits for it, and finishes once nothing is left', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  on('classic.Stop', () => ({}))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  const running = [{ id: 'b1', type: 'shell', status: 'running', description: 'npm test', command: 'npm test' }]
+  await $.turn.start({ text: 'corre la suite', turnId: 'bg' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: running, session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Espero el aviso.', durationMs: 42_000, isAborted: false, turnId: 'bg' })
+  expect(toPhone(posts)).toEqual([])
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('working')
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /esperando 1 proceso en segundo plano/ })).toBeDefined()
+  await band.unmount()
+
+  // the background work wakes the session; that turn leaves nothing behind
+  await $.turn.start({ text: '', turnId: 'wake' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Listo.', durationMs: 42_000, isAborted: false, turnId: 'wake' })
+  expect(toPhone(posts).map(m => m.title)).toEqual(['Narsil · He terminado · landing'])
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('done')
+})
+
 test('each alert and state names its conversation the same way, and two conversations differently', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const posts = phoneEngine(on, store)
