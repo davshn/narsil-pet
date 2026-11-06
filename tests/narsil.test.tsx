@@ -4,7 +4,7 @@ import type { ModelCompleteResult, On } from 'claude-code'
 
 import { STEPS_SYSTEM, SYSTEM, ends, parse, parseSteps } from '../hooks/advice'
 import { agentChip, modelLabel } from '../hooks/agents'
-import { emptyStats, summaryText } from '../hooks/watch'
+import { emptyStats, isClaudesCall, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
@@ -1600,6 +1600,13 @@ test('the same command failing five times in a row is warned about once, as a lo
   expect(warned[0]!.body.kind).toBe('question')
   expect(warned[0]!.body.text).toBe('El comando «npm test» ha fallado 5 veces seguidas. Esto se está repitiendo: ¿lo replanteamos?')
   expect(windowTip(posts)).toBe(warned[0]!.body.text)
+})
+
+// The test engine makes every call as the engine: a call another mod makes
+// (narsil-check reading its session at start, say) is told apart by origin.
+test('only the tools Claude calls are its work; a call another mod makes is not', () => {
+  expect(isClaudesCall({ plugin: 'engine', tier: 'core' })).toBe(true)
+  expect(isClaudesCall({ plugin: 'narsil-check', tier: 'user' } as never)).toBe(false)
 })
 
 test('a success starts the count over, and a new turn too', async ($, on) => {

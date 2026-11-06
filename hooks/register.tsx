@@ -12,7 +12,7 @@ import { SPEND_KEY, addSpend, localDay, spendLabel, spendOf } from './spend'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
-import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, loopWarning, nudgeText, statsOf, summaryText } from './watch'
+import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, loopWarning, nudgeText, statsOf, summaryText } from './watch'
 import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
@@ -1309,6 +1309,9 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    // Another mod's own call (narsil-check reads its session at start) is
+    // neither Claude's work nor a loop.
+    if (!isClaudesCall(next.origin)) return next(e)
     if (e.tool === ASK_BOX_TOOL) {
       const ask = (e as { ask?: unknown }).ask
       turnAsk = typeof ask === 'string' && ask.trim() ? ask.trim() : null

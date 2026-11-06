@@ -16,6 +16,14 @@ export const IDLE_SUMMARY_MS = 30 * 60_000
 // The files kept by name for the summary; past this they are only counted.
 const MAX_FILES = 200
 
+// Whether a `tool.call` is Claude's own (the main loop or a subagent): the
+// engine makes those. One another mod makes with `$.mcp.call` or
+// `$.tool.call` is not work Narsil shows; no turn ends it, so it would leave
+// her working until the next prompt.
+export function isClaudesCall(origin: { readonly plugin: string }): boolean {
+  return origin.plugin === 'engine'
+}
+
 export function emptyStats(startedAt: number): Stats {
   return { startedAt, turns: 0, workedMs: 0, files: [], moreFiles: 0, commands: 0, failures: 0, agents: 0 }
 }
