@@ -56,14 +56,26 @@ export function conversationTag(sessionId: string): string {
   return hash.toString(16).padStart(8, '0')
 }
 
+// One open conversation as an alert lists it: its name and its state.
+export type FleetLine = { title: string; label: string }
+
+// Every conversation open as the alert goes, one a line, under the alert's
+// own text; nothing when this is the only one.
+export function fleetText(lines: readonly FleetLine[]): string {
+  if (lines.length < 2) return ''
+  return `Conversaciones:\n${lines.map(l => `● ${l.title || 'conversación'} · ${l.label}`).join('\n')}`
+}
+
 // What ntfy.sh is sent, as its JSON form takes it. `where` names the
 // conversation and `conversation` tells it apart, as a `conv-` tag the phone
-// app groups by; `isLast` says no more come today.
-export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean, conversation = '') {
+// app groups by; `isLast` says no more come today; `fleet`, every open
+// conversation (fleetText), goes under the text.
+export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean, conversation = '', fleet = '') {
+  const body = fleet ? `${text}\n\n${fleet}` : text
   return {
     topic,
     title: where ? `Narsil · ${title} · ${where}` : `Narsil · ${title}`,
-    message: isLast ? `${text}\n(último aviso de hoy: mañana sigo)` : text,
+    message: isLast ? `${body}\n(último aviso de hoy: mañana sigo)` : body,
     priority: PRIORITY[kind],
     tags: conversation ? [TAGS[kind], `conv-${conversation}`] : [TAGS[kind]],
     icon: phoneIcon(kind, stage),
@@ -129,11 +141,17 @@ const utf8 = new TextEncoder()
 
 // What the phone app is sent of the state the desktop shows, as a JSON
 // message on the status topic; the tip and the next steps go first when it
-// does not fit.
+// does not fit, then each conversation's headline, then the conversations
+// past the first ones.
 export function phoneStatus(topic: string, state: Record<string, unknown>, isSealed = false) {
-  let message = JSON.stringify(state)
-  if (utf8.encode(message).length > (isSealed ? SEALED_STATUS_ROOM : STATUS_ROOM)) message = JSON.stringify({ ...state, tip: null, steps: [] })
-  return { topic: statusTopic(topic), message, priority: 1 }
+  const room = isSealed ? SEALED_STATUS_ROOM : STATUS_ROOM
+  const fits = (s: Record<string, unknown>) => utf8.encode(JSON.stringify(s)).length <= room
+  let shown = state
+  if (!fits(shown)) shown = { ...shown, tip: null, steps: [] }
+  const sessions = Array.isArray(state.sessions) ? (state.sessions as Record<string, unknown>[]) : null
+  if (sessions && !fits(shown)) shown = { ...shown, sessions: sessions.map(({ headline: _, ...s }) => s) }
+  while (sessions && !fits(shown) && (shown.sessions as unknown[]).length > 1) shown = { ...shown, sessions: (shown.sessions as unknown[]).slice(0, -1) }
+  return { topic: statusTopic(topic), message: JSON.stringify(shown), priority: 1 }
 }
 
 // How to follow the topic, for /narsil movil.

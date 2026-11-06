@@ -73,6 +73,8 @@ export type FleetSession = {
   cache: string | null
   agents: readonly AgentChip[]
   tasks: readonly TaskItem[]
+  // how the phone tells it apart (conversationTag); '' when unknown
+  conversation: string
 }
 
 // What the band has open: one conversation (null: this one; '' none), its

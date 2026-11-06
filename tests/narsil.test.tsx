@@ -2204,7 +2204,9 @@ test('the state gives each limit its reset as when it comes, for the app to coun
   const row = (key: string) => state.usage.find((r: { key: string }) => r.key === key)
   expect(row('fiveHour').resetsAt).toBe(Math.floor(Date.parse(IN_2H05) / 1000))
   expect(row('week').resetsAt).toBe(Math.floor(Date.parse(IN_3D) / 1000))
-  expect(row('context').resetsAt).toBeUndefined()
+  // no general context: each conversation brings its own, in `sessions`
+  expect(row('context')).toBeUndefined()
+  expect(state.sessions.map((s: { context: number | null }) => s.context)).toEqual([42])
 })
 
 // What a sealed message holds, opened as the phone app opens it.
@@ -2477,6 +2479,50 @@ test('a turn that ends with background work still running waits for it, and fini
   expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('done')
 })
 
+test('while you write from the phone in another conversation this one alerts too, and a message at the desk anywhere stops it', async ($, on) => {
+  // another conversation saw your last message come from the phone
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true }, remoteOrigin: { isRemote: true, at: 1 } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await finishTurn($)
+  expect(toPhone(posts).map(m => m.title)).toEqual(['Narsil · He terminado · landing'])
+
+  // you wrote at the desk, in another conversation
+  store.remoteOrigin = { isRemote: false, at: 2 }
+  await finishTurn($)
+  expect(toPhone(posts).length).toBe(1)
+
+  // where you write here is kept for the others
+  await fromPhone($)
+  expect((store.remoteOrigin as { isRemote: boolean }).isRemote).toBe(true)
+  await fromDesk($)
+  expect((store.remoteOrigin as { isRemote: boolean }).isRemote).toBe(false)
+})
+
+test('an alert lists every open conversation, and the state leads with the most important and lists them all', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const fleet = [other('local_web', 'error', 'failed', 'web', { conversation: 'abcd1234', context: { percent: 90, note: '' } })]
+  const posts = engine(on, null, { store, fleet, hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('tool.call', () => ({ result: {} }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+  await fromPhone($)
+  await finishTurn($)
+
+  const alert = toPhone(posts).at(-1)
+  expect(String(alert?.message).endsWith('\n\nConversaciones:\n● web · ERROR\n● landing · TERMINADA')).toBe(true)
+  const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
+  expect([state.status, state.title, state.headline, state.conversation]).toEqual(['error', 'web', 'web va', 'abcd1234'])
+  expect(state.sessions.map((s: { title: string; status: string; isThis: boolean }) => [s.title, s.status, s.isThis])).toEqual([
+    ['web', 'error', false],
+    ['landing', 'done', true],
+  ])
+})
+
 test('each alert and state names its conversation the same way, and two conversations differently', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const posts = phoneEngine(on, store)
@@ -2624,4 +2670,16 @@ test('the phone app gets the cost with the state', async ($, on) => {
   await fromPhone($)
   await finishTurn($)
   expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).spend).toEqual({ today: 0.75, total: 0.75 })
+})
+
+test('a state with many conversations drops their headlines, then the last ones, to fit ntfy.sh', () => {
+  const sessions = Array.from({ length: 60 }, (_, i) => ({ conversation: `c${i}`, title: `conversación ${i}`, status: 'working', headline: 'x'.repeat(80), context: 10 }))
+  const sent = JSON.parse(phoneStatus('narsil-t', { status: 'working', tip: 'un consejo', steps: ['uno'], sessions }).message)
+  expect(new TextEncoder().encode(JSON.stringify(sent)).length).toBeLessThanOrEqual(3900)
+  expect([sent.tip, sent.steps]).toEqual([null, []])
+  expect(sent.sessions[0]).toEqual({ conversation: 'c0', title: 'conversación 0', status: 'working', context: 10 })
+  expect(sent.sessions.length).toBeLessThan(60)
+  // a few fit whole
+  const few = JSON.parse(phoneStatus('narsil-t', { status: 'working', sessions: sessions.slice(0, 2) }).message)
+  expect(few.sessions[1].headline).toBe('x'.repeat(80))
 })

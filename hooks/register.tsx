@@ -7,7 +7,7 @@ import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
 import type { PushSubscription } from './phone'
 import { newKey, seal, unseal } from './seal'
 import { SPEND_KEY, addSpend, localDay, spendLabel, spendOf } from './spend'
@@ -288,6 +288,7 @@ async function readSessions($: EngineInterface): Promise<void> {
       cache: typeof s.cache === 'string' ? s.cache : null,
       agents: Array.isArray(s.agents) ? s.agents : [],
       tasks: Array.isArray(s.tasks) ? s.tasks : [],
+      conversation: typeof s.conversation === 'string' ? s.conversation : '',
     }))
     if (JSON.stringify(next) !== JSON.stringify(await read($, sessions))) await update($, sessions, () => next)
   } catch {
@@ -327,6 +328,7 @@ async function ownEntry($: EngineInterface): Promise<FleetSession> {
     cache: s.cache,
     agents: s.agents,
     tasks: s.tasks,
+    conversation: s.conversation,
   }
 }
 
@@ -355,6 +357,7 @@ async function shownState($: EngineInterface) {
     context: context ? { percent: context.percent, note: usageRows({ ...NO_USAGE, context }, 0, contextToFull)[0]?.note ?? '' } : null,
     contextDetail: await read($, contextDetail),
     tasks: [...(await read($, tasks)), ...background] as readonly TaskItem[],
+    conversation,
   }
 }
 
@@ -475,24 +478,39 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   await spoken
 }
 
-// Whether you last wrote to this conversation through Remote Control (your
-// phone, the web) rather than at the desk: no event says Remote Control is
-// on, so where your messages come from tells. A module variable: a reload
-// starts it over, at the desk.
+// Whether you last wrote through Remote Control (your phone, the web) rather
+// than at the desk, in any conversation: no event says Remote Control is on,
+// so where your messages come from tells. Kept in the store, so a
+// conversation started at the desk alerts too while you write from the phone
+// in another; the module variable stands in when the store fails.
+const REMOTE_KEY = 'remoteOrigin'
 let isRemote = false
 
-function noteOrigin(origin: { kind: string } | undefined): void {
-  if (origin?.kind === 'bridge') isRemote = true
-  else if (origin?.kind === 'composer') isRemote = false
+async function noteOrigin($: EngineInterface, origin: { kind: string } | undefined): Promise<void> {
+  const next = origin?.kind === 'bridge' ? true : origin?.kind === 'composer' ? false : null
+  if (next === null) return
+  isRemote = next
+  await $.store.set(REMOTE_KEY, { isRemote: next, at: await $.clock.now() }).catch(() => undefined)
+}
+
+async function isAway($: EngineInterface): Promise<boolean> {
+  const saved = (await $.store.get(REMOTE_KEY).catch(() => undefined)) as { isRemote?: unknown } | undefined
+  return typeof saved?.isRemote === 'boolean' ? saved.isRemote : isRemote
+}
+
+// Every open conversation, this one fresh, the most important first.
+async function fleetNow($: EngineInterface): Promise<FleetSession[]> {
+  return fleetOf(await read($, sessions), await ownEntry($))
 }
 
 // The same alert on your phone, through ntfy.sh, when /narsil movil is on and
 // you write from away (`force`: the test, wherever you are): at most
-// PHONE_DAILY a day across every conversation, the free plan's room.
-// Returns whether it went.
+// PHONE_DAILY a day across every conversation, the free plan's room. It
+// lists every conversation open as it goes. Returns whether it went.
 async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
   const stage = stageOf(levelOf(await read($, xp)).level)
-  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation), force, true)
+  const fleet = fleetText((await fleetNow($)).map(s => ({ title: s.title, label: STATUS_LABEL[s.status] })))
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation, fleet), force, true)
 }
 
 // What the band shows, for the phone app to show when you open it: on its
@@ -500,17 +518,38 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
 // alerts. Sent as a turn ends and with each question, it leaves out what would show stale (the
 // subagents), and gives the cache and each limit's reset as when they come
 // (seconds), for the app to count down.
+// One state for every conversation: its head is the most important one
+// (this one's own fields when it is this one), and `sessions` lists them all.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
-  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, ...shown } = await shownState($)
+  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, conversation: _v, ...own } = await shownState($)
+  const list = await fleetNow($)
+  const top = list[0]!
+  const isOwnTop = top.sessionId === own.sessionId
+  const shown = isOwnTop
+    ? own
+    : { ...own, title: top.title, mood: top.mood, status: top.status, statusLabel: STATUS_LABEL[top.status], headline: top.headline, line: '', model: top.model, tip: null, steps: [] }
   const art = artUrl(POSE[shown.status], stageOf(levelOf(await read($, xp)).level))
   const at = Math.floor((await $.clock.now()) / 1000)
-  const c = await read($, cache)
+  const c = isOwnTop ? await read($, cache) : null
   const cacheTimes = c ? { cacheEndsAt: Math.floor((c.at + c.minutes * 60_000) / 1000), cacheMinutes: c.minutes } : {}
   const spent = await read($, usage)
-  const rows = shown.usage.map(r => {
-    const resetsAt = r.key === 'context' ? NaN : Date.parse(spent[r.key]?.resetsAt ?? '')
-    return Number.isNaN(resetsAt) ? r : { ...r, resetsAt: Math.floor(resetsAt / 1000) }
-  })
+  // The account's limits: each conversation has its own context, in `sessions`.
+  const rows = shown.usage
+    .filter(r => r.key !== 'context')
+    .map(r => {
+      const resetsAt = Date.parse(spent[r.key as 'fiveHour' | 'week']?.resetsAt ?? '')
+      return Number.isNaN(resetsAt) ? r : { ...r, resetsAt: Math.floor(resetsAt / 1000) }
+    })
+  const everyone = list.map(s => ({
+    conversation: s.conversation,
+    title: s.title,
+    status: s.status,
+    statusLabel: STATUS_LABEL[s.status],
+    headline: s.headline,
+    context: s.context ? Math.round(s.context.percent) : null,
+    isThis: s.sessionId === own.sessionId,
+  }))
+  const head = isOwnTop ? conversation : top.conversation
   // ntfy.sh's count of the day's messages, this one included, as one more
   // row: read only once it is going.
   return postToPhone(
@@ -518,7 +557,7 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     async (topic, _isLast, isSealed) => {
       const ntfy = ntfyRow(await ntfyAccount($), 1)
       const spend = await read($, spending)
-      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation, ...cacheTimes, ...(spend ? { spend } : {}) }, isSealed)
+      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation: head, ...cacheTimes, ...(spend ? { spend } : {}), sessions: everyone }, isSealed)
     },
     force,
   )
@@ -541,7 +580,7 @@ async function postToPhone(
   isAlert = false,
 ): Promise<boolean> {
   const { phoneTopic, isPhoneOn, phoneKey } = await read($, prefs)
-  if (!isPhoneOn || !phoneTopic || (!isRemote && !force)) return false
+  if (!isPhoneOn || !phoneTopic || (!force && !(await isAway($)))) return false
   const day = dayOf(await $.clock.now())
   const count = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), day)
   if (count.sent >= PHONE_DAILY) return false
@@ -1275,7 +1314,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'narsil' }, async ($, e) => {
-    noteOrigin(e.origin)
+    await noteOrigin($, e.origin)
     const arg = e.args.trim().toLowerCase().replace(/\s+/g, ' ')
     const advice = await adviceCommand($, arg)
     if (advice !== undefined) return { text: advice }
@@ -1382,7 +1421,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta) seen.prompt = e.text.slice(0, 400)
-    noteOrigin(e.origin)
+    await noteOrigin($, e.origin)
 
     return next(e)
   })
