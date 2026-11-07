@@ -128,21 +128,55 @@ const BROWSER_ARGS = [
   '--disable-backgrounding-occluded-windows',
 ]
 
+// Whether an Edge process of the window's profile runs (Windows).
+function isProfileRunning(done) {
+  execFile('powershell.exe', [...POWERSHELL, path.join(__dirname, 'running.ps1')], { env: { ...process.env, NARSIL_PROFILE: profile } }, (error, out) =>
+    done(!error && String(out).trim() === '1'),
+  )
+}
+
+// Whether the Edge process this server launched still runs (Windows).
+let isEdgeAlive = false
+// Each opening's number: only the latest one launches, should the window close
+// and open again while a check is under way.
+let openings = 0
+
 function openWindow() {
   if (isWindowOpen || isQuitting) return
   if (isMac ? !browserApp : !edge) return
   isWindowOpen = true
   lastAnswer = null
   if (isMac) return keepMac()
-  const child = spawn(edge, BROWSER_ARGS, { detached: true, stdio: 'ignore' })
-  // The first process of a private profile is the window's own: when it
-  // exits, the person closed the window. The server stays for the others.
-  child.on('exit', () => windowGone())
-  child.unref()
-  keeper = spawn('powershell.exe', [...POWERSHELL, path.join(__dirname, 'watch.ps1')], {
-    env: { ...process.env, NARSIL_PORT: String(port), NARSIL_TOKEN: token },
-    stdio: 'ignore',
-    windowsHide: true,
+  // Edge hands a launch to the profile's running instance, which opens one
+  // more window: so it is launched only when none of its processes runs, as on
+  // macOS. A window already there is kept.
+  const opening = ++openings
+  isProfileRunning(isRunning => {
+    if (!isWindowOpen || isQuitting || opening !== openings) return
+    if (!isRunning) {
+      const child = spawn(edge, BROWSER_ARGS, { detached: true, stdio: 'ignore' })
+      isEdgeAlive = true
+      // The launched process exiting is the window closing, unless it handed
+      // the window to another process of the profile, which keeps it.
+      child.on('exit', () => {
+        isEdgeAlive = false
+        checkWindowGone()
+      })
+      child.unref()
+    }
+    keeper = spawn('powershell.exe', [...POWERSHELL, path.join(__dirname, 'watch.ps1')], {
+      env: { ...process.env, NARSIL_PORT: String(port), NARSIL_TOKEN: token },
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+  })
+}
+
+// The window is gone once no process of its profile runs (Windows).
+function checkWindowGone() {
+  if (!isWindowOpen || isMac || isEdgeAlive) return
+  isProfileRunning(isRunning => {
+    if (!isRunning && !isEdgeAlive) windowGone()
   })
 }
 
@@ -392,6 +426,9 @@ server.listen(port, '127.0.0.1', () => {
 
 setInterval(() => {
   if (Date.now() - lastBeat > HEARTBEAT_TIMEOUT_MS) quit()
+  // A window kept by a process this server did not launch: closed once its
+  // profile has no process left.
+  checkWindowGone()
   // A conversation that stopped beating was closed: drop it from the page too.
   const known = sessions.size
   liveSessions()

@@ -18,12 +18,22 @@ process.env.NARSIL_TOKEN = 'mod-token'
 process.env.NARSIL_EDGE = 'edge.exe'
 // A profile of its own, should anything try to close its windows.
 process.env.LOCALAPPDATA = path.join(os.tmpdir(), `narsil-check-${port}`)
-// A browser and a keeper that never exit, and no process run for real.
-childProcess.spawn = () => Object.assign(new EventEmitter(), { unref() {}, kill() {} })
+// A browser and a keeper that never exit, and no process run for real. Each
+// browser launched is kept, so a check can count them or make one exit.
+const launches = []
+// Whether a process of the window's profile runs, as running.ps1 answers.
+let isProfileRunning = false
+childProcess.spawn = command => {
+  const child = Object.assign(new EventEmitter(), { unref() {}, kill() {} })
+  if (command === 'edge.exe') launches.push(child)
+  return child
+}
 childProcess.execFile = (...args) => {
   const done = args.find(a => typeof a === 'function')
-  if (done) done(null, '', '')
+  const isRunningCheck = (args.find(Array.isArray) || []).some(a => String(a).endsWith('running.ps1'))
+  if (done) done(null, isRunningCheck ? (isProfileRunning ? '1' : '0') : '', '')
 }
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 require(path.join(__dirname, '..', 'overlay', 'server.cjs'))
 
@@ -107,6 +117,25 @@ check('the window turns on and off for the mod alone, and the server stays', asy
   assert.equal((await request('GET', '/ping')).text, 'narsil 3')
   assert.equal((await request('POST', '/window?on=1', { headers: mod })).status, 204)
   assert.equal((await request('GET', '/ping')).text, 'narsil 3')
+})
+
+check('a window Edge hands to its running instance is not opened a second time', async () => {
+  if (process.platform === 'darwin') return
+  const mod = { 'x-narsil-token': 'mod-token' }
+  await request('POST', '/window?on=0', { headers: mod })
+  launches.length = 0
+  isProfileRunning = false
+  await request('POST', '/window?on=1', { headers: mod })
+  await wait(50)
+  assert.equal(launches.length, 1, 'the window opens')
+  // Edge hands the window to the profile's running instance: the launched
+  // process exits at once while the window stays.
+  isProfileRunning = true
+  launches[0].emit('exit')
+  await wait(50)
+  await request('POST', '/window?on=1', { headers: mod })
+  await wait(50)
+  assert.equal(launches.length, 1, 'no second window while the profile runs')
 })
 
 ;(async () => {
