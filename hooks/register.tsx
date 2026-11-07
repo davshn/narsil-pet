@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FleetSession, Mood, Pet, Prefs, Stats, TaskItem, TaskStatus, Usage } from '../types'
-import { NO_VIEW, countOfStates, fleetOf, openOf, ownFirst, pageOf, toggleOpen } from './fleet'
+import { NO_VIEW, TITLE_CELLS, countOfStates, fit, fleetOf, openOf, ownFirst, pageOf, toggleOpen } from './fleet'
 import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
@@ -86,6 +86,8 @@ const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
 const mainModel = atom({ plugin: 'narsil-pet', key: 'model' } as const, null)
 // A new level or stage being celebrated, and when it began.
 const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
+// The conversation's own title, as Claude Code names it; null until it has one.
+const convTitle = atom({ plugin: 'narsil-pet', key: 'title' } as const, null)
 // How long each celebration shows.
 const MILESTONE_MS = { level: 6000, grew: 9000 } as const
 
@@ -223,6 +225,17 @@ async function startOverlay($: EngineInterface): Promise<void> {
 let hostSession = ''
 let sessionTitle = ''
 
+// This conversation's name: its title, the folder it works in until it has one.
+async function titleOf($: EngineInterface): Promise<string> {
+  return (await read($, convTitle)) || sessionTitle
+}
+
+// Keeps the title Claude Code gives the conversation, when it gives one.
+async function noteTitle($: EngineInterface, title: string | undefined): Promise<void> {
+  const name = title?.trim()
+  if (name && name !== (await read($, convTitle))) await update($, convTitle, () => name)
+}
+
 function conversationLink(): string {
   return /^local_[A-Za-z0-9-]{1,64}$/.test(hostSession)
     ? `claude://code/continue?session=${hostSession}&source=desktop_action`
@@ -339,7 +352,7 @@ async function shownState($: EngineInterface) {
   const context = (await read($, usage)).context
   return {
     sessionId: ownId(),
-    title: sessionTitle,
+    title: await titleOf($),
     mood: s.mood,
     status,
     statusLabel: STATUS_LABEL[status],
@@ -502,7 +515,8 @@ async function fleetNow($: EngineInterface): Promise<FleetSession[]> {
 async function sendToPhone($: EngineInterface, kind: EventKind, title: string, text: string, force = false): Promise<boolean> {
   const stage = stageOf(levelOf(await read($, xp)).level)
   const fleet = fleetText((await fleetNow($)).map(s => ({ title: s.title, label: STATUS_LABEL[s.status] })))
-  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, sessionTitle, stage, isLast, conversation, fleet), force, true)
+  const where = await titleOf($)
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, where, stage, isLast, conversation, fleet), force, true)
 }
 
 // What the band shows, for the phone app to show when you open it: on its
@@ -1484,6 +1498,16 @@ export const register: Register = on => {
 
   // The main loop stops: what background work is still in flight decides,
   // in turn.complete, whether the turn is a finish or a pause.
+  on('classic.SessionStart', async ($, e, next) => {
+    await noteTitle($, e.session_title)
+    return next(e)
+  })
+
+  on('classic.UserPromptSubmit', async ($, e, next) => {
+    await noteTitle($, e.session_title)
+    return next(e)
+  })
+
   on('classic.Stop', async ($, e, next) => {
     backgroundAtStop = e.background_tasks?.length ?? 0
     background = backgroundTasks(e.background_tasks)
@@ -1615,7 +1639,12 @@ export const register: Register = on => {
     const toggle = (id: string) => () => update($, fleetView, w => toggleOpen(w, id, own.sessionId))
     const toPage = (n: number) => () => update($, fleetView, w => ({ ...w, page: n }))
     const showDetail = () => toggleContextDetail($, opened === own.sessionId)
-    const rowTitle = (s: FleetSession) => `${s.sessionId === opened ? '▾' : '▸'} ${s.title || 'conversación'}${s.sessionId === own.sessionId ? ' (esta)' : ''}`
+    // Every row's state and title take the same characters, so the bars line up.
+    const stateCells = Math.max(...Object.values(STATUS_LABEL).map(l => l.length))
+    const rowState = (s: FleetSession) => `● ${STATUS_LABEL[s.status].padEnd(stateCells)}`
+    const mark = (s: FleetSession) => (s.sessionId === own.sessionId ? ' (esta)' : '')
+    const rowTitle = (s: FleetSession) =>
+      `${s.sessionId === opened ? '▾' : '▸'} ${fit(s.title || 'conversación', TITLE_CELLS - 2 - mark(s).length).trimEnd()}${mark(s)}`.padEnd(TITLE_CELLS)
     const percentOf = (s: FleetSession) => Math.round(s.context?.percent ?? 0)
     // This conversation's bar wears the mod's blue so it stands out among the rest.
     const barColor = (s: FleetSession) => (s.sessionId === own.sessionId ? STATUS_COLOR.working : levelColor(percentOf(s)))
@@ -1632,8 +1661,12 @@ export const register: Register = on => {
       ) : null
     const rowsShown = rows.map(s => (
       <Box key={`row-${s.sessionId}`} flexDirection="row" gap={1} minWidth={0}>
-        <Text color={STATUS_COLOR[s.status]}>{`● ${STATUS_LABEL[s.status]}`}</Text>
-        <Button key={`conv-${s.sessionId}`} plain label={rowTitle(s)} onPress={toggle(s.sessionId)} />
+        <Box width={stateCells + 2} flexShrink={0}>
+          <Text color={STATUS_COLOR[s.status]}>{rowState(s)}</Text>
+        </Box>
+        <Box width={TITLE_CELLS} flexShrink={0}>
+          <Button key={`conv-${s.sessionId}`} plain label={rowTitle(s)} onPress={toggle(s.sessionId)} />
+        </Box>
         {s.context ? <Text color={barColor(s)}>{textBar(percentOf(s))}</Text> : null}
         {s.context ? <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text> : null}
         {s.cache ? <Text dimColor wrap="truncate-end">{s.cache}</Text> : null}
@@ -1643,6 +1676,7 @@ export const register: Register = on => {
     // tasks and its subagents.
     const openShown = entry ? (
       <Box flexDirection="column" minWidth={0}>
+        <Text dimColor wrap="truncate-end">{'─'.repeat(stateCells + 2 + TITLE_CELLS + 18)}</Text>
         <Box flexDirection="row" gap={1}>
           <Button key="usage-context" plain label={detail ? '◂ Contexto' : 'Contexto'} onPress={showDetail} />
           {entry.context ? <Text color={levelColor(percentOf(entry))}>{textBar(percentOf(entry))}</Text> : <Text dimColor>sin medir aún</Text>}

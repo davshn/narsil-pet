@@ -26,6 +26,16 @@ export function ownFirst(list: readonly FleetSession[], ownId: string): FleetSes
   return [...list.filter(s => s.sessionId === ownId), ...list.filter(s => s.sessionId !== ownId)]
 }
 
+// Characters a row's title takes, its arrow and mark included, so every
+// conversation's context bar starts in the same column.
+export const TITLE_CELLS = 30
+
+// The text in exactly `cells` characters: cut with an ellipsis, or padded.
+export function fit(text: string, cells: number): string {
+  const chars = [...text]
+  return chars.length > cells ? `${chars.slice(0, cells - 1).join('')}…` : text + ' '.repeat(cells - chars.length)
+}
+
 // How many conversations are in each state, for /narsil estado.
 export function countOfStates(list: readonly FleetSession[]): Fleet {
   const counts: Fleet = { working: 0, idle: 0, waiting: 0, done: 0, error: 0, total: list.length }

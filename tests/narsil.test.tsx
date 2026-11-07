@@ -281,7 +281,8 @@ test('the open conversations are counted by state for /narsil estado, and the ba
 })
 
 // The labels of a drawing's buttons (find matches a Button by its type alone).
-const labels = async (ui: Awaited<ReturnType<Engine['ui']['mount']>>) => (await ui.findAll({ type: 'Button' })).map(b => b.props.label)
+// Each button's label without the spaces that pad it to its column.
+const labels = async (ui: Awaited<ReturnType<Engine['ui']['mount']>>) => (await ui.findAll({ type: 'Button' })).map(b => String(b.props.label).trimEnd())
 
 // Another conversation as the hub serves it.
 const other = (sessionId: string, status: string, mood: string, title: string, extra: Record<string, unknown> = {}) => ({
@@ -321,6 +322,13 @@ test('the band lists every open conversation with its state and context, and Nar
     expect((await labels(ui)).filter(l => /^[▸▾] /.test(l))).toEqual(['▾ landing (esta)', '▸ web', '▸ api'])
     expect(await ui.find({ type: 'Text', text: '90 %' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '30 %' })).toBeDefined()
+    // states and titles take the same characters, so the bars line up
+    // (the desktop heading also leads with the state; the rows are the last three)
+    const states = (await ui.findAll({ type: 'Text' })).map(t => String(t.text)).filter(t => t.startsWith('● ')).slice(-3)
+    expect(states.map(t => t.trimEnd())).toEqual(['● PARADA', '● ERROR', '● TRABAJANDO'])
+    expect(new Set(states.map(t => t.length)).size).toBe(1)
+    const titles = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.label)).filter(l => /^[▸▾] /.test(l))
+    expect(new Set(titles.map(t => t.length)).size).toBe(1)
     await ui.unmount()
   }
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
@@ -353,6 +361,8 @@ test('a conversation opened from the band shows its context, what fills it, its 
 
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await labels(ui)).toContain('▾ api')
+  // a line parts the list from what the open conversation shows
+  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '  ● Leer el código' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '  ◐ Arreglar el bug' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '🐍 Explore · busca el bug' })).toBeDefined()
@@ -368,7 +378,26 @@ test('a conversation opened from the band shows its context, what fills it, its 
   await ui.unmount()
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Arreglar el bug/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('the band and the phone name this conversation by its title, the folder only until it has one', async ($, on) => {
+  const posts = phoneEngine(on)
+  on('classic.UserPromptSubmit', () => ({}))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
+  let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await labels(ui)).toContain('▾ landing (esta)')
+  await ui.unmount()
+
+  await $.classic.UserPromptSubmit({ prompt: 'ordena la lista', session_title: 'Ordenar sesiones' } as never)
+  ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await labels(ui)).toContain('▾ Ordenar sesiones (esta)')
+  await ui.unmount()
+  await fromPhone($)
+  await finishTurn($)
+  expect(toPhone(posts).at(-1)?.title).toBe('Narsil · He terminado · Ordenar sesiones')
 })
 
 test('the band pages through many conversations, four at a time', async ($, on) => {

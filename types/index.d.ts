@@ -148,6 +148,6 @@ export type Stats = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'narsil-pet': { pet: Pet; prefs: Prefs; sessions: readonly FleetSession[]; tasks: readonly TaskItem[]; view: FleetView; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; contextDetail: ContextDetail | null }
+    'narsil-pet': { pet: Pet; prefs: Prefs; sessions: readonly FleetSession[]; tasks: readonly TaskItem[]; view: FleetView; tip: Tip | null; usage: Usage; agents: readonly AgentRun[]; agentChips: readonly AgentChip[]; cache: Cache | null; steps: Steps | null; stats: Stats | null; xp: number; milestone: (Milestone & { at: number }) | null; model: string | null; contextDetail: ContextDetail | null; title: string | null }
   }
 }
