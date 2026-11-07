@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { FleetSession, Mood, Pet, Prefs, Stats, TaskItem, TaskStatus, Usage } from '../types'
-import { NO_VIEW, countOfStates, fleetOf, openOf, pageOf, toggleOpen } from './fleet'
+import { NO_VIEW, countOfStates, fleetOf, openOf, ownFirst, pageOf, toggleOpen } from './fleet'
 import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
@@ -1600,7 +1600,7 @@ export const register: Register = on => {
     const limits = usageRows({ ...(await read($, usage)), context: null }, await $.clock.now())
     const v = await read($, fleetView)
     const opened = openOf(v, own.sessionId)
-    const { rows, page, pages } = pageOf(list, v.page)
+    const { rows, page, pages } = pageOf(ownFirst(list, own.sessionId), v.page)
     const entry = list.find(s => s.sessionId === opened) ?? null
     const detail = entry && v.isContext ? entry.contextDetail : null
     const offered = (await read($, steps))?.items ?? []
@@ -1617,6 +1617,8 @@ export const register: Register = on => {
     const showDetail = () => toggleContextDetail($, opened === own.sessionId)
     const rowTitle = (s: FleetSession) => `${s.sessionId === opened ? '▾' : '▸'} ${s.title || 'conversación'}${s.sessionId === own.sessionId ? ' (esta)' : ''}`
     const percentOf = (s: FleetSession) => Math.round(s.context?.percent ?? 0)
+    // This conversation's bar wears the mod's blue so it stands out among the rest.
+    const barColor = (s: FleetSession) => (s.sessionId === own.sessionId ? STATUS_COLOR.working : levelColor(percentOf(s)))
 
     const { Box, Button, Text, Svg } = $.ui.resolve(e)
     const isTerminal = e.surface === 'terminal'
@@ -1632,7 +1634,7 @@ export const register: Register = on => {
       <Box key={`row-${s.sessionId}`} flexDirection="row" gap={1} minWidth={0}>
         <Text color={STATUS_COLOR[s.status]}>{`● ${STATUS_LABEL[s.status]}`}</Text>
         <Button key={`conv-${s.sessionId}`} plain label={rowTitle(s)} onPress={toggle(s.sessionId)} />
-        {s.context ? <Text color={levelColor(percentOf(s))}>{textBar(percentOf(s))}</Text> : null}
+        {s.context ? <Text color={barColor(s)}>{textBar(percentOf(s))}</Text> : null}
         {s.context ? <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text> : null}
         {s.cache ? <Text dimColor wrap="truncate-end">{s.cache}</Text> : null}
       </Box>

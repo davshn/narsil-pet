@@ -317,6 +317,8 @@ test('the band lists every open conversation with its state and context, and Nar
     expect(await ui.find({ type: 'Text', text: /web: web va/ })).toBeDefined()
     // one row per conversation, this one marked; each with its own context
     for (const title of ['▸ web', '▸ api', '▾ landing (esta)']) expect(await labels(ui)).toContain(title)
+    // this conversation leads the list whatever its state, the others ranked
+    expect((await labels(ui)).filter(l => /^[▸▾] /.test(l))).toEqual(['▾ landing (esta)', '▸ web', '▸ api'])
     expect(await ui.find({ type: 'Text', text: '90 %' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '30 %' })).toBeDefined()
     await ui.unmount()
@@ -1087,6 +1089,9 @@ test('off a plan, no limits show, and the context is read when the session start
   expect((await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
   const fill = (await desk.findAll({ type: 'Text' })).find(t => t.text === '75 %')
   expect(fill?.props.color).toBe('#F5B400')
+  // this conversation's row bar wears the mod's blue; the percent keeps its level color
+  const bars = (await desk.findAll({ type: 'Text' })).filter(t => /[█░▓▒]/.test(String(t.text)))
+  expect(bars.map(t => t.props.color)).toContain('#3B8BFF')
   await desk.unmount()
 })
 

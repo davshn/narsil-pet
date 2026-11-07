@@ -20,6 +20,12 @@ export function fleetOf(hub: readonly FleetSession[], own: FleetSession): FleetS
   )
 }
 
+// The ranked list with this conversation moved to the front, so the band
+// always shows it first whatever its state.
+export function ownFirst(list: readonly FleetSession[], ownId: string): FleetSession[] {
+  return [...list.filter(s => s.sessionId === ownId), ...list.filter(s => s.sessionId !== ownId)]
+}
+
 // How many conversations are in each state, for /narsil estado.
 export function countOfStates(list: readonly FleetSession[]): Fleet {
   const counts: Fleet = { working: 0, idle: 0, waiting: 0, done: 0, error: 0, total: list.length }
