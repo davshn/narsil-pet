@@ -764,8 +764,9 @@ async function readContextDetail($: EngineInterface): Promise<void> {
   await update($, contextDetail, () => detail)
 }
 
-// A press on the word "Contexto" of the open conversation shows what fills
-// it, and another goes back. This conversation's own is read afresh.
+// A press on the open conversation's percent shows what fills its context,
+// with its tokens and when it fills, and another goes back. This
+// conversation's own is read afresh; unread, the tokens still show.
 async function toggleContextDetail($: EngineInterface, isOwn: boolean): Promise<void> {
   const v = await read($, fleetView)
   if (v.isContext) {
@@ -777,7 +778,6 @@ async function toggleContextDetail($: EngineInterface, isOwn: boolean): Promise<
       await readContextDetail($)
     } catch {
       $.ui.toast('Narsil: no pude leer el detalle del contexto.')
-      return
     }
   }
   await update($, fleetView, w => ({ ...w, isContext: true }))
@@ -1106,6 +1106,8 @@ async function offerSteps($: EngineInterface, at: number): Promise<void> {
     // A turn that started meanwhile makes them stale.
     if (items.length === 0 || (await read($, cache))?.at !== at) return
     await update($, steps, () => ({ at, items }))
+    // The steps close every conversation: the band shows them alone.
+    await update($, fleetView, w => ({ ...w, open: null, isContext: false }))
     $.ui.log(`➜ Narsil propone: ${items.join(' · ')}`)
     await pushOverlay($)
   } catch {
@@ -1626,11 +1628,15 @@ export const register: Register = on => {
     // The account's limits, once: each conversation has its own context.
     const limits = usageRows({ ...(await read($, usage)), context: null }, await $.clock.now())
     const v = await read($, fleetView)
-    const opened = openOf(v, own.sessionId)
+    const offered = (await read($, steps))?.items ?? []
+    // Next steps on offer close every conversation until you open one: then
+    // they hide, and come back once you close them all.
+    const opened = offered.length > 0 && v.open === null ? '' : openOf(v, own.sessionId)
     const { rows, page, pages } = pageOf(ownFirst(list, own.sessionId), v.page)
     const entry = list.find(s => s.sessionId === opened) ?? null
-    const detail = entry && v.isContext ? entry.contextDetail : null
-    const offered = (await read($, steps))?.items ?? []
+    // What fills the open conversation context, asked by a press on its percent.
+    const isContextOpen = !!entry && v.isContext
+    const detail = isContextOpen ? entry.contextDetail : null
     const xpNow = await read($, xp)
     const celebrated = isOwnTop ? ((await read($, milestone)) ?? undefined) : undefined
     const level = xpLabel(xpNow)
@@ -1639,7 +1645,8 @@ export const register: Register = on => {
       await update($, tip, () => null)
       await pushOverlay($)
     }
-    const toggle = (id: string) => () => update($, fleetView, w => toggleOpen(w, id, own.sessionId))
+    // Against what is shown open, which the steps may have closed.
+    const toggle = (id: string) => () => update($, fleetView, w => toggleOpen({ ...w, open: opened }, id, own.sessionId))
     const toPage = (n: number) => () => update($, fleetView, w => ({ ...w, page: n }))
     const showDetail = () => toggleContextDetail($, opened === own.sessionId)
     // Every row's state and title take the same characters, so the bars line up.
@@ -1673,21 +1680,23 @@ export const register: Register = on => {
           <Button key={`conv-${s.sessionId}`} plain label={rowTitle(s)} onPress={toggle(s.sessionId)} />
         </Box>
         {s.context ? <Text color={barColor(s)}>{textBar(percentOf(s))}</Text> : null}
-        {s.context ? <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text> : null}
+        {/* The open conversation's percent opens what fills its context. */}
+        {s.context && s.sessionId === opened ? (
+          <Button key="usage-context" plain label={isContextOpen ? `◂ ${percentOf(s)} %` : `${percentOf(s)} %`} onPress={showDetail} />
+        ) : s.context ? (
+          <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text>
+        ) : null}
         {s.cache ? <Text dimColor wrap="truncate-end">{cacheShort(s.cache)}</Text> : null}
       </Box>
     ))
-    // The open conversation: its context (the word opens what fills it), its
-    // tasks and its subagents.
-    const openShown = entry ? (
+    const separator = <Text dimColor wrap="truncate-end">{'─'.repeat(stateWidth + TITLE_CELLS + 18)}</Text>
+    // The open conversation: what fills its context when asked, its tasks and
+    // its subagents; its context itself is in its row. Nothing to show, no line.
+    const hasOpenShown = !!entry && (isContextOpen || entry.tasks.length > 0 || entry.agents.length > 0)
+    const openShown = entry && hasOpenShown ? (
       <Box flexDirection="column" minWidth={0}>
-        <Text dimColor wrap="truncate-end">{'─'.repeat(stateWidth + TITLE_CELLS + 18)}</Text>
-        <Box flexDirection="row" gap={1}>
-          <Button key="usage-context" plain label={detail ? '◂ Contexto' : 'Contexto'} onPress={showDetail} />
-          {entry.context ? <Text color={levelColor(percentOf(entry))}>{textBar(percentOf(entry))}</Text> : <Text dimColor>sin medir aún</Text>}
-          {entry.context ? <Text bold color={levelColor(percentOf(entry))}>{`${percentOf(entry)} %`}</Text> : null}
-          {entry.context?.note ? <Text dimColor wrap="truncate-end">{entry.context.note}</Text> : null}
-        </Box>
+        {separator}
+        {isContextOpen && entry.context?.note ? <Text dimColor wrap="truncate-end">{entry.context.note}</Text> : null}
         {detail && isTerminal
           ? contextDetailRows(detail).map(r => (
               <Box key={`context-${r.key}`} flexDirection="row">
@@ -1708,14 +1717,18 @@ export const register: Register = on => {
         ))}
       </Box>
     ) : null
+    // The steps, under their own line, while no conversation is open.
     const stepsShown =
-      offered.length > 0 ? (
-        <Box flexDirection={isTerminal ? 'row' : 'column'} gap={1} flexWrap="wrap" alignItems="flex-start" minWidth={0}>
-          <Text dimColor>{isTerminal ? '➜ ¿Y ahora?' : '➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:'}</Text>
-          <Box flexDirection="row" gap={1} flexWrap="wrap" minWidth={0}>
-            {offered.map((step, i) => (
-              <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
-            ))}
+      offered.length > 0 && !entry ? (
+        <Box flexDirection="column" minWidth={0}>
+          {separator}
+          <Box flexDirection={isTerminal ? 'row' : 'column'} gap={1} flexWrap="wrap" alignItems="flex-start" minWidth={0}>
+            <Text dimColor>{isTerminal ? '➜ ¿Y ahora?' : '➜ ¿Y ahora? Elige uno y te lo dejo en el prompt:'}</Text>
+            <Box flexDirection="row" gap={1} flexWrap="wrap" minWidth={0}>
+              {offered.map((step, i) => (
+                <Button key={`step-${i}`} label={step} onPress={() => pickStep($, step)} />
+              ))}
+            </Box>
           </Box>
         </Box>
       ) : null

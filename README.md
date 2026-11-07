@@ -39,13 +39,16 @@ La banda funciona en la terminal, en la app de escritorio, en VS Code y en la ap
 ### Todas las conversaciones en un solo sitio
 Narsil es una sola para todas las conversaciones abiertas. Su dibujo y su titular muestran la más importante: primero un **ERROR**, luego lo que **TE NECESITA**, luego lo que está **TRABAJANDO** y por último lo **TERMINADO**. Si es otra conversación, el titular empieza por su nombre ("web: Me he detenido por un error").
 
-Debajo, la banda lista cada conversación con su estado, su nombre y su propia barra de contexto, de 4 en 4 (◂ ▸ para pasar de página). La conversación abierta, que de entrada es esta, muestra:
+Debajo, la banda lista cada conversación con su estado, su nombre y su propia barra de contexto, de 4 en 4 (◂ ▸ para pasar de página). Esta conversación va siempre primera, con su barra en azul. La conversación abierta, que de entrada es esta, muestra bajo una línea:
 
-- **Contexto**: su barra, sus tokens y cuándo se llenará. Al pulsar la palabra «Contexto» aparece en qué se llena.
 - **Sus tareas**, con su estado (○ pendiente, ◐ en curso, ● hecha, ⟳ en segundo plano). Salen de `TodoWrite`, `TaskCreate`/`TaskUpdate`, del plan de la app de escritorio y del trabajo que sigue en segundo plano cuando Claude para.
 - **Sus subagentes**.
 
+Su contexto ya está en su fila: al pulsar su porcentaje aparecen sus tokens, cuándo se llenará y en qué se llena.
+
 Al pulsar el nombre de otra conversación, se abre esa en su lugar.
+
+Cuando Narsil propone próximos pasos («➜ ¿Y ahora?», bajo su propia línea), las conversaciones se cierran para que se vean solas. Si abres una conversación, las propuestas se ocultan; al cerrarlas todas, vuelven.
 
 Para reunirlas, cada conversación manda su estado a un pequeño servidor local (el de la ventana flotante), que arranca con la primera conversación aunque la ventana esté desactivada.
 
@@ -67,7 +70,7 @@ Los límites de la cuenta (5 horas y semanal) aparecen una sola vez, con el tiem
 
 La barra de contexto de cada conversación calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
 
-Pulsa la palabra «Contexto» de la conversación abierta y aparece el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición. Otra pulsación lo cierra.
+Pulsa el porcentaje de la conversación abierta, en su fila, y aparecen sus tokens, cuándo se llenará y el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición. Otra pulsación lo cierra.
 
 ### Reacciones a lo que ejecuta Claude
 - **Tests**: celebra cuando pasan, se da cuenta cuando fallan y celebra cuando se recuperan. Reconoce npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle y más.

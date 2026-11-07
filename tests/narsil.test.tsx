@@ -367,8 +367,10 @@ test('a conversation opened from the band shows its context, what fills it, its 
   expect(await ui.find({ type: 'Text', text: '  ● Leer el código' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '  ◐ Arreglar el bug' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '🐍 Explore · busca el bug' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '60k / 200k' })).toBeDefined()
-  // the word opens what fills its context
+  // its context is not told a second time: only its tasks and subagents open
+  expect(await labels(ui)).not.toContain('Contexto')
+  expect(await ui.find({ type: 'Text', text: '60k / 200k' })).toBeUndefined()
+  // its percent opens what fills its context
   await ui.press({ key: 'usage-context' })
   await ui.unmount()
 
@@ -1023,18 +1025,24 @@ test('the band shows the 5-hour window and the week once, and the context in its
   const bars = (await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))
   // no general context bar: there is no general context
   expect(bars?.props.alt).toBe('Uso: 5 horas 18 % (reinicia en 2 h 05 min), semana 91 % (reinicia en 3 d 4 h)')
-  expect(await desk.find({ type: 'Text', text: '42 %' })).toBeDefined()
+  // this conversation is open: its percent is the button
+  expect(await labels(desk)).toContain('42 %')
   expect(bars?.props.isInteractive).toBeUndefined()
   // Green while there is room, red past 85 %.
   expect(String(bars?.props.source)).toContain('#22B573')
   expect(String(bars?.props.source)).toContain('#F0435A')
   await desk.unmount()
 
-  const term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  let term = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await term.find({ type: 'Text', text: '████░░░░░░' })).toBeDefined()
-  expect(await term.find({ type: 'Text', text: '42 %' })).toBeDefined()
-  expect(await term.find({ type: 'Text', text: '84k / 200k' })).toBeDefined()
+  expect(await labels(term)).toContain('42 %')
   expect(await term.find({ type: 'Text', text: ' 91 %' })).toBeDefined()
+  // the tokens come with what fills the context
+  expect(await term.find({ type: 'Text', text: '84k / 200k' })).toBeUndefined()
+  await term.press({ key: 'usage-context' })
+  await term.unmount()
+  term = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await term.find({ type: 'Text', text: '84k / 200k' })).toBeDefined()
   await term.unmount()
 
   const state = posts.filter(p => p.url.endsWith('/state')).at(-1)
@@ -1057,7 +1065,7 @@ const BREAKDOWN = {
   percentage: 42,
 }
 
-test('a press on the word Contexto shows what fills the context, and another goes back to the bars', async ($, on) => {
+test('a press on the open conversation percent shows what fills the context, and another goes back to the bars', async ($, on) => {
   engine(on)
   measured(on)
   const asked: unknown[] = []
@@ -1069,7 +1077,9 @@ test('a press on the word Contexto shows what fills the context, and another goe
   await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await labels(desk)).toContain('Contexto')
+  // the context is told once, in its row; the open one's percent is the button
+  expect(await labels(desk)).not.toContain('Contexto')
+  expect(await labels(desk)).toContain('42 %')
   await desk.press({ key: 'usage-context' })
   await desk.unmount()
   // estimated locally: no token-count requests
@@ -1091,7 +1101,7 @@ test('a press on the word Contexto shows what fills the context, and another goe
 
   const back = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await back.find({ type: 'Text', text: /^Messages/ })).toBeUndefined()
-  expect(await back.find({ type: 'Text', text: '42 %' })).toBeDefined()
+  expect(await labels(back)).toContain('42 %')
   await back.unmount()
 })
 
@@ -1117,8 +1127,8 @@ test('off a plan, no limits show, and the context is read when the session start
 
   const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await desk.findAll({ type: 'Svg' })).find(svg => String(svg.props.alt).startsWith('Uso:'))).toBeUndefined()
-  const fill = (await desk.findAll({ type: 'Text' })).find(t => t.text === '75 %')
-  expect(fill?.props.color).toBe('#F5B400')
+  // this conversation is open: its percent is the button that opens what fills it
+  expect(await labels(desk)).toContain('75 %')
   // this conversation's row bar wears the mod's blue; the percent keeps its level color
   const bars = (await desk.findAll({ type: 'Text' })).filter(t => /[█░▓▒]/.test(String(t.text)))
   expect(bars.map(t => t.props.color)).toContain('#3B8BFF')
@@ -1153,8 +1163,11 @@ test('the context bar tells when it will fill, and Narsil suggests /compact once
   await $.session.measure(contextAt(50))
   at(5)
   await $.session.measure(contextAt(60))
-  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  // 2 % a minute: the remaining 40 % in 20 min
+  let desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await desk.press({ key: 'usage-context' })
+  await desk.unmount()
+  desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // 2 % a minute: the remaining 40 % in 20 min, told with what fills it
   expect(await desk.find({ type: 'Text', text: '120k / 200k · lleno en ~20 min' })).toBeDefined()
   await desk.unmount()
   expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
@@ -1178,7 +1191,10 @@ test('a context that is not growing shows no estimate and no nudge', async ($, o
   at(5)
   await $.session.measure(contextAt(20))
 
-  const desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  let desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await desk.press({ key: 'usage-context' })
+  await desk.unmount()
+  desk = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await desk.find({ type: 'Text', text: '40k / 200k' })).toBeDefined()
   await desk.unmount()
   expect(posts.some(p => String(p.body.tip).includes('/compact'))).toBe(false)
@@ -1569,8 +1585,27 @@ test('a few minutes after a turn Narsil offers next steps, and one click puts it
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
     expect(await ui.find({ key: 'step-2' })).toBeDefined()
+    // the steps close every conversation, and come with their own line
+    expect((await labels(ui)).filter(l => l.startsWith('▾'))).toEqual([])
+    expect(await ui.find({ type: 'Text', text: /^─+$/ })).toBeDefined()
     await ui.unmount()
   }
+  // a conversation opened hides the steps; all closed again brings them back
+  const ownRow = async (ui: Awaited<ReturnType<Engine['ui']['mount']>>) =>
+    (await ui.findAll({ type: 'Button' })).find(b => /^[▸▾] /.test(String(b.props.label)))!.key
+  let band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const row = String(await ownRow(band))
+  await band.press({ key: row })
+  await band.unmount()
+  band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await labels(band)).filter(l => l.startsWith('▾')).length).toBe(1)
+  expect(await band.find({ key: 'step-0' })).toBeUndefined()
+  await band.press({ key: row })
+  await band.unmount()
+  band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ key: 'step-0' })).toBeDefined()
+  await band.unmount()
+
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await ui.press({ key: 'step-1' })
   await ui.unmount()
