@@ -267,8 +267,16 @@ export function cacheLeft(at: number, minutes: number, now: number): number {
   return Math.max(0, Math.ceil((at + minutes * 60_000 - now) / 60_000))
 }
 
+const COLD_CACHE = '🧊 Caché fría'
+
 export function cacheLabel(c: Cache): string {
-  return c.left > 0 ? `🧊 Caché: ${c.left} min` : '🧊 Caché fría: el próximo mensaje se cobra completo'
+  return c.left > 0 ? `🧊 Caché: ${c.left} min` : `${COLD_CACHE}: el próximo mensaje se cobra completo`
+}
+
+// The cache as a band row has room for it: the cold warning without its
+// explanation.
+export function cacheShort(label: string): string {
+  return label.startsWith(COLD_CACHE) ? COLD_CACHE : label
 }
 
 // The color of what the cache has spent of its life: green while fresh.

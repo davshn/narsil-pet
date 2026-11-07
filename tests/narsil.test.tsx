@@ -1522,7 +1522,10 @@ test('after a turn the band counts down the prompt cache, and says when it has g
   expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.cache).toBe('🧊 Caché: 2 min')
 
   await clock.advance(2 * MINUTE + 2000)
-  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché fría: el próximo mensaje se cobra completo')
+  // the row has room for the state alone; the phone gets the whole warning
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché fría')
+  expect(await bandTexts($, 'desktop')).not.toContain('🧊 Caché fría: el próximo mensaje se cobra completo')
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.cache).toBe('🧊 Caché fría: el próximo mensaje se cobra completo')
 
   // A new turn writes the cache again: no clock while Claude works.
   await $.turn.start({ text: 'sigue', turnId: 'next' })

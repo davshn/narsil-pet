@@ -14,7 +14,7 @@ import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
-import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
+import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, cacheShort, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -1645,9 +1645,9 @@ export const register: Register = on => {
     // Every row's state and title take the same characters, so the bars line up.
     // This conversation is told by its place (first) and its blue bar. The state's
     // column has a little room to spare: the desktop's letters are wider than
-    // a cell, and TRABAJANDO wrapped without it.
+    // a cell, and TRABAJANDO wrapped without it (one cell more than "● " needs).
     const stateCells = Math.max(...Object.values(STATUS_LABEL).map(l => l.length))
-    const stateWidth = stateCells + 4
+    const stateWidth = stateCells + 3
     const rowState = (s: FleetSession) => `● ${STATUS_LABEL[s.status].padEnd(stateCells)}`
     const rowTitle = (s: FleetSession) => `${s.sessionId === opened ? '▾' : '▸'} ${fit(s.title || 'conversación', TITLE_CELLS - 2)}`
     const percentOf = (s: FleetSession) => Math.round(s.context?.percent ?? 0)
@@ -1674,7 +1674,7 @@ export const register: Register = on => {
         </Box>
         {s.context ? <Text color={barColor(s)}>{textBar(percentOf(s))}</Text> : null}
         {s.context ? <Text bold color={levelColor(percentOf(s))}>{`${percentOf(s)} %`}</Text> : null}
-        {s.cache ? <Text dimColor wrap="truncate-end">{s.cache}</Text> : null}
+        {s.cache ? <Text dimColor wrap="truncate-end">{cacheShort(s.cache)}</Text> : null}
       </Box>
     ))
     // The open conversation: its context (the word opens what fills it), its

@@ -26,9 +26,9 @@ export function ownFirst(list: readonly FleetSession[], ownId: string): FleetSes
   return [...list.filter(s => s.sessionId === ownId), ...list.filter(s => s.sessionId !== ownId)]
 }
 
-// Characters a row's title takes, its arrow and mark included, so every
+// Characters a row's title takes, its arrow included, so every
 // conversation's context bar starts in the same column.
-export const TITLE_CELLS = 30
+export const TITLE_CELLS = 26
 
 // The text in exactly `cells` characters: cut with an ellipsis, or padded.
 export function fit(text: string, cells: number): string {
