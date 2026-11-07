@@ -1643,11 +1643,13 @@ export const register: Register = on => {
     const toPage = (n: number) => () => update($, fleetView, w => ({ ...w, page: n }))
     const showDetail = () => toggleContextDetail($, opened === own.sessionId)
     // Every row's state and title take the same characters, so the bars line up.
+    // This conversation is told by its place (first) and its blue bar. The state's
+    // column has a little room to spare: the desktop's letters are wider than
+    // a cell, and TRABAJANDO wrapped without it.
     const stateCells = Math.max(...Object.values(STATUS_LABEL).map(l => l.length))
+    const stateWidth = stateCells + 4
     const rowState = (s: FleetSession) => `● ${STATUS_LABEL[s.status].padEnd(stateCells)}`
-    const mark = (s: FleetSession) => (s.sessionId === own.sessionId ? ' (esta)' : '')
-    const rowTitle = (s: FleetSession) =>
-      `${s.sessionId === opened ? '▾' : '▸'} ${fit(s.title || 'conversación', TITLE_CELLS - 2 - mark(s).length).trimEnd()}${mark(s)}`.padEnd(TITLE_CELLS)
+    const rowTitle = (s: FleetSession) => `${s.sessionId === opened ? '▾' : '▸'} ${fit(s.title || 'conversación', TITLE_CELLS - 2)}`
     const percentOf = (s: FleetSession) => Math.round(s.context?.percent ?? 0)
     // This conversation's bar wears the mod's blue so it stands out among the rest.
     const barColor = (s: FleetSession) => (s.sessionId === own.sessionId ? STATUS_COLOR.working : levelColor(percentOf(s)))
@@ -1664,7 +1666,7 @@ export const register: Register = on => {
       ) : null
     const rowsShown = rows.map(s => (
       <Box key={`row-${s.sessionId}`} flexDirection="row" gap={1} minWidth={0}>
-        <Box width={stateCells + 2} flexShrink={0}>
+        <Box width={stateWidth} flexShrink={0}>
           <Text color={STATUS_COLOR[s.status]}>{rowState(s)}</Text>
         </Box>
         <Box width={TITLE_CELLS} flexShrink={0}>
@@ -1679,7 +1681,7 @@ export const register: Register = on => {
     // tasks and its subagents.
     const openShown = entry ? (
       <Box flexDirection="column" minWidth={0}>
-        <Text dimColor wrap="truncate-end">{'─'.repeat(stateCells + 2 + TITLE_CELLS + 18)}</Text>
+        <Text dimColor wrap="truncate-end">{'─'.repeat(stateWidth + TITLE_CELLS + 18)}</Text>
         <Box flexDirection="row" gap={1}>
           <Button key="usage-context" plain label={detail ? '◂ Contexto' : 'Contexto'} onPress={showDetail} />
           {entry.context ? <Text color={levelColor(percentOf(entry))}>{textBar(percentOf(entry))}</Text> : <Text dimColor>sin medir aún</Text>}
