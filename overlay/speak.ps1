@@ -1,8 +1,9 @@
 # Says $env:NARSIL_TEXT aloud. The text comes from the environment, never
 # from argv, so nothing Claude wrote can be interpreted as code.
 # Voice order: a Spanish SAPI voice, natural ones first (NaturalVoiceSAPIAdapter
-# exposes Narrator voices such as Elvira there); then a Spanish WinRT voice
-# (OneCore, installed from Windows Settings); then the SAPI default.
+# exposes Narrator voices such as Dalia there), Latin American before Spain's;
+# then a Spanish WinRT voice (OneCore, installed from Windows Settings), Latin
+# American first too; then the SAPI default.
 $text = $env:NARSIL_TEXT
 if (-not $text) { exit 0 }
 
@@ -10,7 +11,7 @@ Add-Type -AssemblyName System.Speech
 $sapi = New-Object System.Speech.Synthesis.SpeechSynthesizer
 $spanish = $sapi.GetInstalledVoices() |
   Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'es*' } |
-  Sort-Object { $_.VoiceInfo.Description -notlike '*Natural*' } |
+  Sort-Object { $_.VoiceInfo.Description -notlike '*Natural*' }, { $_.VoiceInfo.Culture.Name -eq 'es-ES' } |
   Select-Object -First 1
 if ($spanish) {
   $sapi.SelectVoice($spanish.VoiceInfo.Name)
@@ -22,7 +23,7 @@ try {
   Add-Type -AssemblyName System.Runtime.WindowsRuntime
   $null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType = WindowsRuntime]
   $winrt = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer
-  $voice = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.Language -like 'es*' } | Select-Object -First 1
+  $voice = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.Language -like 'es*' } | Sort-Object { $_.Language -eq 'es-ES' } | Select-Object -First 1
   if (-not $voice) { throw 'no Spanish WinRT voice' }
   $winrt.Voice = $voice
   $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() |

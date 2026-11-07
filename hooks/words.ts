@@ -125,15 +125,69 @@ export function pick(mood: Mood): string {
 }
 
 // What Narsil says aloud at each moment: several phrases each, one picked at
-// random, so she does not always say the same.
+// random, so she does not always say the same. Neutral Latin American Spanish
+// (the simple past, no Spain-only words), in the voice of a calm, warm
+// assistant who works beside you: composed, a little playful, never servile.
+// She speaks of herself in the first person, never by name.
 export const VOICE = {
-  start: ['Estoy en ello.', 'Empiezo ahora.', 'Vamos allá.', 'Manos a la obra.', 'Me pongo con ello.', 'Entendido, empiezo.', 'Allá voy.'],
-  done: ['Ya está, ya terminé.', 'Listo, he terminado.', 'Terminado.', 'Hecho, ya puedes mirarlo.', 'Ya lo tengo.', 'Misión cumplida.'],
-  error: ['Uy, me detuve por un error.', 'Algo falló y me he parado.', 'Me he topado con un error.', 'Vaya, un error me ha detenido.', 'Me paré, algo salió mal.'],
-  question: ['Te necesito.', 'Necesito que me ayudes.', 'Tengo una pregunta para ti.', 'Necesito tu decisión.', '¿Me echas una mano?'],
-  stillWaiting: ['Sigo esperándote.', 'Aún te espero.', 'Sigo aquí, esperándote.', 'Cuando puedas, te espero.', 'Todavía necesito tu respuesta.'],
-  agentDone: ['Un subagente ha terminado.', 'Un ayudante ha acabado su parte.', 'Un subagente ya está listo.', 'Ha vuelto un subagente.'],
-  agentStopped: ['Un subagente se ha detenido.', 'Un ayudante se ha parado.', 'Un subagente no pudo terminar.', 'Un subagente se quedó a medias.'],
+  start: [
+    'Estoy en eso.',
+    'Entendido. Empiezo ahora mismo.',
+    'Muy bien, comencemos.',
+    'Déjamelo a mí.',
+    'Con gusto. Ya me pongo en eso.',
+    'Perfecto, manos a la obra.',
+    'Me sumerjo en esto y te cuento.',
+    'Enseguida. Voy por partes.',
+    'Me gusta este reto. Arranco ya.',
+    'Listo, ya estoy trabajando en eso.',
+  ],
+  done: [
+    'Listo, ya quedó.',
+    'Terminé. Cuando quieras, le echas un vistazo.',
+    'Todo listo por aquí.',
+    'Ya está. Te dejé todo en orden.',
+    'Misión cumplida.',
+    'Terminé. ¿Seguimos con algo más?',
+    'Hecho. Ya puedes revisarlo.',
+    'Ya terminé. Quedó como lo pediste.',
+    'Listo. Fue un placer.',
+  ],
+  error: [
+    'Uy, algo salió mal y tuve que detenerme.',
+    'Me encontré con un error. Te espero para revisarlo.',
+    'Tuve un tropiezo y me detuve.',
+    'Algo falló. Mejor lo miramos juntos.',
+    'Me detuve por un error. Nada que no podamos arreglar.',
+    'Esto no salió como esperaba. Me detuve para no empeorarlo.',
+  ],
+  question: [
+    'Te necesito un momento.',
+    'Necesito tu decisión para seguir.',
+    'Tengo una pregunta para ti.',
+    '¿Me ayudas con algo?',
+    'Antes de seguir, quiero tu visto bueno.',
+    'Aquí necesito tu opinión.',
+  ],
+  stillWaiting: [
+    'Sigo aquí, esperándote.',
+    'Cuando puedas, aquí te espero.',
+    'Todavía necesito tu respuesta.',
+    'No me fui. Te espero para continuar.',
+    'Tengo algo pendiente contigo.',
+  ],
+  agentDone: [
+    'Uno de mis ayudantes ya terminó.',
+    'Un subagente acaba de terminar su parte.',
+    'Volvió un subagente con su trabajo.',
+    'Un ayudante terminó su encargo.',
+  ],
+  agentStopped: [
+    'Un subagente se detuvo antes de terminar.',
+    'Uno de mis ayudantes no pudo terminar.',
+    'Un subagente se quedó a mitad de camino.',
+    'Un ayudante tuvo un problema y se detuvo.',
+  ],
 } as const satisfies Record<string, readonly string[]>
 
 export type VoiceMoment = keyof typeof VOICE

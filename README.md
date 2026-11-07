@@ -223,7 +223,7 @@ La banda, sus animaciones, los consejos y las barras de uso funcionan dondequier
 
 | | Windows | macOS | Otros |
 | --- | --- | --- | --- |
-| Voz | Voz en español de Windows | `say`, con Mónica o Paulina si están instaladas | La voz de Claude Code |
+| Voz | Voz en español de Windows, latinoamericana si hay una (por ejemplo Sabina, de México) | `say`, con Paulina u otra voz latinoamericana si están instaladas, si no Mónica | La voz de Claude Code |
 | Avisos | Notificación de Windows; al hacer clic abre la conversación | Notificación de macOS | Las de Claude Code, si las hay |
 | Ventana flotante | Edge, siempre encima, en la pantalla de Claude | Chrome, Edge o Brave, abierta detrás de tu app | No disponible |
 | Consejos | Ventanita propia, en la pantalla de Claude | Ventanita propia, en la pantalla del ratón | En la banda |

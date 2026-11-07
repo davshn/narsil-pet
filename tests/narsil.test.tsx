@@ -1386,6 +1386,18 @@ test('each moment Narsil speaks has several phrases, so she does not always say 
   expect(said.size).toBeGreaterThan(1)
 })
 
+test('what Narsil says is neutral Latin American Spanish: no Spain-only words, the simple past', () => {
+  const SPAIN_ONLY = /\b(vale|vaya|vosotros|os|ordenador|tío|tía|guay|coger|móvil|vale la pena)\b/i
+  // "ya terminé", not "he terminado"
+  const PRESENT_PERFECT = /\b(he|has|ha|hemos|han)\s+\p{L}+(ado|ido)\b/iu
+  for (const phrase of Object.values(VOICE).flat()) {
+    expect([phrase, SPAIN_ONLY.test(phrase)]).toEqual([phrase, false])
+    expect([phrase, PRESENT_PERFECT.test(phrase)]).toEqual([phrase, false])
+    // she speaks of herself in the first person, never by name
+    expect(phrase.includes('Narsil')).toBe(false)
+  }
+})
+
 test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
   const runs: Ran[] = []
   engine(on, null, { os: 'mac', runs, store: noWindow() })
