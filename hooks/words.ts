@@ -124,6 +124,25 @@ export function pick(mood: Mood): string {
   return options[Math.floor(Math.random() * options.length)] ?? ''
 }
 
+// What Narsil says aloud at each moment: several phrases each, one picked at
+// random, so she does not always say the same.
+export const VOICE = {
+  start: ['Estoy en ello.', 'Empiezo ahora.', 'Vamos allá.', 'Manos a la obra.', 'Me pongo con ello.', 'Entendido, empiezo.', 'Allá voy.'],
+  done: ['Ya está, ya terminé.', 'Listo, he terminado.', 'Terminado.', 'Hecho, ya puedes mirarlo.', 'Ya lo tengo.', 'Misión cumplida.'],
+  error: ['Uy, me detuve por un error.', 'Algo falló y me he parado.', 'Me he topado con un error.', 'Vaya, un error me ha detenido.', 'Me paré, algo salió mal.'],
+  question: ['Te necesito.', 'Necesito que me ayudes.', 'Tengo una pregunta para ti.', 'Necesito tu decisión.', '¿Me echas una mano?'],
+  stillWaiting: ['Sigo esperándote.', 'Aún te espero.', 'Sigo aquí, esperándote.', 'Cuando puedas, te espero.', 'Todavía necesito tu respuesta.'],
+  agentDone: ['Un subagente ha terminado.', 'Un ayudante ha acabado su parte.', 'Un subagente ya está listo.', 'Ha vuelto un subagente.'],
+  agentStopped: ['Un subagente se ha detenido.', 'Un ayudante se ha parado.', 'Un subagente no pudo terminar.', 'Un subagente se quedó a medias.'],
+} as const satisfies Record<string, readonly string[]>
+
+export type VoiceMoment = keyof typeof VOICE
+
+export function say(moment: VoiceMoment): string {
+  const options: readonly string[] = VOICE[moment]
+  return options[Math.floor(Math.random() * options.length)] ?? options[0]
+}
+
 export function basename(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }

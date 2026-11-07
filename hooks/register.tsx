@@ -14,7 +14,7 @@ import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
-import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, summary, tipLines } from './words'
+import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -709,7 +709,7 @@ async function announceQuestion($: EngineInterface, text: string): Promise<void>
   const now = await $.clock.now()
   if (now - lastQuestionAt < 3000) return
   lastQuestionAt = now
-  await announce($, 'question', 'Te necesito', text, 'Te necesito.')
+  await announce($, 'question', 'Te necesito', text, say('question'))
   // The app shows her waiting, not the state of the last turn.
   await sendStatus($)
 }
@@ -1044,7 +1044,7 @@ async function endAgent($: EngineInterface, id: string, reason: string): Promise
   if (outcome === 'done') await gainXp($, 'agent')
   if (ending.isBackground) {
     const { text } = agentChip({ ...ending, endedAt: now, outcome }, now)
-    await announce($, outcome === 'done' ? 'done' : 'error', 'Un subagente ha terminado', text, outcome === 'done' ? 'Un subagente ha terminado.' : 'Un subagente se ha detenido.')
+    await announce($, outcome === 'done' ? 'done' : 'error', 'Un subagente ha terminado', text, say(outcome === 'done' ? 'agentDone' : 'agentStopped'))
   }
 }
 
@@ -1203,7 +1203,7 @@ async function tickWatch($: EngineInterface): Promise<void> {
   if (waiting && !waiting.isNudged && now - waiting.since >= NUDGE_AFTER_MS) {
     waiting.isNudged = true
     const text = nudgeText(waiting.what, now - waiting.since)
-    void announce($, 'question', 'Sigo esperándote', text, 'Sigo esperándote.', true).catch(() => undefined)
+    void announce($, 'question', 'Sigo esperándote', text, say('stillWaiting'), true).catch(() => undefined)
   }
   const c = await read($, cache)
   if (c && backgroundAtStop === 0 && summarizedFor !== c.at && now - c.at >= IDLE_SUMMARY_MS && ((await read($, stats))?.turns ?? 0) > 0 && !(await read($, prefs)).isQuiet) {
@@ -1388,6 +1388,9 @@ export const register: Register = on => {
       await update($, cache, () => null)
       await update($, steps, () => null)
       await setMood($, 'thinking')
+      // A prompt of yours starts the work aloud; a continuation does not.
+      const { isMuted, isQuiet } = await read($, prefs)
+      if (e.text.trim() && !isMuted && !isQuiet) void speak($, say('start')).catch(() => undefined)
     }
 
     return next(e)
@@ -1528,7 +1531,7 @@ export const register: Register = on => {
     if (e.reason === 'answer' && turnAsk) {
       await setMood($, 'asking', 'tengo una pregunta para ti')
       await gainXp($, 'turn')
-      await announce($, 'question', 'Te necesito', turnAsk, 'Te necesito.')
+      await announce($, 'question', 'Te necesito', turnAsk, say('question'))
       await startWaiting($, 'tengo una pregunta para ti.')
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
@@ -1544,7 +1547,7 @@ export const register: Register = on => {
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
-      await announce($, 'done', 'He terminado', summary(e.answer, took), 'Ya está, ya terminé.', false, summary(e.answer, took, Infinity, PHONE_ROOM))
+      await announce($, 'done', 'He terminado', summary(e.answer, took), say('done'), false, summary(e.answer, took, Infinity, PHONE_ROOM))
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
       tipLater($, 'review')
@@ -1553,7 +1556,7 @@ export const register: Register = on => {
     } else {
       const why = e.reason === 'refusal' ? 'no pudo responder' : 'fallo de la API'
       await setMood($, 'failed', why)
-      await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, 'Uy, me detuve por un error.')
+      await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, say('error'))
     }
     await sendStatus($)
 

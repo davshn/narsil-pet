@@ -6,6 +6,7 @@ import { STEPS_SYSTEM, SYSTEM, ends, parse, parseSteps } from '../hooks/advice'
 import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, isClaudesCall, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
+import { VOICE, say } from '../hooks/words'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
 import { phoneStatus, sealedPayload } from '../hooks/phone'
@@ -934,7 +935,7 @@ test('/narsil discreto keeps her quiet, and /narsil normal brings everything bac
   await $.command.run({ command: 'narsil', args: 'normal', ...TYPED })
   await finishTurn($)
   await clock.settle()
-  expect(spoken()).toContain('Ya está, ya terminé.')
+  expect(spoken().some(t => VOICE.done.includes(String(t)))).toBe(true)
   expect(toasts()).toContain('Narsil · He terminado')
   expect(asked.length).toBeGreaterThan(0)
 })
@@ -1358,20 +1359,31 @@ test('Narsil speaks of herself in the first person', async ($, on) => {
   const spoken = () => runs.filter(r => scriptOf(r).endsWith('/overlay/speak.sh')).map(r => r.env.NARSIL_TEXT)
 
   await finishTurn($)
-  expect(spoken()).toContain('Ya está, ya terminé.')
+  // a turn begins aloud, and ends aloud, each in one of several phrases
+  expect(VOICE.start).toContain(spoken()[0])
+  expect(VOICE.done).toContain(spoken().at(-1))
 
   await $.turn.start({ text: 'otra', turnId: 'err' })
   await $.turn.complete({ reason: 'error', answer: '', durationMs: 1000, isAborted: false, turnId: 'err', error: 'api' } as never)
-  expect(spoken()).toContain('Uy, me detuve por un error.')
+  expect(VOICE.error).toContain(spoken().at(-1))
 
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
-  expect(spoken()).toContain('Te necesito.')
+  expect(VOICE.question).toContain(spoken().at(-1))
 
   shouldFail = true
   for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   // no loop alert any more
   expect(spoken()).not.toContain('Creo que esto se está repitiendo.')
   expect(spoken().some(t => String(t).includes('Narsil'))).toBe(false)
+})
+
+test('each moment Narsil speaks has several phrases, so she does not always say the same', () => {
+  for (const [moment, phrases] of Object.entries(VOICE)) {
+    expect([moment, phrases.length >= 4]).toEqual([moment, true])
+    expect(new Set(phrases).size).toBe(phrases.length)
+  }
+  const said = new Set(Array.from({ length: 200 }, () => say('start')))
+  expect(said.size).toBeGreaterThan(1)
 })
 
 test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
