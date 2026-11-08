@@ -110,6 +110,22 @@ check('every conversation is served to the mods alone, the most important first,
   assert.ok(list.every(s => !('svg' in s)), 'no drawings')
 })
 
+check('a conversation that stops beating stays listed while the server runs', async () => {
+  const mod = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
+  const sessionId = 'local_dormant'
+  const body = JSON.stringify({ sessionId, mood: 'm', status: 'done', headline: 'done', svg: '<svg/>' })
+  assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
+  // An hour without its heartbeats (the app put its engine to sleep).
+  const now = Date.now
+  Date.now = () => now() + 60 * 60_000
+  try {
+    const res = await request('GET', '/sessions', { headers: { 'x-narsil-token': 'mod-token' } })
+    assert.ok(JSON.parse(res.text).some(s => s.sessionId === sessionId), 'the sleeping conversation is still listed')
+  } finally {
+    Date.now = now
+  }
+})
+
 check('the window turns on and off for the mod alone, and the server stays', async () => {
   assert.equal((await request('POST', '/window?on=0')).status, 403)
   const mod = { 'x-narsil-token': 'mod-token' }

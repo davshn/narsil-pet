@@ -37,7 +37,6 @@ const EVENT_KINDS = new Set(['done', 'question', 'error'])
 // Which conversation comes first, and whose state Narsil wears: an error,
 // then what needs you, then what works, then what finished.
 const PRIORITY = { error: 0, waiting: 1, working: 2, done: 3, idle: 4 }
-const SESSION_TIMEOUT_MS = 30_000
 // The page's own key, new each run: its actions carry it, and no other web
 // page can read it (a page of another site cannot read this one).
 const PAGE_KEY = crypto.randomBytes(16).toString('hex')
@@ -49,7 +48,9 @@ const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`])
 const ICON = fs.readFileSync(path.join(__dirname, 'icon.png'))
 const POWERSHELL = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File']
 
-// One entry per open conversation, as its own mod reports it.
+// One entry per conversation, as its own mod last reported it. Kept while the
+// server runs: the app puts the engine of a conversation you have not opened
+// in a while to sleep, and its heartbeats stop although it still exists.
 const sessions = new Map()
 let event = null
 // Unknown until the keeper's first report: an event that started the server
@@ -71,8 +72,6 @@ let bounds = null
 const listeners = new Set()
 
 function liveSessions() {
-  const now = Date.now()
-  for (const [id, entry] of sessions) if (now - entry.at > SESSION_TIMEOUT_MS) sessions.delete(id)
   return [...sessions.values()].sort(
     (a, b) => (PRIORITY[a.status] ?? 9) - (PRIORITY[b.status] ?? 9) || b.changedAt - a.changedAt,
   )
@@ -429,8 +428,4 @@ setInterval(() => {
   // A window kept by a process this server did not launch: closed once its
   // profile has no process left.
   checkWindowGone()
-  // A conversation that stopped beating was closed: drop it from the page too.
-  const known = sessions.size
-  liveSessions()
-  if (sessions.size !== known) broadcast()
 }, 5000)
