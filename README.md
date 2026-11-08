@@ -18,6 +18,7 @@ Es un mod de Claude Code de **código abierto**, publicado bajo la licencia [GPL
 - [Instalación](#instalación)
 - [Comandos](#comandos)
 - [Sistemas compatibles](#sistemas-compatibles)
+- [Otros mods de Narsil](#otros-mods-de-narsil)
 - [Desarrollo](#desarrollo)
 - [Licencia](#licencia)
 
@@ -232,6 +233,36 @@ La banda, sus animaciones, los consejos y las barras de uso funcionan dondequier
 | Consejos | Ventanita propia, en la pantalla de Claude | Ventanita propia, en la pantalla del ratón | En la banda |
 
 En macOS la ventana se abre y se cierra en lugar de ocultarse (ocultar la ventana de otra app requiere el permiso de accesibilidad) y no se mantiene siempre encima: colócala donde quieras y el navegador recordará su posición.
+
+## Otros mods de Narsil
+
+Narsil tiene dos compañeros, también de código abierto. Cada uno se instala por su cuenta y funciona junto a los demás: Narsil ocupa la banda encima del prompt, Narsil Check un panel lateral y Narsil Skin el fondo de la ventana.
+
+### [Narsil Check](https://github.com/davshn/narsil-check)
+Un panel lateral, con los colores de Narsil, que revisa el proyecto en el que trabajas: el entorno de la sesión (repositorio, rama, conectores, control remoto y Auto-fix), qué librerías se pueden actualizar y cuánto cuesta hacerlo, las vulnerabilidades conocidas de los paquetes instalados y una lista de tareas pendientes. Lee proyectos de JavaScript y TypeScript, Python, Go, Rust, Dart y Flutter, Kotlin y Java, C#, Ruby y Swift.
+
+```
+/plugin marketplace add davshn/narsil-check
+/plugin install narsil-check@narsil-check
+```
+
+### [Narsil Skin](https://github.com/davshn/narsil-skin)
+Le cambia la piel a la app de escritorio de Claude: temas de color (colores, fuentes, esquinas y sombras) y fondos animados dibujados con caracteres detrás del chat, entre ellos uno con Narsil nadando en el mar de noche. Los temas reaccionan a lo que hace Claude y se eligen desde un panel lateral con `/narsil-skin themes`. Es un *fork* de [claude-desktop-themes](https://github.com/0toshigami/claude-desktop-themes), de 0toshigami.
+
+```
+/plugin marketplace add davshn/narsil-skin
+/plugin install narsil-skin@narsil-skin
+```
+
+### Dónde funciona cada uno
+
+| | Terminal | App de escritorio | VS Code | App móvil |
+| --- | --- | --- | --- | --- |
+| **Narsil** | Sí | Sí | Sí | Sí |
+| **Narsil Check** | Actualizaciones, vulnerabilidades y pendientes | Todo | Actualizaciones, vulnerabilidades y pendientes | Actualizaciones, vulnerabilidades y pendientes (sin campo para escribir tareas) |
+| **Narsil Skin** | No | Sí, en la pestaña Code, en Windows y macOS | No | No |
+
+La voz, los avisos y la ventana flotante de Narsil dependen además del sistema del ordenador (consulta [Sistemas compatibles](#sistemas-compatibles)). En Narsil Check, el entorno, los conectores, el control remoto, el Auto-fix y el CI del PR se leen de los servidores propios de la app de escritorio, así que solo aparecen allí. Narsil Skin pinta los temas con una extensión dentro de la app de escritorio, así que no hace nada en otras superficies y todavía no funciona en Linux.
 
 ## Desarrollo
 
