@@ -237,7 +237,20 @@
     list.scrollTop = scrolled
   }
 
-  new EventSource('/events').onmessage = message => render(JSON.parse(message.data))
+  // Only the newest state is drawn, once per frame. A hidden window gets no
+  // frames, so the messages it piled up while hidden show as one, the latest,
+  // instead of replaying one after another when it shows again.
+  let pending = null
+  new EventSource('/events').onmessage = message => {
+    const isQueued = pending !== null
+    pending = message.data
+    if (isQueued) return
+    requestAnimationFrame(() => {
+      const data = pending
+      pending = null
+      render(JSON.parse(data))
+    })
+  }
   // Where this window is, for the tip window to open above it (macOS).
   function reportBounds() {
     const q = 'x=' + screenX + '&y=' + screenY + '&w=' + outerWidth + '&h=' + outerHeight + '&visible=' + (document.visibilityState === 'visible' ? 1 : 0)
