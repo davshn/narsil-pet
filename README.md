@@ -85,9 +85,6 @@ Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API 
 ### Próximos pasos
 Quince minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
 
-### Modelos
-La banda y la ventana flotante muestran el modelo del hilo principal junto al estado ("● TRABAJANDO · Narsil · Opus 4.6"), y `/narsil estado` también lo dice. Si lo cambias con `/model`, Narsil lo actualiza en unos 2 segundos. Cada subagente muestra el suyo.
-
 ### Subagentes
 Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y en la ventana flotante:
 

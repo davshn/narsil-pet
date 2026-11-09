@@ -6,7 +6,7 @@ import { NO_VIEW, TITLE_CELLS, countOfStates, fit, fleetOf, openOf, ownFirst, pa
 import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
-import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
+import { TONE_COLOR, agentChip, liveRuns } from './agents'
 import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, sealedMessage, sealedPayload } from './phone'
 import { newKey, seal } from './seal'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
@@ -80,9 +80,6 @@ const steps = atom({ plugin: 'narsil-pet', key: 'steps' } as const, null)
 const stats = atom({ plugin: 'narsil-pet', key: 'stats' } as const, null)
 // Narsil's experience, kept across sessions in the store (xp.ts).
 const xp = atom({ plugin: 'narsil-pet', key: 'xp' } as const, 0)
-// The main thread's model, as a name ("Opus 5.5"): read at start and with
-// each heartbeat, since no event tells of a /model change.
-const mainModel = atom({ plugin: 'narsil-pet', key: 'model' } as const, null)
 // A new level or stage being celebrated, and when it began.
 const milestone = atom({ plugin: 'narsil-pet', key: 'milestone' } as const, null)
 // The conversation's own title, as Claude Code names it; null until it has one.
@@ -288,7 +285,6 @@ async function readSessions($: EngineInterface): Promise<void> {
       mood: s.mood,
       status: s.status,
       headline: String(s.headline ?? ''),
-      model: s.model ?? null,
       changedAt: Number(s.changedAt) || 0,
       context: s.context && typeof s.context.percent === 'number' ? { percent: s.context.percent, note: String(s.context.note ?? '') } : null,
       contextDetail: s.contextDetail && Array.isArray(s.contextDetail.parts) ? s.contextDetail : null,
@@ -329,7 +325,6 @@ async function ownEntry($: EngineInterface): Promise<FleetSession> {
     mood: s.mood,
     status: s.status,
     headline: s.headline,
-    model: s.model,
     changedAt,
     context: s.context,
     contextDetail: s.contextDetail,
@@ -363,7 +358,6 @@ async function shownState($: EngineInterface) {
     ...(await read($, cache).then(c => ({ cacheEndsAt: c ? Math.floor((cacheStart(c) + c.minutes * 60_000) / 1000) : null, cacheMinutes: c ? c.minutes : null }))),
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
-    model: await read($, mainModel),
     // its fill, with the tokens and when it will be full
     context: context ? { percent: context.percent, note: usageRows({ ...NO_USAGE, context }, 0, contextToFull)[0]?.note ?? '' } : null,
     contextDetail: await read($, contextDetail),
@@ -373,16 +367,6 @@ async function shownState($: EngineInterface) {
 
 // The heartbeat: keep the window in sync, and learn how many conversations
 // are open and in which state.
-async function readModel($: EngineInterface): Promise<void> {
-  let name: string | null = null
-  try {
-    name = modelLabel(await $.session.model()) || null
-  } catch {
-    // no model to read: none is shown
-  }
-  if (name !== (await read($, mainModel))) await update($, mainModel, () => name)
-}
-
 async function beat($: EngineInterface): Promise<void> {
   // A tip leaves the band after TIP_SHOWN_MS; the window keeps it for
   // TIP_KEPT_MS, since it shows while Claude is minimized, often later.
@@ -392,7 +376,6 @@ async function beat($: EngineInterface): Promise<void> {
   else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
   const shown = await read($, milestone)
   if (shown && (await $.clock.now()) - shown.at >= MILESTONE_MS[shown.kind]) await update($, milestone, () => null)
-  await readModel($)
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
@@ -1207,7 +1190,6 @@ export const register: Register = on => {
     // The stats survive a reload of the mod, and Claude Code restarting with
     // this conversation: only a new conversation starts them.
     await loadStats($)
-    await readModel($)
     if (!(await read($, stats))) await bumpStats($, s => s)
     const earned = xpOf(await $.store.get(XP_KEY).catch(() => 0))
     await update($, xp, () => earned)
@@ -1280,7 +1262,6 @@ export const register: Register = on => {
         text:
           `Narsil está ${p.isHidden ? 'oculta' : 'visible'}, con la voz ${p.isMuted ? 'apagada' : 'encendida'} ` +
           `y la ventana flotante ${p.isFloating ? 'activada' : 'desactivada'}.\n` +
-          ((await read($, mainModel)) ? `Modelo del hilo principal: ${await read($, mainModel)}.\n` : '') +
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
@@ -1571,7 +1552,6 @@ export const register: Register = on => {
     const xpNow = await read($, xp)
     const celebrated = isOwnTop ? ((await read($, milestone)) ?? undefined) : undefined
     const level = xpLabel(xpNow)
-    const modelShown = top.model
     const dismiss = async () => {
       await update($, tip, () => null)
       await pushOverlay($)
@@ -1684,7 +1664,6 @@ export const register: Register = on => {
             <Text bold color={color}>
               {label}
             </Text>
-            {modelShown ? <Text dimColor>{` · ${modelShown}`}</Text> : null}
             <Text wrap="truncate-end"> · {title}</Text>
           </Box>
           {tipShown}
@@ -1720,7 +1699,6 @@ export const register: Register = on => {
               ● {label}
             </Text>
             <Text dimColor>· Narsil</Text>
-            {modelShown ? <Text dimColor>{`· ${modelShown}`}</Text> : null}
             <Text dimColor>{`· ${level}`}</Text>
           </Box>
           <Text bold wrap="truncate-end">

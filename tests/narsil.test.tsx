@@ -283,7 +283,6 @@ const other = (sessionId: string, status: string, mood: string, title: string, e
   mood,
   status,
   headline: `${title} va`,
-  model: 'Opus',
   changedAt: 5,
   context: { percent: 30, note: '60k / 200k' },
   contextDetail: null,
@@ -1928,23 +1927,15 @@ test('model ids read as names, whatever their shape', () => {
   expect(modelLabel('')).toBe('')
 })
 
-test('the band and the window show the main model, and follow a /model change within a heartbeat', async ($, on) => {
+test('the main model shows nowhere: not on the band, the window or /narsil', async ($, on) => {
   model(on, 'SKIP')
-  let main = 'claude-opus-5-5'
-  on('session.model', () => ({ value: main }))
-  const { posts, clock } = await tipEngine($, on)
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  const { posts } = await tipEngine($, on)
 
-  expect(await bandTexts($, 'desktop')).toContain('· Opus 5.5')
-  expect((await bandTexts($, 'terminal')).join(' ')).toContain('Opus 5.5')
-  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.model).toBe('Opus 5.5')
-
-  main = 'claude-sonnet-5-5'
-  await clock.advance(2000)
-  await clock.settle()
-  expect(await bandTexts($, 'desktop')).toContain('· Sonnet 5.5')
-  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.model).toBe('Sonnet 5.5')
+  for (const surface of ['desktop', 'terminal'] as const) expect((await bandTexts($, surface)).join(' ')).not.toContain('Opus')
+  expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body).not.toHaveProperty('model')
   const status = await $.command.run({ command: 'narsil', args: '', ...TYPED })
-  expect(JSON.stringify(status)).toContain('Modelo del hilo principal: Sonnet 5.5.')
+  expect(JSON.stringify(status)).not.toContain('Modelo del hilo principal')
 })
 
 test('each subagent shows the model it runs on', async ($, on) => {

@@ -272,7 +272,7 @@
     if (focus) {
       showDrawing(focus.svg || '')
       $('focus').className = 'focus s-' + focus.status
-      $('status').textContent = LABEL[focus.status] + (focus.model ? ' · ' + focus.model : '') + (sessions.length > 1 ? ' · ' + focus.title : '')
+      $('status').textContent = LABEL[focus.status] + (sessions.length > 1 ? ' · ' + focus.title : '')
       $('headline').textContent = focus.headline
       $('headline').title = focus.headline
       $('line').textContent = focus.line || ''
