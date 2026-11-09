@@ -14,7 +14,7 @@ import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
-import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, cacheShort, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
+import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, cacheShort, cacheStart, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -363,7 +363,7 @@ async function shownState($: EngineInterface) {
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
     // when its cache runs out, for the others and the phone to count down
-    ...(await read($, cache).then(c => ({ cacheEndsAt: c ? Math.floor((c.at + c.minutes * 60_000) / 1000) : null, cacheMinutes: c ? c.minutes : null }))),
+    ...(await read($, cache).then(c => ({ cacheEndsAt: c ? Math.floor((cacheStart(c) + c.minutes * 60_000) / 1000) : null, cacheMinutes: c ? c.minutes : null }))),
     steps: (await read($, steps))?.items ?? [],
     xp: xpLabel(await read($, xp)),
     model: await read($, mainModel),
@@ -1059,6 +1059,9 @@ const API_CACHE_MINUTES = 5
 const STEPS_AFTER_MS = 15 * 60_000
 
 let stepsAskedFor: number | null = null
+// When this conversation's own last model request started; null before its
+// first one. A subagent's requests have a cache of their own.
+let lastRequestAt: number | null = null
 
 async function cacheMinutes($: EngineInterface): Promise<number> {
   const set = (await read($, prefs)).cacheMinutes
@@ -1067,11 +1070,13 @@ async function cacheMinutes($: EngineInterface): Promise<number> {
   return spent.fiveHour || spent.week ? PLAN_CACHE_MINUTES : API_CACHE_MINUTES
 }
 
-// A turn just ended: the cache was written now.
+// A turn just ended, now: what waits on an idle conversation counts from
+// here, and the cache from the start of the turn's last request.
 async function startCache($: EngineInterface): Promise<void> {
   const at = await $.clock.now()
+  const requestAt = lastRequestAt ?? at
   const minutes = await cacheMinutes($)
-  await update($, cache, () => ({ at, minutes, left: minutes }))
+  await update($, cache, () => ({ at, requestAt, minutes, left: cacheLeft(requestAt, minutes, at) }))
 }
 
 // On every heartbeat: count the cache down, and offer next steps once the
@@ -1080,7 +1085,7 @@ async function tickCache($: EngineInterface): Promise<void> {
   const c = await read($, cache)
   if (!c) return
   const now = await $.clock.now()
-  const left = cacheLeft(c.at, c.minutes, now)
+  const left = cacheLeft(cacheStart(c), c.minutes, now)
   if (left !== c.left) await update($, cache, k => (k ? { ...k, left } : k))
   if (now - c.at >= STEPS_AFTER_MS) void offerSteps($, c.at).catch(() => undefined)
 }
@@ -1250,12 +1255,13 @@ async function stepsCommand($: EngineInterface, arg: string): Promise<string | u
   const minutes = await cacheMinutes($)
   const now = await $.clock.now()
   const c = await read($, cache)
-  if (c) await update($, cache, () => ({ ...c, minutes, left: cacheLeft(c.at, minutes, now) }))
+  if (c) await update($, cache, () => ({ ...c, minutes, left: cacheLeft(cacheStart(c), minutes, now) }))
   return `Narsil: la caché dura ${minutes} min${(await read($, prefs)).cacheMinutes ? '' : ' (según tu cuenta; cámbialo con /narsil cache <min>)'}.`
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    lastRequestAt = null
     await $.command.register({
       name: 'narsil',
       description:
@@ -1406,6 +1412,7 @@ export const register: Register = on => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined) lastRequestAt = await $.clock.now()
     for await (const chunk of next(e)) {
       if (chunk.kind === 'thinking' && current !== 'thinking') {
         void setMood($, 'thinking').catch(() => undefined)
@@ -1527,7 +1534,6 @@ export const register: Register = on => {
     }
     stopWaiting()
     await bumpStats($, s => ({ ...s, turns: s.turns + 1, workedMs: s.workedMs + (e.durationMs ?? 0) }))
-    // Every request of the turn wrote the prompt cache; its clock starts now.
     await startCache($)
 
     if (e.reason === 'answer' && turnAsk) {

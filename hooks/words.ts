@@ -267,6 +267,12 @@ export function cacheLeft(at: number, minutes: number, now: number): number {
   return Math.max(0, Math.ceil((at + minutes * 60_000 - now) / 60_000))
 }
 
+// When the cache's life began: the API counts it from the start of the
+// request that last read or wrote it.
+export function cacheStart(c: Cache): number {
+  return c.requestAt ?? c.at
+}
+
 const COLD_CACHE = '🧊 Caché fría'
 
 export function cacheLabel(c: Cache): string {

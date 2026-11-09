@@ -103,9 +103,10 @@ export type Usage = {
 export type ContextPart = { name: string; tokens: number; color: string }
 export type ContextDetail = { parts: readonly ContextPart[]; total: number; window: number; at: number }
 
-// The prompt cache since the last turn ended (`at`): how long it lasts and
-// the whole minutes it has left, 0 once it has gone cold.
-export type Cache = { at: number; minutes: number; left: number }
+// The prompt cache since the last turn ended (`at`): when its last request
+// started (`requestAt`, absent on a value kept from an older version), how
+// long it lasts and the whole minutes it has left, 0 once it has gone cold.
+export type Cache = { at: number; requestAt?: number; minutes: number; left: number }
 
 // A subagent: its task and type, the model it runs on, when it started and
 // last used a tool, whether it runs in the background, and how it ended once

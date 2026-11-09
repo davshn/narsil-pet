@@ -80,7 +80,7 @@ Pulsa el porcentaje de la conversación abierta, en su fila, y aparecen sus toke
 ### Reloj de la caché
 Cuando termina un turno, Narsil muestra cuánto le queda a la caché del prompt ("🧊 Caché: 42 min"), en verde mientras está fresca y en rojo cuando está a punto de caducar. Si vuelves a escribir antes de que llegue a cero, Claude reutiliza la conversación ya cacheada y el mensaje sale más barato. Al caducar avisa: "🧊 Caché fría: el próximo mensaje se cobra completo".
 
-Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`.
+Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`. El reloj corre desde que empezó la última petición del turno, como mide la API, así que una respuesta larga ya gasta parte de ese tiempo.
 
 ### Próximos pasos
 Quince minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.

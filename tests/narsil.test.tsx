@@ -1624,6 +1624,71 @@ test('after a turn the band counts down the prompt cache, and says when it has g
   expect((await bandTexts($, 'desktop')).some(t => t.includes('Caché'))).toBe(false)
 })
 
+// The model's side of a request: it answers at once.
+function answersRequests(on: On) {
+  on('turn.step', async function* (_, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: { ...USAGE, model: 'opus' } } as never
+  })
+}
+
+// One model request, its response read to the end.
+async function modelRequest($: Engine, turnId: string, agentId?: string) {
+  for await (const _ of $.turn.step({ turnId, index: 0, model: 'opus', messageCount: 1, ...(agentId ? { agentId } : {}) })) void _
+}
+
+async function endTurn($: Engine, turnId: string) {
+  await $.turn.complete({ reason: 'answer', answer: 'Listo.', durationMs: 42_000, isAborted: false, turnId })
+}
+
+test('the cache counts from the start of the last request, not from the end of the turn', async ($, on) => {
+  stepsModel(on)
+  answersRequests(on)
+  const { posts, clock } = await tipEngine($, on, { hasSteps: true })
+  await $.turn.start({ text: 'sigue', turnId: 'slow' })
+  await modelRequest($, 'slow')
+  await clock.advance(3 * MINUTE)
+  await endTurn($, 'slow')
+  await clock.settle()
+
+  // Off a plan the cache lasts 5 minutes, and 3 went while the model answered.
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché: 2 min')
+  const state = posts.filter(p => p.url.endsWith('/state')).at(-1)?.body
+  expect(state.cache).toBe('🧊 Caché: 2 min')
+  // The request started at the clock's first reading, 1_000_000.
+  expect(state.cacheEndsAt).toBe(Math.floor((1_000_000 + 5 * MINUTE) / 1000))
+})
+
+test('a request of a subagent does not move the cache clock of the conversation', async ($, on) => {
+  stepsModel(on)
+  answersRequests(on)
+  const { clock } = await tipEngine($, on, { hasSteps: true })
+  await $.turn.start({ text: 'sigue', turnId: 'main' })
+  await modelRequest($, 'main')
+  await clock.advance(3 * MINUTE)
+  await modelRequest($, 'main', 'agent-1')
+  await endTurn($, 'main')
+  await clock.settle()
+
+  expect(await bandTexts($, 'desktop')).toContain('🧊 Caché: 2 min')
+})
+
+test('next steps still wait from the end of the turn, however long its last request took', async ($, on) => {
+  const kinds = stepsModel(on)
+  answersRequests(on)
+  const { clock } = await tipEngine($, on, { hasSteps: true })
+  await $.turn.start({ text: 'sigue', turnId: 'slow' })
+  await modelRequest($, 'slow')
+  await clock.advance(10 * MINUTE)
+  await endTurn($, 'slow')
+  await clock.settle()
+
+  await clock.advance(14 * MINUTE)
+  expect(kinds).not.toContain('steps')
+  await clock.advance(MINUTE)
+  await clock.settle()
+  expect(kinds).toContain('steps')
+})
+
 test('on a plan the cache lasts an hour, and /narsil cache sets it by hand', async ($, on) => {
   stepsModel(on)
   const { clock } = await tipEngine($, on, { hasSteps: true, hasPlan: true })
