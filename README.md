@@ -272,6 +272,7 @@ Narsil es de código abierto y las contribuciones son bienvenidas: abre un *issu
 claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 node tests/overlay-server.check.cjs
+node tests/overlay-drawing.check.cjs
 ```
 
 La última comprueba quién puede usar el servidor de la ventana flotante: solo su propia página (con la clave que recibe al cargarse) y el mod (con su token), y solo en su dirección local, así que ninguna web que visites puede manejarlo.

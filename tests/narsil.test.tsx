@@ -1296,7 +1296,7 @@ test('the hatchling bounces light and quick, the grown serpent moves slow and he
 })
 
 test('her shadow on the water shrinks as she leaps, in step with her', () => {
-  const cases = [['asking', 'shadow-hop', 'waiting'], ['celebrating', 'shadow-leap', 'done'], ['writing', 'shadow-swim', 'working'], ['idle', 'shadow-breathe', 'idle']] as const
+  const cases = [['asking', 'shadow-call', 'waiting'], ['celebrating', 'shadow-leap', 'done'], ['writing', 'shadow-swim', 'working'], ['idle', 'shadow-breathe', 'idle']] as const
   for (const [mood, keyframes, status] of cases) {
     const svg = sprite(mood, 3)
     expect(svg.match(/<ellipse class="shadow"/g)?.length).toBe(1)
@@ -1311,6 +1311,39 @@ test('her shadow on the water shrinks as she leaps, in step with her', () => {
 test('water splashes where she lands, and only when she jumps', () => {
   for (const mood of ['asking', 'celebrating', 'greeting'] as const) expect(sprite(mood).match(/class="drop"/g)?.length).toBe(6)
   for (const mood of ['idle', 'writing', 'failed', 'thinking'] as const) expect(sprite(mood)).not.toContain('class="drop"')
+})
+
+test('after her leaps of joy she goes back to breathing, and the confetti runs out', () => {
+  for (let stage = 1; stage <= 5; stage++) {
+    const svg = sprite('celebrating', stage)
+    for (const [target, leap, breathe] of [['whole', 'leap', 'breathe'], ['shadow', 'shadow-leap', 'shadow-breathe']] as const) {
+      const found = new RegExp(String.raw`\.s-done \.${target}\{animation:${leap} ([\d.]+)s ease-in-out 6,${breathe} [\d.]+s ease-in-out ([\d.]+)s infinite\}`).exec(svg)
+      expect(found).not.toBeNull()
+      // she starts to breathe just as the last leap lands, not before
+      expect(Math.abs(Number(found![2]) - Number(found![1]) * 6)).toBeLessThan(0.005)
+    }
+  }
+  const svg = sprite('celebrating')
+  expect(svg).toContain('.confetti{transform-box:fill-box;transform-origin:center;animation:confetti 1.4s ease-in 4;')
+  expect(svg).not.toMatch(/animation:confetti [^;]*infinite/)
+})
+
+test('waiting for you she hops twice and rests, over and over; her greeting stays three hops', () => {
+  for (const stage of [1, 2, 5]) {
+    const svg = sprite('asking', stage)
+    const seconds = /\.s-waiting \.whole\{animation:call ([\d.]+)s [^;}]* infinite\}/.exec(svg)?.[1]
+    expect(seconds).toBeDefined()
+    expect(svg).toContain(`.s-waiting .drop{animation:drop-call ${seconds}s linear infinite}`)
+    expect(svg).not.toMatch(/\.s-waiting \.whole\{animation:hop /)
+    // the second half of the cycle is the rest
+    const call = /@keyframes call\{([^@]*)\}(?=@keyframes)/.exec(svg)?.[1] ?? ''
+    expect(call.startsWith('0%,25%,50%,100%{transform:translateY(0) scale(1,1)}')).toBe(true)
+    const percents = [...call.matchAll(/(?:^|\})([\d.]+)%\{/g)].map(m => Number(m[1]))
+    expect(percents).toEqual([3, 10, 15.5, 19.5, 28, 35, 40.5, 44.5])
+  }
+  const greeting = sprite('greeting', 2)
+  expect(greeting).toMatch(/\.m-greeting \.whole\{animation:hop 0\.9s [^;}]* 3,breathe /)
+  expect(greeting).toMatch(/@keyframes hop\{0%,100%\{transform:translateY\(0\) scale\(1,1\)\}12%\{/)
 })
 
 test('an error is a start and then a soft tremble, not an endless shake', () => {

@@ -168,7 +168,7 @@ const STYLE = `
 .s-working .ripple{animation-duration:1.4s}.s-done .ripple{animation-duration:.85s}.s-idle .ripple{animation-duration:4.2s}
 .wave{animation:wave 2.6s linear infinite}
 .s-working .wave{animation-duration:1.3s}.s-idle .wave{animation-duration:6s}
-.confetti{transform-box:fill-box;transform-origin:center;animation:confetti 1.4s ease-in infinite;opacity:0}
+.confetti{transform-box:fill-box;transform-origin:center;animation:confetti 1.4s ease-in 4;opacity:0}
 .ring{transform-box:fill-box;transform-origin:center;animation:spin 1.2s linear infinite}
 .halo{transform-box:fill-box;transform-origin:center;animation:pulse 1.1s ease-in-out infinite}
 .pop{transform-box:fill-box;transform-origin:center;animation:pop .55s ease-in-out infinite alternate}
@@ -227,6 +227,17 @@ function stageMotion(stage: number): { amp: number; tempo: number } {
   return STAGE_MOTION[Math.min(STAGE_MOTION.length, Math.max(1, stage)) - 1]!
 }
 
+// A moment of a keyframed motion: how far into it, and what holds there.
+type Frame = readonly [percent: number, css: string]
+
+const framesOf = (frames: readonly Frame[]) => frames.map(([percent, css]) => `${percent}%{${css}}`).join('')
+
+// A motion done twice in the first half of the cycle, the second half at rest.
+function twiceThenRest(rest: string, frames: readonly Frame[]): string {
+  const twice = [0, 25].flatMap(start => frames.map(([percent, css]): Frame => [start + percent / 4, css]))
+  return `0%,25%,50%,100%{${rest}}${framesOf(twice)}`
+}
+
 // Her whole-body motion for each state, at her stage, and the shadow and the
 // splashes that move in step with it (the same lengths and timing).
 function motion(stage: number): string {
@@ -234,30 +245,52 @@ function motion(stage: number): string {
   const px = (n: number) => `${r1(n * amp)}px`
   const deg = (n: number) => `${r1(n * amp)}deg`
   const sq = (n: number) => Math.round((1 + (n - 1) * amp) * 1000) / 1000
-  const s = (n: number) => `${Math.round(n * tempo * 100) / 100}s`
+  const seconds = (n: number) => Math.round(n * tempo * 100) / 100
+  const s = (n: number) => `${seconds(n)}s`
   const hop = 'cubic-bezier(.3,0,.4,1)'
+  // Her leaps of joy, and when she goes back to breathing: as the last one lands.
+  const LEAPS = 6
+  const afterLeaps = `${Math.round(seconds(0.85) * LEAPS * 100) / 100}s`
+  const standing = 'transform:translateY(0) scale(1,1)'
+  const hopFrames: readonly Frame[] = [
+    [12, `transform:translateY(0) scale(${sq(1.08)},${sq(0.9)})`],
+    [40, `transform:translateY(${px(-12)}) scale(${sq(0.95)},${sq(1.07)})`],
+    [62, `transform:translateY(0) scale(${sq(1.05)},${sq(0.94)})`],
+    [78, `transform:translateY(${px(-3)}) scale(1,1)`],
+  ]
+  const shadowRest = 'transform:scale(1);opacity:.3'
+  const shadowHopFrames: readonly Frame[] = [
+    [12, `transform:scale(${sq(1.08)});opacity:.34`],
+    [40, `transform:scale(${sq(0.65)});opacity:.16`],
+    [62, `transform:scale(${sq(1.06)});opacity:.34`],
+    [78, `transform:scale(${sq(0.9)});opacity:.26`],
+  ]
+  const dropAtRest = 'transform:translate(0,0) scale(.4);opacity:0'
+  const dropThrown = 'transform:translate(var(--dx),var(--dy)) scale(1);opacity:0'
   return (
     `.s-working .whole{animation:swim ${s(1.2)} ease-in-out infinite}` +
     `.m-thinking .whole{animation:ponder ${s(2.4)} ease-in-out infinite}` +
     `.m-scared .whole{animation:jolt ${s(0.5)} ease-out 2,swim ${s(1.2)} ease-in-out ${s(1)} infinite}` +
     `.s-idle .whole{animation:breathe ${s(4.2)} ease-in-out infinite}` +
     `.m-greeting .whole{animation:hop ${s(0.9)} ${hop} 3,breathe ${s(4.2)} ease-in-out ${s(2.7)} infinite}` +
-    `.s-waiting .whole{animation:hop ${s(1)} ${hop} infinite}` +
-    `.s-done .whole{animation:leap ${s(0.85)} ease-in-out 6}` +
+    `.s-waiting .whole{animation:call ${s(4)} ${hop} infinite}` +
+    `.s-done .whole{animation:leap ${s(0.85)} ease-in-out ${LEAPS},breathe ${s(4.2)} ease-in-out ${afterLeaps} infinite}` +
     `.s-error .whole{animation:jolt ${s(0.5)} ease-out 1,tremble ${s(1.6)} ease-in-out ${s(0.5)} infinite}` +
     `.s-working .shadow{animation:shadow-swim ${s(1.2)} ease-in-out infinite}` +
     `.m-thinking .shadow{animation:shadow-breathe ${s(2.4)} ease-in-out infinite}` +
     `.s-idle .shadow{animation:shadow-breathe ${s(4.2)} ease-in-out infinite}` +
     `.m-greeting .shadow{animation:shadow-hop ${s(0.9)} ${hop} 3,shadow-breathe ${s(4.2)} ease-in-out ${s(2.7)} infinite}` +
-    `.s-waiting .shadow{animation:shadow-hop ${s(1)} ${hop} infinite}` +
-    `.s-done .shadow{animation:shadow-leap ${s(0.85)} ease-in-out 6}` +
-    `.s-waiting .drop{animation:drop-hop ${s(1)} linear infinite}` +
+    `.s-waiting .shadow{animation:shadow-call ${s(4)} ${hop} infinite}` +
+    `.s-done .shadow{animation:shadow-leap ${s(0.85)} ease-in-out ${LEAPS},shadow-breathe ${s(4.2)} ease-in-out ${afterLeaps} infinite}` +
+    `.s-waiting .drop{animation:drop-call ${s(4)} linear infinite}` +
     `.m-greeting .drop{animation:drop-hop ${s(0.9)} linear 3}` +
-    `.s-done .drop{animation:drop-leap ${s(0.85)} linear 6}` +
+    `.s-done .drop{animation:drop-leap ${s(0.85)} linear ${LEAPS}}` +
     `@keyframes swim{0%,100%{transform:translate(0,0) rotate(${deg(-3)})}25%{transform:translate(${px(2)},${px(-5)}) rotate(0deg)}50%{transform:translate(0,${px(-7)}) rotate(${deg(3)})}75%{transform:translate(${px(-2)},${px(-3)}) rotate(0deg)}}` +
     `@keyframes ponder{0%,100%{transform:translateY(0) rotate(0deg)}30%{transform:translateY(${px(-4)}) rotate(${deg(-4)})}70%{transform:translateY(${px(-2)}) rotate(${deg(3)})}}` +
     `@keyframes breathe{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(${px(-4)}) scale(${sq(0.985)},${sq(1.035)})}}` +
-    `@keyframes hop{0%,100%{transform:translateY(0) scale(1,1)}12%{transform:translateY(0) scale(${sq(1.08)},${sq(0.9)})}40%{transform:translateY(${px(-12)}) scale(${sq(0.95)},${sq(1.07)})}62%{transform:translateY(0) scale(${sq(1.05)},${sq(0.94)})}78%{transform:translateY(${px(-3)}) scale(1,1)}}` +
+    `@keyframes hop{0%,100%{${standing}}${framesOf(hopFrames)}}` +
+    // waiting for you: two hops, then still for as long again, so that a long wait doesn't wear
+    `@keyframes call{${twiceThenRest(standing, hopFrames)}}` +
     `@keyframes leap{0%,100%{transform:translateY(0) rotate(0deg) scale(1,1)}14%{transform:translateY(0) scale(${sq(1.1)},${sq(0.88)})}48%{transform:translateY(${px(-26)}) rotate(${deg(-10)}) scale(${sq(0.94)},${sq(1.08)})}70%{transform:translateY(${px(-6)}) rotate(${deg(6)})}86%{transform:translateY(0) scale(${sq(1.06)},${sq(0.93)})}}` +
     `@keyframes jolt{0%{transform:translate(0,0) rotate(0deg)}20%{transform:translate(${px(-5)},${px(-6)}) rotate(${deg(-6)})}45%{transform:translate(${px(4)},0) rotate(${deg(4)})}70%{transform:translate(${px(-2)},${px(-2)}) rotate(${deg(-2)})}100%{transform:none}}` +
     // a few soft shivers, then a rest, over and over
@@ -265,10 +298,12 @@ function motion(stage: number): string {
     // the shadow narrows and fades as she rises, and spreads as she lands
     `@keyframes shadow-swim{0%,100%{transform:scale(1);opacity:.3}50%{transform:scale(${sq(0.85)});opacity:.22}}` +
     `@keyframes shadow-breathe{0%,100%{transform:scale(1)}50%{transform:scale(${sq(0.93)})}}` +
-    `@keyframes shadow-hop{0%,100%{transform:scale(1);opacity:.3}12%{transform:scale(${sq(1.08)});opacity:.34}40%{transform:scale(${sq(0.65)});opacity:.16}62%{transform:scale(${sq(1.06)});opacity:.34}78%{transform:scale(${sq(0.9)});opacity:.26}}` +
+    `@keyframes shadow-hop{0%,100%{${shadowRest}}${framesOf(shadowHopFrames)}}` +
+    `@keyframes shadow-call{${twiceThenRest(shadowRest, shadowHopFrames)}}` +
     `@keyframes shadow-leap{0%,100%{transform:scale(1);opacity:.3}14%{transform:scale(${sq(1.1)});opacity:.34}48%{transform:scale(${sq(0.5)});opacity:.1}70%{transform:scale(${sq(0.85)});opacity:.24}86%{transform:scale(${sq(1.08)});opacity:.34}}` +
     // splashes thrown up the moment she lands: 62% into a hop, 86% into a leap
-    `@keyframes drop-hop{0%,60%{transform:translate(0,0) scale(.4);opacity:0}64%{opacity:.95}88%,100%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0}}` +
+    `@keyframes drop-hop{0%,60%{${dropAtRest}}64%{opacity:.95}88%,100%{${dropThrown}}}` +
+    `@keyframes drop-call{${twiceThenRest(dropAtRest, [[60, dropAtRest], [64, 'opacity:.95'], [88, dropThrown]])}}` +
     `@keyframes drop-leap{0%,84%{transform:translate(0,0) scale(.4);opacity:0}88%{opacity:.95}100%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0}}`
   )
 }

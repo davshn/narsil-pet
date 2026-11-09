@@ -29,8 +29,12 @@
   .close:hover { opacity: 1; background: var(--row-hover); }
   .focus { flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; border-radius: 10px; padding: 2px 0 4px; }
   .focus:hover { background: var(--row); }
-  #sprite, #sprite svg { width: 120px; height: 107px; }
-  .has-event #sprite, .has-event #sprite svg, .has-tip #sprite, .has-tip #sprite svg { width: 96px; height: 86px; }
+  #sprite { position: relative; width: 120px; height: 107px; }
+  .has-event #sprite, .has-tip #sprite { width: 96px; height: 86px; }
+  /* Two drawings at once while one fades into the next. */
+  #sprite img { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity .2s ease-in-out; }
+  #sprite img.shown { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { #sprite img { transition: none; } }
   .status { font-weight: 800; letter-spacing: .6px; font-size: 12px; color: var(--accent); display: flex; align-items: center; gap: 6px; }
   .status::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
   .s-working .status::before { animation: blink 1s ease-in-out infinite; }
@@ -104,7 +108,6 @@
   const post = url => fetch(url, { method: 'POST', headers: { 'x-narsil-page': KEY } })
   const LABEL = { working: 'TRABAJANDO', idle: 'PARADA', waiting: 'TE NECESITA', done: 'TERMINADA', error: 'ERROR' }
   const TASK_ICON = { pending: '○', in_progress: '◐', completed: '●', running: '⟳' }
-  let shownSvg = null
   let focusId = null
   // The conversation opened in the list, and whether its context's breakdown shows.
   let openId = null
@@ -201,6 +204,65 @@
     return conv
   }
 
+  // Narsil's drawing fades into the next one, and each stays a moment, so a
+  // burst of tool calls doesn't flicker: only the latest asked for is drawn.
+  const FADE_MS = 200
+  const HOLD_MS = 800
+  let wantedSvg = null
+  let shownSvg = null
+  let shownAt = 0
+  let holding = null
+
+  // Each drawing is an image of its own: inline, two at once would mix their
+  // ids and keyframes. Its own URL gives it its own clock, so an animation
+  // that plays once plays again when the same drawing comes back.
+  function swapDrawing() {
+    const svg = wantedSvg
+    if (svg === shownSvg) return
+    shownSvg = svg
+    shownAt = performance.now()
+    const box = $('sprite')
+    if (!svg) {
+      box.replaceChildren()
+      return
+    }
+    const leaving = [...box.children]
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
+    const image = new Image()
+    image.alt = ''
+    image.draggable = false
+    image.src = url
+    // Only once it is ready to paint, so the fade never starts from a blank.
+    const enter = () => {
+      URL.revokeObjectURL(url)
+      if (shownSvg !== svg) return
+      box.append(image)
+      image.getBoundingClientRect() // from opacity 0, or there is no transition
+      image.classList.add('shown')
+      for (const old of leaving) {
+        old.classList.remove('shown')
+        // A timer: a hidden window runs no transitions to wait for.
+        setTimeout(() => old.remove(), FADE_MS)
+      }
+    }
+    image.decode().then(enter, enter)
+  }
+
+  function showDrawing(svg) {
+    if (svg === wantedSvg) return
+    wantedSvg = svg
+    if (holding !== null) return
+    const wait = shownAt + HOLD_MS - performance.now()
+    if (shownSvg === null || wait <= 0) {
+      swapDrawing()
+      return
+    }
+    holding = setTimeout(() => {
+      holding = null
+      swapDrawing()
+    }, wait)
+  }
+
   function render(state) {
     last = state
     const { sessions, event } = state
@@ -208,11 +270,7 @@
     const focus = (event && sessions.find(s => s.sessionId === event.sessionId)) || sessions[0]
     focusId = focus ? focus.sessionId : null
     if (focus) {
-      // Replace the drawing only when it changes, so its animation runs on.
-      if (focus.svg !== shownSvg) {
-        $('sprite').innerHTML = focus.svg || ''
-        shownSvg = focus.svg
-      }
+      showDrawing(focus.svg || '')
       $('focus').className = 'focus s-' + focus.status
       $('status').textContent = LABEL[focus.status] + (focus.model ? ' · ' + focus.model : '') + (sessions.length > 1 ? ' · ' + focus.title : '')
       $('headline').textContent = focus.headline
