@@ -48,14 +48,6 @@ export function artUrl(pose: string, stage: number): string {
   return `${ART_URL}/${stage > 1 ? `etapa${stage}/` : ''}${pose}-oscuro.png`
 }
 
-// A conversation as the phone tells them apart: 8 hex characters from its
-// session id (FNV-1a), the same each time and saying nothing of its name.
-export function conversationTag(sessionId: string): string {
-  let hash = 0x811c9dc5
-  for (const c of sessionId) hash = Math.imul(hash ^ c.charCodeAt(0), 0x01000193) >>> 0
-  return hash.toString(16).padStart(8, '0')
-}
-
 // One open conversation as an alert lists it: its name and its state.
 export type FleetLine = { title: string; label: string }
 
@@ -67,17 +59,16 @@ export function fleetText(lines: readonly FleetLine[]): string {
 }
 
 // What ntfy.sh is sent, as its JSON form takes it. `where` names the
-// conversation and `conversation` tells it apart, as a `conv-` tag the phone
-// app groups by; `isLast` says no more come today; `fleet`, every open
+// conversation; `isLast` says no more come today; `fleet`, every open
 // conversation (fleetText), goes under the text.
-export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean, conversation = '', fleet = '') {
+export function phoneMessage(topic: string, kind: PhoneKind, title: string, text: string, where: string, stage: number, isLast: boolean, fleet = '') {
   const body = fleet ? `${text}\n\n${fleet}` : text
   return {
     topic,
     title: where ? `Narsil · ${title} · ${where}` : `Narsil · ${title}`,
     message: isLast ? `${body}\n(último aviso de hoy: mañana sigo)` : body,
     priority: PRIORITY[kind],
-    tags: conversation ? [TAGS[kind], `conv-${conversation}`] : [TAGS[kind]],
+    tags: [TAGS[kind]],
     icon: phoneIcon(kind, stage),
     actions: [OPEN_CLAUDE],
   }
@@ -87,22 +78,14 @@ export function phoneMessage(topic: string, kind: PhoneKind, title: string, text
 // phone: this one opens the Claude app, where Remote Control lists it.
 const OPEN_CLAUDE = { action: 'view', label: 'Abrir Claude', url: 'https://claude.ai/code' }
 
-// The topic the phone app reads Narsil's state from: not followed by push,
-// so its messages never show as notifications.
+// The topic the Firefox extension reads Narsil's state from: not followed by
+// push, so its messages never show as notifications.
 export function statusTopic(topic: string): string {
   return `${topic}-estado`
 }
 
-// The topic the phone app leaves its Web Push subscription on, as it opens:
-// ntfy.sh drops a subscription whose delivery failed once, and the mod
-// registers it again before each alert, so the alerts do not wait for you
-// to open the app. Never followed by push.
-export function pushTopic(topic: string): string {
-  return `${topic}-push`
-}
-
 // What ntfy.sh says of the day's messages from this network, as
-// GET /v1/account answers it: a usage row the phone app shows with the
+// GET /v1/account answers it: a usage row the extension shows with the
 // account's limits, counted down to its reset. ntfy.sh counts by IP, in a
 // day of its own that starts at an hour hashed from the IP, not at midnight.
 // `extra`: messages about to go that the answer does not count yet. Null
@@ -118,40 +101,10 @@ export function ntfyRow(account: unknown, extra = 0): { key: 'ntfy'; label: stri
   return { key: 'ntfy', label: 'ntfy hoy', percent, color: levelColor(percent), note: `${sent}/${limit} mensajes`, resetsAt }
 }
 
-export type PushSubscription = { endpoint: string; auth: string; p256dh: string }
-export const PUSH_KEY = 'phonePush'
-
-// A subscription as the app sends it (or as the store keeps it); null for
-// anything else, so nothing but an https endpoint and its keys reaches ntfy.sh.
-export function pushSubscriptionOf(value: unknown): PushSubscription | null {
-  const v = value as Partial<PushSubscription> | null
-  if (!v || typeof v !== 'object') return null
-  const { endpoint, auth, p256dh } = v
-  if (typeof endpoint !== 'string' || !/^https:\/\/[^\s]+$/.test(endpoint) || endpoint.length > 1000) return null
-  if (typeof auth !== 'string' || typeof p256dh !== 'string' || !/^[\w-]{1,200}$/.test(auth) || !/^[\w-]{1,200}$/.test(p256dh)) return null
-  return { endpoint, auth, p256dh }
-}
-
-// ntfy.sh turns a message past 4096 bytes into an attachment: the state
-// stays under it, in UTF-8 bytes, with less room when it goes sealed (the
-// seal adds a third and some).
-const STATUS_ROOM = 3900
-const SEALED_STATUS_ROOM = 2900
-const utf8 = new TextEncoder()
-
-// What the phone app is sent of the state the desktop shows, as a JSON
-// message on the status topic; the tip and the next steps go first when it
-// does not fit, then each conversation's headline, then the conversations
-// past the first ones.
-export function phoneStatus(topic: string, state: Record<string, unknown>, isSealed = false) {
-  const room = isSealed ? SEALED_STATUS_ROOM : STATUS_ROOM
-  const fits = (s: Record<string, unknown>) => utf8.encode(JSON.stringify(s)).length <= room
-  let shown = state
-  if (!fits(shown)) shown = { ...shown, tip: null, steps: [] }
-  const sessions = Array.isArray(state.sessions) ? (state.sessions as Record<string, unknown>[]) : null
-  if (sessions && !fits(shown)) shown = { ...shown, sessions: sessions.map(({ headline: _, ...s }) => s) }
-  while (sessions && !fits(shown) && (shown.sessions as unknown[]).length > 1) shown = { ...shown, sessions: (shown.sessions as unknown[]).slice(0, -1) }
-  return { topic: statusTopic(topic), message: JSON.stringify(shown), priority: 1 }
+// What the Firefox extension is sent of the state, as a JSON message on the
+// status topic.
+export function phoneStatus(topic: string, state: Record<string, unknown>) {
+  return { topic: statusTopic(topic), message: JSON.stringify(state), priority: 1 }
 }
 
 // How to follow the topic, for /narsil movil.

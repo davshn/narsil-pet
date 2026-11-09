@@ -38,7 +38,7 @@ export type Prefs = {
   // /narsil movil makes one), and whether they go.
   phoneTopic: string | null
   isPhoneOn: boolean
-  // The key that seals what goes to the topic, for your own phone app
+  // The key that seals what goes to the topic, for the Firefox extension
   // (/narsil movil clave); null: it goes in the clear, as the ntfy app reads.
   phoneKey: string | null
 }
@@ -76,8 +76,6 @@ export type FleetSession = {
   cacheMinutes: number | null
   agents: readonly AgentChip[]
   tasks: readonly TaskItem[]
-  // how the phone tells it apart (conversationTag); '' when unknown
-  conversation: string
 }
 
 // What the band has open: one conversation (null: this one; '' none), its

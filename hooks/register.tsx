@@ -7,9 +7,8 @@ import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns, modelLabel } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, conversationTag, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
-import type { PushSubscription } from './phone'
-import { newKey, seal, unseal } from './seal'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, artUrl, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, sealedMessage, sealedPayload } from './phone'
+import { newKey, seal } from './seal'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
 import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
@@ -298,7 +297,6 @@ async function readSessions($: EngineInterface): Promise<void> {
       cacheMinutes: typeof s.cacheMinutes === 'number' ? s.cacheMinutes : null,
       agents: Array.isArray(s.agents) ? s.agents : [],
       tasks: Array.isArray(s.tasks) ? s.tasks : [],
-      conversation: typeof s.conversation === 'string' ? s.conversation : '',
     }))
     if (JSON.stringify(next) !== JSON.stringify(await read($, sessions))) await update($, sessions, () => next)
   } catch {
@@ -340,11 +338,10 @@ async function ownEntry($: EngineInterface): Promise<FleetSession> {
     cacheMinutes: s.cacheMinutes,
     agents: s.agents,
     tasks: s.tasks,
-    conversation: s.conversation,
   }
 }
 
-// What the floating window and the phone app show of this conversation, as
+// What the floating window shows of this conversation, as
 // the band shows it.
 async function shownState($: EngineInterface) {
   const s = await read($, pet)
@@ -371,7 +368,6 @@ async function shownState($: EngineInterface) {
     context: context ? { percent: context.percent, note: usageRows({ ...NO_USAGE, context }, 0, contextToFull)[0]?.note ?? '' } : null,
     contextDetail: await read($, contextDetail),
     tasks: [...(await read($, tasks)), ...background] as readonly TaskItem[],
-    conversation,
   }
 }
 
@@ -516,55 +512,28 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
   const stage = stageOf(levelOf(await read($, xp)).level)
   const fleet = fleetText((await fleetNow($)).map(s => ({ title: s.title, label: STATUS_LABEL[s.status] })))
   const where = await titleOf($)
-  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, where, stage, isLast, conversation, fleet), force, true)
+  return postToPhone($, (topic, isLast) => phoneMessage(topic, kind, title, text, where, stage, isLast, fleet), force)
 }
 
-// What the band shows, for the phone app to show when you open it: on its
-// own topic, as the turn ends, under the same rules and daily count as the
-// alerts. Sent as a turn ends and with each question, it leaves out what would show stale (the
-// subagents), and gives the cache and each limit's reset as when they come
-// (seconds), for the app to count down.
-// One state for every conversation: its head is the most important one
-// (this one's own fields when it is this one), and `sessions` lists them all.
+// What only the PC can tell the Firefox extension: on its own topic, as the
+// turn ends and with each question, under the same rules and daily count as
+// the alerts. Narsil's level, her art in the most important conversation's
+// pose, when it went, how long a cache lasts, and ntfy.sh's count of the
+// day's messages, this one included: read only once it is going.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
-  const { agents: _, cache: __, context: _c, contextDetail: _d, tasks: _t, conversation: _v, cacheEndsAt: _e, cacheMinutes: _m, ...own } = await shownState($)
   const list = await fleetNow($)
-  const top = list[0]!
-  const isOwnTop = top.sessionId === own.sessionId
-  const shown = isOwnTop
-    ? own
-    : { ...own, title: top.title, mood: top.mood, status: top.status, statusLabel: STATUS_LABEL[top.status], headline: top.headline, line: '', model: top.model, tip: null, steps: [] }
-  const art = artUrl(POSE[shown.status], stageOf(levelOf(await read($, xp)).level))
-  const at = Math.floor((await $.clock.now()) / 1000)
-  // the most important conversation's cache; each one's goes in `sessions`
-  const cacheTimes = top.cacheEndsAt !== null ? { cacheEndsAt: top.cacheEndsAt, cacheMinutes: top.cacheMinutes } : {}
-  const spent = await read($, usage)
-  // The account's limits: each conversation has its own context, in `sessions`.
-  const rows = shown.usage
-    .filter(r => r.key !== 'context')
-    .map(r => {
-      const resetsAt = Date.parse(spent[r.key as 'fiveHour' | 'week']?.resetsAt ?? '')
-      return Number.isNaN(resetsAt) ? r : { ...r, resetsAt: Math.floor(resetsAt / 1000) }
-    })
-  const everyone = list.map(s => ({
-    conversation: s.conversation,
-    title: s.title,
-    status: s.status,
-    statusLabel: STATUS_LABEL[s.status],
-    headline: s.headline,
-    context: s.context ? Math.round(s.context.percent) : null,
-    cacheEndsAt: s.cacheEndsAt,
-    cacheMinutes: s.cacheMinutes,
-    isThis: s.sessionId === own.sessionId,
-  }))
-  const head = isOwnTop ? conversation : top.conversation
-  // ntfy.sh's count of the day's messages, this one included, as one more
-  // row: read only once it is going.
+  const earned = await read($, xp)
+  const state = {
+    xp: xpLabel(earned),
+    art: artUrl(POSE[list[0]!.status], stageOf(levelOf(earned).level)),
+    at: Math.floor((await $.clock.now()) / 1000),
+    cacheMinutes: list.map(s => s.cacheMinutes).find(m => m),
+  }
   return postToPhone(
     $,
-    async (topic, _isLast, isSealed) => {
+    async topic => {
       const ntfy = ntfyRow(await ntfyAccount($), 1)
-      return phoneStatus(topic, { ...shown, usage: ntfy ? [...rows, ntfy] : rows, art, at, conversation: head, ...cacheTimes, sessions: everyone }, isSealed)
+      return phoneStatus(topic, { ...state, usage: ntfy ? [ntfy] : [] })
     },
     force,
   )
@@ -582,19 +551,17 @@ async function ntfyAccount($: EngineInterface): Promise<unknown> {
 
 async function postToPhone(
   $: EngineInterface,
-  message: (topic: string, isLast: boolean, isSealed: boolean) => { title?: string; message: string } | Promise<{ title?: string; message: string }>,
+  message: (topic: string, isLast: boolean) => { title?: string; message: string } | Promise<{ title?: string; message: string }>,
   force: boolean,
-  isAlert = false,
 ): Promise<boolean> {
   const { phoneTopic, isPhoneOn, phoneKey } = await read($, prefs)
   if (!isPhoneOn || !phoneTopic || (!force && !(await isAway($)))) return false
   const day = dayOf(await $.clock.now())
   const count = countOf(await $.store.get(PHONE_KEY).catch(() => undefined), day)
   if (count.sent >= PHONE_DAILY) return false
-  if (isAlert) await renewPush($, phoneTopic, phoneKey)
   const isLast = count.sent + 1 === PHONE_DAILY
   try {
-    const m = await message(phoneTopic, isLast, Boolean(phoneKey))
+    const m = await message(phoneTopic, isLast)
     const { ok } = await $.http.fetch(NTFY_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -606,45 +573,6 @@ async function postToPhone(
   }
   await $.store.set(PHONE_KEY, { day, sent: count.sent + 1 }).catch(() => undefined)
   return true
-}
-
-// The phone app's Web Push subscription registered again on ntfy.sh, which
-// drops one whose delivery failed once: the latest the app left on its push
-// topic (opened with the key when sealed), else the one kept from before,
-// as ntfy.sh keeps a message 12 h. Registering is not publishing, so it does
-// not count against the day's messages. Any failure leaves the alert to go
-// as it would have.
-async function renewPush($: EngineInterface, topic: string, key: string | null): Promise<void> {
-  try {
-    const fresh = await latestPush($, topic, key)
-    if (fresh) await $.store.set(PUSH_KEY, fresh).catch(() => undefined)
-    const sub = fresh ?? pushSubscriptionOf(await $.store.get(PUSH_KEY).catch(() => undefined))
-    if (!sub) return
-    await $.http.fetch(`${NTFY_URL}/v1/webpush`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ ...sub, topics: [topic] }),
-    })
-  } catch {
-    // offline, or something odd on the topic: the alert goes anyway
-  }
-}
-
-// The subscription the app last left on its push topic, sealed as the
-// alerts are when there is a key: null when there is none, or it does not
-// open with the key, or it is not one.
-async function latestPush($: EngineInterface, topic: string, key: string | null): Promise<PushSubscription | null> {
-  try {
-    const { ok, text } = await $.http.fetch(`${NTFY_URL}/${pushTopic(topic)}/json?poll=1&since=latest`)
-    const last = ok ? String(text ?? '').trim().split('\n').at(-1) : ''
-    if (!last) return null
-    const raw = String(JSON.parse(last).message ?? '')
-    const inside = key ? await unseal(key, raw) : raw
-    if (!inside) return null
-    return pushSubscriptionOf(JSON.parse(key ? JSON.parse(inside).message : inside))
-  } catch {
-    return null
-  }
 }
 
 // /narsil movil [on|off|nuevo|prueba|clave [off]]: undefined for any other
@@ -675,7 +603,7 @@ async function phoneCommand($: EngineInterface, arg: string): Promise<string | u
   if (rest === 'clave') {
     const { phoneKey } = await save({ phoneKey: newKey() })
     return (
-      `Narsil: a partir de ahora cifro lo que envío al tema con la clave ${phoneKey} . Ponla en los ajustes de tu app del móvil para leerlo. ` +
+      `Narsil: a partir de ahora cifro lo que envío al tema con la clave ${phoneKey} . Ponla en las opciones de la extensión de Firefox para leerlo. ` +
       'La app ntfy no puede descifrarlo: si la usas, /narsil movil clave off vuelve a enviarlo sin cifrar. /narsil movil clave crea otra clave.'
     )
   }
@@ -1138,8 +1066,6 @@ let summarizedFor: number | null = null
 // The store key of this conversation's counts ('' when its id is unknown),
 // and whether the counts of old conversations were already cleared away.
 let statsKey = ''
-// This conversation as the phone tells it apart (conversationTag).
-let conversation = ''
 let isStatsPruned = false
 
 async function bumpStats($: EngineInterface, change: (s: Stats) => Stats): Promise<void> {
@@ -1158,7 +1084,6 @@ async function loadStats($: EngineInterface): Promise<void> {
     // no id: the counts start over with each session
   }
   statsKey = id ? `${STATS_PREFIX}${id}` : ''
-  conversation = id ? conversationTag(id) : ''
   if (!statsKey || (await read($, stats))) return
   const kept = statsOf(await $.store.get(statsKey).catch(() => undefined))
   if (kept) await update($, stats, s => s ?? kept)

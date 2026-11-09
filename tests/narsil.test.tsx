@@ -9,8 +9,7 @@ import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { VOICE, say } from '../hooks/words'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
-import { phoneStatus, sealedPayload } from '../hooks/phone'
-import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, sealedLength, toBase64Url, unseal as openSealed } from '../hooks/seal'
+import { SEAL_PREFIX, fromBase64Url, hmac, toBase64Url } from '../hooks/seal'
 
 const BAND = {
   plugin: 'narsil-pet',
@@ -47,7 +46,6 @@ function engine(
     isOverlayDown = false,
     isOverlayStale = false,
     stateReply = () => '',
-    pushReply = () => '',
     account = '',
     git = () => '',
     files = {},
@@ -62,8 +60,6 @@ function engine(
     isOverlayStale?: boolean
     // what the window's server answers a pushed state
     stateReply?: (body: Record<string, unknown>) => string
-    // what the phone app left on its push topic, as ntfy.sh's poll returns it
-    pushReply?: () => Promise<string> | string
     // what ntfy.sh's /v1/account answers
     account?: string
     // what each git command prints (argv without the leading "git")
@@ -96,11 +92,6 @@ function engine(
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('http.fetch', async (_, e) => {
     if (e.url.endsWith('/v1/account')) return { value: { status: account ? 200 : 503, ok: Boolean(account), headers: {}, text: account } }
-    if (e.url.includes('-push/json')) {
-      const message = await pushReply()
-      return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}
-` : '' } }
-    }
     if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil' } }
     if (isStale && e.url.endsWith('/quit')) {
       isStale = false
@@ -2305,8 +2296,8 @@ const toPhone = (posts: Posted[]) => toNtfy(posts).filter(m => !String(m.topic).
 const toStatus = (posts: Posted[]) => toNtfy(posts).filter(m => String(m.topic).endsWith('-estado'))
 
 // The engine, with turns and tools answered.
-function phoneEngine(on: On, store: Record<string, unknown> = {}, pushReply?: () => Promise<string> | string, account?: string): Posted[] {
-  const posts = engine(on, null, { store, pushReply, account })
+function phoneEngine(on: On, store: Record<string, unknown> = {}, account?: string): Posted[] {
+  const posts = engine(on, null, { store, account })
   on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
@@ -2341,7 +2332,7 @@ test('a question from the phone sends the state too, so the app shows Narsil wai
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   const sent = toStatus(posts)
   expect(sent.length).toBe(1)
-  expect(JSON.parse(String(sent[0]?.message)).status).toBe('waiting')
+  expect(JSON.parse(String(sent[0]?.message)).art).toMatch(/necesita-oscuro\.png$/)
 })
 
 test('a turn that fails from the phone sends the state too, so the app shows Narsil stopped', async ($, on) => {
@@ -2354,10 +2345,10 @@ test('a turn that fails from the phone sends the state too, so the app shows Nar
   expect(toPhone(posts).map(m => m.priority)).toEqual([4])
   const sent = toStatus(posts)
   expect(sent.length).toBe(1)
-  expect(JSON.parse(String(sent[0]?.message)).status).toBe('error')
+  expect(JSON.parse(String(sent[0]?.message)).art).toMatch(/error-oscuro\.png$/)
 })
 
-test('as a turn ends from the phone, the app gets what the band shows on the status topic, silently', async ($, on) => {
+test('as a turn ends from the phone, the extension gets only what it reads on the status topic, silently', async ($, on) => {
   const store: Record<string, unknown> = {}
   const posts = phoneEngine(on, store)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -2371,43 +2362,18 @@ test('as a turn ends from the phone, the app gets what the band shows on the sta
   expect(sent[0]?.priority).toBe(1)
   expect(sent[0]?.title).toBeUndefined()
   const state = JSON.parse(String(sent[0]?.message))
-  expect(state.status).toBe('done')
-  expect(state.statusLabel).toBeTruthy()
-  expect(state.headline).toBeTruthy()
   expect(String(state.art)).toMatch(/terminado-oscuro\.png$/)
   expect(typeof state.at).toBe('number')
   expect(state.xp).toBeTruthy()
-  expect(Array.isArray(state.usage)).toBe(true)
-  expect(state.agents).toBeUndefined()
-  // not live: no count of the other conversations, and the cache as when it
-  // ends, for the app to count down itself
-  expect(state.others).toBeUndefined()
-  expect(state.cache).toBeUndefined()
   expect(state.cacheMinutes).toBeGreaterThan(0)
-  expect(state.cacheEndsAt - state.at).toBe(state.cacheMinutes * 60)
+  expect(state.usage).toEqual([])
+  expect(Object.keys(state).sort()).toEqual(['art', 'at', 'cacheMinutes', 'usage', 'xp'])
+  expect(posts.some(p => p.url.endsWith('/v1/webpush'))).toBe(false)
 
   // at the desk nothing goes
   await fromDesk($)
   await finishTurn($)
   expect(toStatus(posts).length).toBe(1)
-})
-
-test('the state gives each limit its reset as when it comes, for the app to count down', async ($, on) => {
-  const store: Record<string, unknown> = {}
-  const posts = phoneEngine(on, store)
-  measured(on)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.session.measure({ ...MEASURED, changed: [...MEASURED.changed] })
-  await fromPhone($)
-  await $.command.run({ command: 'narsil', args: 'movil', ...BY_PHONE })
-  await finishTurn($)
-  const state = JSON.parse(String(toStatus(posts)[0]?.message))
-  const row = (key: string) => state.usage.find((r: { key: string }) => r.key === key)
-  expect(row('fiveHour').resetsAt).toBe(Math.floor(Date.parse(IN_2H05) / 1000))
-  expect(row('week').resetsAt).toBe(Math.floor(Date.parse(IN_3D) / 1000))
-  // no general context: each conversation brings its own, in `sessions`
-  expect(row('context')).toBeUndefined()
-  expect(state.sessions.map((s: { context: number | null }) => s.context)).toEqual([42])
 })
 
 // What a sealed message holds, opened as the phone app opens it.
@@ -2453,20 +2419,12 @@ test('/narsil movil clave seals what goes to ntfy.sh; clave off sends it in the 
   const status = toStatus(posts)[0]
   expect(status?.title).toBeUndefined()
   const state = JSON.parse(JSON.parse(await unseal(key, String(status?.message))).message)
-  expect(state.status).toBe('done')
+  expect(String(state.art)).toMatch(/terminado-oscuro\.png$/)
 
   await $.command.run({ command: 'narsil', args: 'movil clave off', ...BY_PHONE })
   expect((store.prefs as { phoneKey: string | null }).phoneKey).toBeNull()
   await finishTurn($, undefined, 'Listo otra vez.')
   expect(String(toPhone(posts)[1]?.message)).toContain('Listo otra vez')
-})
-
-test('a sealed message stays under the 4096 bytes ntfy.sh keeps as text', async () => {
-  const key = newKey()
-  const state = { tip: 'ñ'.repeat(1400), steps: ['á'.repeat(200)], headline: 'x' }
-  const m = phoneStatus('t', state, true)
-  expect((await seal(key, sealedPayload(m))).length).toBeLessThan(4096)
-  expect(sealedLength(new TextEncoder().encode(sealedPayload(m)).length)).toBeLessThan(4096)
 })
 
 test('the phone gets nothing until /narsil movil is turned on', async ($, on) => {
@@ -2647,7 +2605,7 @@ test('a turn that ends asking in the desktop app next-step box alerts as a quest
   await $.turn.complete({ reason: 'answer', answer: 'Arreglado.', durationMs: 42_000, isAborted: false, turnId: 'ask' })
   const sent = toPhone(posts)
   expect(sent.map(m => [m.title, m.message, m.priority])).toEqual([['Narsil · Te necesito · landing', '¿Lo subo a main?', 4]])
-  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('waiting')
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).art).toMatch(/necesita-oscuro\.png$/)
 
   // a box with no question is a plain finish
   await $.turn.start({ text: 'y ahora', turnId: 'plain' })
@@ -2667,7 +2625,7 @@ test('a turn that ends with background work still running waits for it, and fini
   await $.classic.Stop({ stop_hook_active: false, background_tasks: running, session_crons: [] } as never)
   await $.turn.complete({ reason: 'answer', answer: 'Espero el aviso.', durationMs: 42_000, isAborted: false, turnId: 'bg' })
   expect(toPhone(posts)).toEqual([])
-  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('working')
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).art).toMatch(/trabajando-oscuro\.png$/)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await band.find({ type: 'Text', text: /esperando 1 proceso en segundo plano/ })).toBeDefined()
   await band.unmount()
@@ -2677,7 +2635,7 @@ test('a turn that ends with background work still running waits for it, and fini
   await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [] } as never)
   await $.turn.complete({ reason: 'answer', answer: 'Listo.', durationMs: 42_000, isAborted: false, turnId: 'wake' })
   expect(toPhone(posts).map(m => m.title)).toEqual(['Narsil · He terminado · landing'])
-  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).status).toBe('done')
+  expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).art).toMatch(/terminado-oscuro\.png$/)
 })
 
 test('while you write from the phone in another conversation this one alerts too, and a message at the desk anywhere stops it', async ($, on) => {
@@ -2700,9 +2658,9 @@ test('while you write from the phone in another conversation this one alerts too
   expect((store.remoteOrigin as { isRemote: boolean }).isRemote).toBe(false)
 })
 
-test('an alert lists every open conversation, and the state leads with the most important and lists them all', async ($, on) => {
+test('an alert lists every open conversation, and the state wears the most important', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
-  const fleet = [other('local_web', 'error', 'failed', 'web', { conversation: 'abcd1234', context: { percent: 90, note: '' }, cacheEndsAt: 1234, cacheMinutes: 5 })]
+  const fleet = [other('local_web', 'error', 'failed', 'web', { context: { percent: 90, note: '' }, cacheEndsAt: 1234, cacheMinutes: 5 })]
   const posts = engine(on, null, { store, fleet, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('tool.call', () => ({ result: {} }))
@@ -2717,109 +2675,20 @@ test('an alert lists every open conversation, and the state leads with the most 
   const alert = toPhone(posts).at(-1)
   expect(String(alert?.message).endsWith('\n\nConversaciones:\n● web · ERROR\n● landing · TERMINADA')).toBe(true)
   const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
-  expect([state.status, state.title, state.headline, state.conversation]).toEqual(['error', 'web', 'web va', 'abcd1234'])
-  expect(state.sessions.map((s: { title: string; status: string; isThis: boolean }) => [s.title, s.status, s.isThis])).toEqual([
-    ['web', 'error', false],
-    ['landing', 'done', true],
-  ])
-  // every conversation's cache, for the app to count each down
-  const [web, landing] = state.sessions
-  expect([web.cacheEndsAt, web.cacheMinutes]).toEqual([1234, 5])
-  // the head's cache is the most important conversation's, though another sends
-  expect([state.cacheEndsAt, state.cacheMinutes]).toEqual([1234, 5])
-  expect(landing.cacheMinutes).toBeGreaterThan(0)
-  expect(landing.cacheEndsAt).toBe(Math.floor(1_002_000 / 1000) + landing.cacheMinutes * 60)
-})
-
-test('each alert and state names its conversation the same way, and two conversations differently', async ($, on) => {
-  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
-  const posts = phoneEngine(on, store)
-  let id = 'session-a'
-  on('session.id', () => ({ value: id }))
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await fromPhone($)
-  await finishTurn($)
-  const conversation = JSON.parse(String(toStatus(posts).at(-1)?.message)).conversation
-  expect(conversation).toMatch(/^[0-9a-f]{8}$/)
-  expect(toPhone(posts).at(-1)?.tags).toEqual(['white_check_mark', `conv-${conversation}`])
-
-  id = 'session-b'
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await fromPhone($)
-  await finishTurn($)
-  const other = JSON.parse(String(toStatus(posts).at(-1)?.message)).conversation
-  expect(other).toMatch(/^[0-9a-f]{8}$/)
-  expect(other).not.toBe(conversation)
-})
-
-const SUB = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', auth: 'authKey_1', p256dh: 'BPubKey-2' }
-
-test('before each alert the phone app subscription is registered again on ntfy.sh, opened with the key', async ($, on) => {
-  const key = newKey()
-  const topic = 'narsil-0123456789abcdef0123'
-  const store: Record<string, unknown> = { prefs: { phoneTopic: topic, isPhoneOn: true, phoneKey: key } }
-  const posts = phoneEngine(on, store, () => seal(key, JSON.stringify({ message: JSON.stringify(SUB) })))
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await fromPhone($)
-  await finishTurn($)
-  const urls = posts.map(p => p.url)
-  const renewed = urls.indexOf('https://ntfy.sh/v1/webpush')
-  expect(posts[renewed]?.body).toEqual({ ...SUB, topics: [topic] })
-  // before the alert, which then finds it
-  expect(renewed).toBeLessThan(urls.indexOf('https://ntfy.sh'))
-  expect(store.phonePush).toEqual(SUB)
-})
-
-test('once ntfy.sh forgot what the app left (12 h), the kept subscription is registered; nothing odd reaches it', async ($, on) => {
-  const topic = 'narsil-0123456789abcdef0123'
-  const store: Record<string, unknown> = { prefs: { phoneTopic: topic, isPhoneOn: true }, phonePush: SUB }
-  let left = ''
-  const posts = phoneEngine(on, store, () => left)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await fromPhone($)
-  await finishTurn($)
-  const renewals = () => posts.filter(p => p.url === 'https://ntfy.sh/v1/webpush').map(p => p.body)
-  expect(renewals()).toEqual([{ ...SUB, topics: [topic] }])
-
-  // something that is not a subscription on the topic: the kept one still goes
-  left = JSON.stringify({ endpoint: 'http://evil.example/x', auth: 'a', p256dh: 'b' })
-  await finishTurn($)
-  expect(renewals().at(-1)).toEqual({ ...SUB, topics: [topic] })
-  expect(store.phonePush).toEqual(SUB)
-})
-
-test('the state the app shows does not register the subscription; only alerts do', async ($, on) => {
-  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true }, phonePush: SUB }
-  const posts = phoneEngine(on, store)
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await fromPhone($)
-  await finishTurn($)
-  // one alert and one state went: one renewal
-  expect(toPhone(posts).length).toBe(1)
-  expect(toStatus(posts).length).toBe(1)
-  expect(posts.filter(p => p.url === 'https://ntfy.sh/v1/webpush').length).toBe(1)
-})
-
-test('what the mod seals, it opens; with another key, or tampered, it does not', async () => {
-  const key = newKey()
-  const sealed = await seal(key, 'hola Narsil')
-  expect(await openSealed(key, sealed)).toBe('hola Narsil')
-  expect(await openSealed(newKey(), sealed)).toBeNull()
-  const bytes = fromBase64Url(sealed.slice(SEAL_PREFIX.length))
-  bytes[20] ^= 1
-  expect(await openSealed(key, SEAL_PREFIX + toBase64Url(bytes))).toBeNull()
-  expect(await openSealed(key, 'no sellado')).toBeNull()
+  expect(String(state.art)).toMatch(/error-oscuro\.png$/)
+  expect(state.cacheMinutes).toBe(5)
+  expect(alert?.tags).toEqual(['white_check_mark'])
 })
 
 test('the state carries ntfy.sh count of the day, this message included, and when it resets', async ($, on) => {
   const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
   const account = JSON.stringify({ limits: { messages: 250 }, stats: { messages: 127, reset_at: 1_793_662_469 } })
-  const posts = phoneEngine(on, store, undefined, account)
+  const posts = phoneEngine(on, store, account)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await fromPhone($)
   await finishTurn($)
   const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
-  expect(state.usage.at(-1)).toEqual({ key: 'ntfy', label: 'ntfy hoy', percent: (128 / 250) * 100, color: '#22B573', note: '128/250 mensajes', resetsAt: 1_793_662_469 })
+  expect(state.usage[0]).toEqual({ key: 'ntfy', label: 'ntfy hoy', percent: (128 / 250) * 100, color: '#22B573', note: '128/250 mensajes', resetsAt: 1_793_662_469 })
 })
 
 test('with ntfy.sh count out of reach, the state goes without that row', async ($, on) => {
@@ -2846,14 +2715,3 @@ test('what Claude costs is no longer counted, kept, shown or sent to the phone',
   expect(JSON.parse(String(toStatus(posts).at(-1)?.message)).spend).toBeUndefined()
 })
 
-test('a state with many conversations drops their headlines, then the last ones, to fit ntfy.sh', () => {
-  const sessions = Array.from({ length: 60 }, (_, i) => ({ conversation: `c${i}`, title: `conversación ${i}`, status: 'working', headline: 'x'.repeat(80), context: 10 }))
-  const sent = JSON.parse(phoneStatus('narsil-t', { status: 'working', tip: 'un consejo', steps: ['uno'], sessions }).message)
-  expect(new TextEncoder().encode(JSON.stringify(sent)).length).toBeLessThanOrEqual(3900)
-  expect([sent.tip, sent.steps]).toEqual([null, []])
-  expect(sent.sessions[0]).toEqual({ conversation: 'c0', title: 'conversación 0', status: 'working', context: 10 })
-  expect(sent.sessions.length).toBeLessThan(60)
-  // a few fit whole
-  const few = JSON.parse(phoneStatus('narsil-t', { status: 'working', sessions: sessions.slice(0, 2) }).message)
-  expect(few.sessions[1].headline).toBe('x'.repeat(80))
-})

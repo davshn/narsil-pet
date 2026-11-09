@@ -111,49 +111,17 @@ Si Narsil te resulta demasiado, `/narsil discreto` la calla: sin voz, sin avisos
 ### Avisos en el móvil y el reloj
 Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a tu móvil lo que te necesita: cuando una conversación termina, te necesita o falla. Solo envía mientras tu último mensaje, en cualquier conversación, salió de Remote Control (el móvil o la web): así también te avisan las conversaciones que empezaste en el escritorio. En cuanto vuelves a escribir en el escritorio, en cualquiera de ellas, deja de enviar. Cada aviso acaba con la lista de todas las conversaciones abiertas y su estado ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
 
-Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` un estado único para todas las conversaciones: el de la más importante (estado, titular, consejo, límites, caché, próximos pasos, nivel y modelo) y la lista de todas. Ese tema no genera notificaciones: está pensado para que una app propia lo lea al abrirse (ver más abajo). Esos mensajes cuentan dentro de los 200 diarios.
+Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` un estado mínimo, que no genera notificaciones y cuenta dentro de los 200 diarios. Lo lee la extensión de Firefox (`narsil-firefox`), porque son datos que solo conoce el PC:
 
-Si usas tu propia app, `/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y tu app. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si es la que usas, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
+| Campo | Qué es |
+| --- | --- |
+| `xp` | Nivel y XP de Narsil. |
+| `art` | La URL de su dibujo, en su etapa y en la pose de la conversación más importante. |
+| `at` | Cuándo se envió (segundos Unix). |
+| `cacheMinutes` | Cuántos minutos dura la caché; no viene si ninguna conversación tiene caché. |
+| `usage` | Una sola fila, `ntfy`, con los mensajes del día desde tu red: `[{ key, label, percent, color, note, resetsAt }]`. Va vacía si ntfy.sh no responde. |
 
-#### Tu propia app para el móvil
-La app ntfy basta para recibir los avisos. Si quieres ver también el estado del PC, como en la banda, puedes hacer tu propia app web instalable (PWA). No hace falta servidor: es una página estática que habla directamente con ntfy.sh. Puedes alojarla gratis en Vercel, Netlify o GitHub Pages. Lo que necesita:
-
-1. **Avisos con la app cerrada (Web Push).** Registra un service worker y suscríbete con `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`. Usa como clave la VAPID pública de ntfy.sh, la que publica en `https://ntfy.sh/config.js` (`web_push_public_key`). Después envía la suscripción a ntfy.sh:
-   ```js
-   const { endpoint, keys } = sub.toJSON()
-   await fetch('https://ntfy.sh/v1/webpush', {
-     method: 'POST',
-     headers: { 'Content-Type': 'application/json' },
-     body: JSON.stringify({ endpoint, auth: keys.auth, p256dh: keys.p256dh, topics: [tema] }),
-   })
-   ```
-   En el service worker, el evento `push` trae el mensaje de ntfy en `event.data.json()` (`title`, `message`, `icon`, `priority`, `actions`): muéstralo con `showNotification`. `actions` trae el botón "Abrir Claude" (`{action: "view", label, url}`): pásalo como acción de la notificación y ábrelo en `notificationclick`. Chrome exige que cada push muestre una notificación. Suscribe así solo el tema de los avisos, nunca el de `-estado`. Registra de nuevo la suscripción cada vez que se abra la app, porque ntfy.sh descarta las que fallan al entregar. Además, publica la suscripción (`{"endpoint","auth","p256dh"}` de `subscription.toJSON()`, con las claves sacadas de `keys`) como `message` en el tema `<tema>-push`, cifrada con la clave si la hay (`{"message": "<esa suscripción en JSON>"}` sellado). Antes de cada aviso, el mod la vuelve a registrar en ntfy.sh, así que los avisos siguen llegando aunque ntfy.sh la haya descartado y no abras la app. Registrar no publica nada: no cuenta en el límite diario de mensajes.
-2. **El estado, mientras la app está abierta.** Lee el último con `GET https://ntfy.sh/<tema>-estado/json?poll=1&since=latest` y escucha los siguientes con `new EventSource('https://ntfy.sh/<tema>,<tema>-estado/sse')`. Cada línea es un mensaje de ntfy; en los del tema de estado, `message` es un JSON con estos campos:
-
-   | Campo | Qué es |
-   | --- | --- |
-   | `status`, `statusLabel` | El de la conversación más importante (primero `error`, luego `waiting`, `working`, `done` e `idle`) y su nombre ("TRABAJANDO"…). |
-   | `headline`, `line`, `tip` | Su titular, la frase de Narsil y el consejo (`null` si no hay, o si la más importante es otra conversación que la que envía). |
-   | `usage` | Las barras de la cuenta: `[{ key, label, percent, color, note, resetsAt }]` (5 horas, semana y, si ntfy.sh responde, `ntfy`; el contexto va en cada conversación de `sessions`: los mensajes del día desde tu red, con `note` como "128/250 mensajes"). `resetsAt` (segundos Unix) dice cuándo se reinicia cada límite: cuenta hacia atrás desde él en lugar de mostrar `note`, que se queda vieja, salvo en `ntfy`, donde `note` no es un reinicio. ntfy.sh cuenta por IP y su día empieza a una hora propia de cada IP, no a medianoche: `GET https://ntfy.sh/v1/account` la da en `stats.reset_at`. |
-   | `cacheEndsAt`, `cacheMinutes` | Cuándo caduca la caché de la más importante (segundos Unix) y cuántos minutos dura; no vienen si no tiene caché. Cuenta hacia atrás desde `cacheEndsAt` y estará al día sin esperar otro mensaje. |
-   | `steps` | Los próximos pasos sugeridos. |
-   | `xp`, `model`, `title` | Nivel y XP, el modelo y el nombre de la conversación más importante. |
-   | `art` | La URL del dibujo de Narsil en su etapa y en la pose de la más importante (variante oscura; cambia `-oscuro.png` por `-claro.png` para la clara). |
-   | `at` | Cuándo se envió (segundos Unix). |
-   | `conversation` | La conversación más importante: 8 caracteres hexadecimales, los mismos cada vez. Sus avisos llevan la misma marca como etiqueta `conv-<conversation>` en `tags`. |
-   | `sessions` | Todas las conversaciones abiertas, la más importante primero: `[{ conversation, title, status, statusLabel, headline, context, cacheEndsAt, cacheMinutes, isThis }]`, con `context` el % de su ventana de contexto (`null` sin medir), `cacheEndsAt` y `cacheMinutes` su caché (`null` sin caché: cuenta hacia atrás cada una) e `isThis` la que envía. Cada estado trae la lista entera: basta con el último. |
-
-   Si el JSON no cabe, llega sin `tip` ni `steps`; si aún no cabe, `sessions` llega sin `headline` y luego sin las últimas conversaciones. El estado solo se envía al terminar un turno por Remote Control: si `at` tiene más de una hora, conviene indicar que el dato puede ser viejo. Para los avisos, `GET https://ntfy.sh/<tema>/json?poll=1&since=12h` devuelve los de las últimas 12 horas (ntfy.sh no los guarda más). Las preguntas y los errores llegan con `priority` 4, así que puedes dejarlos a la vista aunque después llegue un "He terminado" y marcarlos en el icono con `navigator.setAppBadge()`.
-3. **Cifrado (opcional).** Con `/narsil movil clave`, el `message` de cada aviso y de cada estado llega como `narsil1:` seguido, en base64url, de un nonce de 16 bytes, el texto cifrado y una etiqueta de 32 bytes; el `title` llega como "Narsil". Para abrirlo con WebCrypto, usando HMAC-SHA256 (`crypto.subtle.sign('HMAC', …)`):
-   - Deriva dos claves de la clave compartida (base64url): `enc = HMAC(clave, "enc")` y `mac = HMAC(clave, "mac")`.
-   - Comprueba que la etiqueta sea `HMAC(mac, nonce ‖ cifrado)`. Si no coincide, la clave no es la buena.
-   - Descifra con XOR, en bloques de 32 bytes: el bloque `i` (empezando en 0) usa `HMAC(enc, nonce ‖ i)`, con `i` en 4 bytes big-endian.
-   - Dentro hay un JSON `{ title, message }`: en los avisos, el título y el texto de verdad; en el estado, solo `message`, que es el JSON del estado.
-
-   Hazlo también en el service worker antes de mostrar la notificación. `hooks/seal.ts` es la referencia exacta.
-4. **Instalable.** Añade un `manifest.webmanifest` con `display: "standalone"` y los iconos. `tools/build-pwa-icons.ps1` genera `icon-192.png`, `icon-512.png` y `badge.png` con la cabeza de Narsil: `powershell -ExecutionPolicy Bypass -File tools/build-pwa-icons.ps1 -OutDir <carpeta de tu app>`. En iPhone, Web Push solo funciona si añades la app a la pantalla de inicio (iOS 16.4 o posterior).
-
-Guarda el tema en la app (en `localStorage`, por ejemplo) y no lo pongas en la URL pública: quien lo conozca puede leer tus avisos.
+`/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y la extensión. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si la usas para los avisos, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
 
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).

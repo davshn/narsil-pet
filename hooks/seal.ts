@@ -1,9 +1,9 @@
-// What goes to ntfy.sh, sealed with a key only the PC and your phone app
-// hold, for /narsil movil clave: whoever reads the topic sees only noise.
+// What goes to ntfy.sh, sealed with a key only the PC and the Firefox
+// extension hold, for /narsil movil clave: whoever reads the topic sees only noise.
 // The hooks module's crypto has SHA-256 alone, so this is HMAC-SHA256 built
 // on it: the HMAC of a nonce and a counter is the keystream (CTR), and a
 // second HMAC over the nonce and the ciphertext proves it (encrypt-then-MAC).
-// The phone app opens it with WebCrypto's HMAC, which gives the same bytes.
+// The extension opens it with WebCrypto's HMAC, which gives the same bytes.
 
 export const SEAL_PREFIX = 'narsil1:'
 const NONCE = 16
@@ -70,27 +70,3 @@ export async function seal(key: string, text: string, nonce = crypto.getRandomVa
   return SEAL_PREFIX + toBase64Url(join(nonce, cipher, tag))
 }
 
-// What `sealed` holds, as the phone app seals it too; null when it is not
-// sealed with this key, or not sealed at all.
-export async function unseal(key: string, sealed: string): Promise<string | null> {
-  if (!sealed.startsWith(SEAL_PREFIX)) return null
-  try {
-    const bytes = fromBase64Url(sealed.slice(SEAL_PREFIX.length))
-    if (bytes.length < NONCE + BLOCK) return null
-    const k = fromBase64Url(key)
-    const macKey = await hmac(k, utf8.encode('mac'))
-    const tag = await hmac(macKey, bytes.slice(0, -BLOCK))
-    const given = bytes.slice(-BLOCK)
-    if (tag.some((b, i) => b !== given[i])) return null
-    const encKey = await hmac(k, utf8.encode('enc'))
-    return new TextDecoder().decode(await xorStream(encKey, bytes.slice(0, NONCE), bytes.slice(NONCE, -BLOCK)))
-  } catch {
-    return null
-  }
-}
-
-// How many bytes a sealed text of `bytes` takes: ntfy.sh keeps a message
-// under 4096 bytes as text.
-export function sealedLength(bytes: number): number {
-  return SEAL_PREFIX.length + Math.ceil(((NONCE + bytes + BLOCK) * 4) / 3)
-}
