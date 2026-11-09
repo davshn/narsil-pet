@@ -5,10 +5,11 @@ import type { Art } from './art'
 // Narsil, a chibi sea serpent, drawn from painted art (hooks/art.ts, made by
 // tools/build-art.ps1): one pose per state, a light and a dark version of
 // each, the theme picked by the viewer's color scheme. A PNG has no parts to
-// move, so the life comes from around one sharp image, drawn once (a second,
-// warped copy shows through as a double):
+// move, so the life comes from around one sharp image (a second, warped copy
+// over it shows through as a double):
 //   - the whole picture swims, bobs, leaps or trembles (CSS transforms), at
 //     the pace of her stage, with her shadow and splashes in step;
+//   - cut in bands that only meet, her body sways in a wave, her head whole;
 //   - effects around her: a pulsing aura, ring or halo,
 //     bubbles, water rings and a wave, confetti when done, props;
 //   - a celebration of her growth over all that: a new level, a new stage.
@@ -157,7 +158,8 @@ const STYLE = `
 @media (prefers-color-scheme: dark){:root{--edge:#9FB7E0;--gold:#E9A93A;--water:#5FA6E6;--card:#F4F6FF}}
 .th-oscuro{display:none}
 @media (prefers-color-scheme: dark){.th-claro{display:none}.th-oscuro{display:inline}}
-.whole{transform-box:fill-box;transform-origin:50% 100%}
+.whole,.gesture{transform-box:fill-box;transform-origin:50% 100%}
+.strip{animation:sway var(--sway,3s) ease-in-out calc(var(--sway,3s)*var(--lag)) infinite}
 .aura{transform-box:fill-box;transform-origin:center;animation:aura 1.6s ease-in-out infinite}
 .s-error .aura{animation-duration:1.2s}
 .shadow{transform-box:fill-box;transform-origin:center;opacity:.3}
@@ -186,6 +188,7 @@ const STYLE = `
 .rays{transform-box:fill-box;transform-origin:center;animation:spin 7s linear infinite,rays 9s ease-in-out 1 forwards}
 .evolve{transform-box:fill-box;transform-origin:50% 100%;animation:evolve 1.8s cubic-bezier(.3,1.4,.5,1) 1}
 @keyframes aura{0%,100%{transform:scale(.85);opacity:.45}50%{transform:scale(1.15);opacity:1}}
+@keyframes sway{0%,100%{transform:translateX(calc(var(--a)*-1))}50%{transform:translateX(var(--a))}}
 @keyframes rise{0%{transform:translate(0,0) scale(.6);opacity:0}15%{opacity:.95}50%{transform:translate(3px,-40px) scale(1)}100%{transform:translate(-2px,-84px) scale(1.25);opacity:0}}
 @keyframes ripple{0%{transform:scale(.3);opacity:.75}100%{transform:scale(1.6);opacity:0}}
 @keyframes wave{from{transform:translateX(0)}to{transform:translateX(-24px)}}
@@ -268,6 +271,8 @@ function motion(stage: number): string {
   const dropAtRest = 'transform:translate(0,0) scale(.4);opacity:0'
   const dropThrown = 'transform:translate(var(--dx),var(--dy)) scale(1);opacity:0'
   return (
+    `.s-working{--sway:${s(1.8)}}.s-idle{--sway:${s(4.4)}}.s-waiting{--sway:${s(3)}}.s-done{--sway:${s(1.6)}}.s-error{--sway:${s(2.6)}}` +
+    `.m-idle .gesture{animation:fidget ${s(23)} ease-in-out infinite}` +
     `.s-working .whole{animation:swim ${s(1.2)} ease-in-out infinite}` +
     `.m-thinking .whole{animation:ponder ${s(2.4)} ease-in-out infinite}` +
     `.m-scared .whole{animation:jolt ${s(0.5)} ease-out 2,swim ${s(1.2)} ease-in-out ${s(1)} infinite}` +
@@ -293,6 +298,8 @@ function motion(stage: number): string {
     `@keyframes call{${twiceThenRest(standing, hopFrames)}}` +
     `@keyframes leap{0%,100%{transform:translateY(0) rotate(0deg) scale(1,1)}14%{transform:translateY(0) scale(${sq(1.1)},${sq(0.88)})}48%{transform:translateY(${px(-26)}) rotate(${deg(-10)}) scale(${sq(0.94)},${sq(1.08)})}70%{transform:translateY(${px(-6)}) rotate(${deg(6)})}86%{transform:translateY(0) scale(${sq(1.06)},${sq(0.93)})}}` +
     `@keyframes jolt{0%{transform:translate(0,0) rotate(0deg)}20%{transform:translate(${px(-5)},${px(-6)}) rotate(${deg(-6)})}45%{transform:translate(${px(4)},0) rotate(${deg(4)})}70%{transform:translate(${px(-2)},${px(-2)}) rotate(${deg(-2)})}100%{transform:none}}` +
+    // now and then, at rest: she looks one way and the other, later she stretches
+    `@keyframes fidget{0%,18%,40%,66%,84%,100%{transform:none}24%,30%{transform:rotate(${deg(-5)})}35%{transform:rotate(${deg(4)})}72%,76%{transform:translateY(${px(-3)}) scale(${sq(0.97)},${sq(1.07)})}80%{transform:scale(${sq(1.03)},${sq(0.97)})}}` +
     // a few soft shivers, then a rest, over and over
     `@keyframes tremble{0%,40%,100%{transform:translateX(0) rotate(0deg)}8%{transform:translateX(${px(-1.5)}) rotate(${deg(-1)})}16%{transform:translateX(${px(1.5)}) rotate(${deg(1)})}24%{transform:translateX(${px(-1)}) rotate(${deg(-0.5)})}32%{transform:translateX(${px(1)}) rotate(${deg(0.5)})}}` +
     // the shadow narrows and fades as she rises, and spreads as she lands
@@ -363,7 +370,40 @@ function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
   const { pose, image } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
-  return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>`
+  return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>${cuts(id, at.headY)}`
+}
+
+// Her body is cut across in bands, each swaying by itself, so she undulates.
+// The cuts are hard and the bands only meet, so no part of her shows twice;
+// from the neck up she is one band, so no cut crosses her face.
+const BODY_BANDS = 9
+const SWAY_PX = 2
+const SWAY_LAG = 0.08
+
+function bandEdges(headY: number): number[] {
+  const neck = r1(headY + BOX.height * 0.12)
+  const foot = BOX.top + BOX.height
+  const splits = Array.from({ length: BODY_BANDS - 1 }, (_, i) => r1(neck + ((foot - neck) * (i + 1)) / BODY_BANDS))
+  return [-40, neck, ...splits, 140]
+}
+
+function cuts(id: string, headY: number): string {
+  const edges = bandEdges(headY)
+  return edges
+    .slice(0, -1)
+    .map((top, i) => `<clipPath id="cut-${id}-${i}"><rect x="-60" y="${top}" width="270" height="${r1(edges[i + 1]! - top)}" shape-rendering="crispEdges"/></clipPath>`)
+    .join('')
+}
+
+// The bands, head first: the tail stays put, the sway grows toward the neck,
+// the wave runs from the head down, and the head goes as the neck does.
+function bands(id: string, amp: number): string {
+  const hundredths = (n: number) => Math.round(n * 100) / 100
+  return Array.from({ length: BODY_BANDS + 1 }, (_, i) => {
+    const reach = i === 0 ? 1 : 1 - (i - 1) / (BODY_BANDS - 1)
+    const sway = `--a:${hundredths(SWAY_PX * reach * amp)}px;--lag:${hundredths(-reach * (BODY_BANDS - 1) * SWAY_LAG)}`
+    return `<g clip-path="url(#cut-${id}-${i})"><g class="strip" style="${sway}"><use href="#art-${id}"/></g></g>`
+  }).join('')
 }
 
 function picture(mood: Mood, status: Status, theme: Theme, stage: number, milestone?: Milestone): string {
@@ -374,9 +414,9 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number, milest
     `<g class="th-${theme}">` +
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     (milestone ? '' : badge(mood, status, at.headX, at.headY, theme)) +
-    `<g>${grows(milestone)}<g class="whole">` +
-    `<use href="#art-${id}"/>` +
-    `</g>${grows(milestone) ? '</g>' : ''}</g>` +
+    `<g>${grows(milestone)}<g class="whole"><g class="gesture">` +
+    bands(id, stageMotion(stage).amp) +
+    `</g></g>${grows(milestone) ? '</g>' : ''}</g>` +
     `</g>`
   )
 }
@@ -436,12 +476,15 @@ function badge(mood: Mood, status: Status, x: number, y: number, theme: Theme): 
   }
 }
 
+// At rest she stays awake for a minute before the z's start.
+const ASLEEP_AFTER_S = 60
+
 function props(mood: Mood, status: Status): string {
   const prop = 'var(--edge)'
   const card = 'var(--card)'
   if (status === 'idle' && mood !== 'greeting') {
     return [0, 1.1, 2.2]
-      .map((d, i) => `<text class="zz" style="animation-delay:${d}s" x="${76 + i * 6}" y="${24 - i * 5}" font-family="system-ui, sans-serif" font-weight="800" font-size="${9 + i * 2}" fill="${STATUS_COLOR.idle}">z</text>`)
+      .map((d, i) => `<text class="zz" style="animation-delay:${ASLEEP_AFTER_S + d}s" x="${76 + i * 6}" y="${24 - i * 5}" font-family="system-ui, sans-serif" font-weight="800" font-size="${9 + i * 2}" fill="${STATUS_COLOR.idle}">z</text>`)
       .join('')
   }
   if (mood === 'greeting') {

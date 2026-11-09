@@ -1267,15 +1267,58 @@ test('Narsil moves visibly in every state', () => {
   expect(sprite('idle')).not.toContain('class="aura"')
 })
 
-test('she is drawn once per theme, sharp, so no part of her shows twice', () => {
+// The bands her picture is cut in, in one theme ('c' or 'o'), top to bottom.
+function bandsOf(svg: string, id: string): { top: number; bottom: number }[] {
+  return [...svg.matchAll(new RegExp(String.raw`<clipPath id="cut-${id}-\d+"><rect [^>]*?y="(-?[\d.]+)" [^>]*?height="([\d.]+)"`, 'g'))].map(m => ({ top: Number(m[1]), bottom: Number(m[1]) + Number(m[2]) }))
+}
+
+test('she is cut in bands that meet and never overlap, sharp, so no part of her shows twice', () => {
   for (const mood of ['writing', 'idle', 'asking', 'thinking', 'celebrating', 'failed'] as const) {
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
-      for (const id of ['c', 'o']) expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
+      for (const id of ['c', 'o']) {
+        const bands = bandsOf(svg, id)
+        expect(bands.length).toBe(10)
+        expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(bands.length)
+        for (let i = 1; i < bands.length; i++) expect(Math.abs(bands[i]!.top - bands[i - 1]!.bottom)).toBeLessThan(0.001)
+      }
       expect(svg).not.toContain('<mask')
       expect(svg).not.toContain('feDisplacementMap')
     }
   }
+})
+
+test('her body sways more toward the head, the wave runs from the head to the tail, and her head moves whole', () => {
+  // the state's ring is centered on her head, in each theme
+  const svg = sprite('writing', 2)
+  for (const [id, theme] of [['c', 'claro'], ['o', 'oscuro']] as const) {
+    const headY = Number(new RegExp(String.raw`<g class="th-${theme}">.*?class="ring" cx="[\d.]+" cy="([\d.]+)"`).exec(svg)?.[1])
+    expect(headY).toBeGreaterThan(0)
+    expect(bandsOf(svg, id)[0]!.bottom).toBeGreaterThan(headY)
+  }
+  const sway = (text: string) => [...text.matchAll(/<g class="strip" style="--a:([\d.]+)px;--lag:(-?[\d.]+)">/g)].slice(0, 10).map(m => ({ a: Number(m[1]), lag: Number(m[2]) }))
+  const bands = sway(svg)
+  expect(bands.length).toBe(10)
+  // the head goes as the top of her body does, so no step shows at her neck
+  expect(bands[0]).toEqual(bands[1]!)
+  for (let i = 2; i < bands.length; i++) {
+    expect(bands[i]!.a).toBeLessThan(bands[i - 1]!.a)
+    expect(bands[i]!.lag).toBeGreaterThan(bands[i - 1]!.lag)
+  }
+  // the grown serpent sways less than the hatchling
+  expect(sway(sprite('writing', 5))[0]!.a).toBeLessThan(sway(sprite('writing', 1))[0]!.a)
+  for (const status of ['working', 'idle', 'waiting', 'done', 'error']) expect(svg).toContain(`.s-${status}{--sway:`)
+})
+
+test('at rest she fidgets now and then, and only falls asleep after a minute', () => {
+  const svg = sprite('idle', 2)
+  expect(svg).toMatch(/\.m-idle \.gesture\{animation:fidget [\d.]+s ease-in-out infinite\}/)
+  expect(svg).toContain('@keyframes fidget{')
+  const delays = [...svg.matchAll(/<text class="zz" style="animation-delay:([\d.]+)s"/g)].map(m => Number(m[1]))
+  expect(delays.length).toBe(3)
+  for (const delay of delays) expect(delay).toBeGreaterThanOrEqual(60)
+  // her greeting keeps its hops, with no fidget over them
+  expect(sprite('greeting', 2)).not.toMatch(/\.m-greeting \.gesture/)
 })
 
 // How high she leaps when done, and how long one leap takes, at a stage.
