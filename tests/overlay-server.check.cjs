@@ -110,17 +110,26 @@ check('every conversation is served to the mods alone, the most important first,
   assert.ok(list.every(s => !('svg' in s)), 'no drawings')
 })
 
-check('a conversation that stops beating stays listed while the server runs', async () => {
+check('a conversation that stops beating stays listed for an hour, then goes until it beats again', async () => {
   const mod = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
   const sessionId = 'local_dormant'
   const body = JSON.stringify({ sessionId, mood: 'm', status: 'done', headline: 'done', svg: '<svg/>' })
-  assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
-  // An hour without its heartbeats (the app put its engine to sleep).
-  const now = Date.now
-  Date.now = () => now() + 60 * 60_000
-  try {
+  const isListed = async () => {
     const res = await request('GET', '/sessions', { headers: { 'x-narsil-token': 'mod-token' } })
-    assert.ok(JSON.parse(res.text).some(s => s.sessionId === sessionId), 'the sleeping conversation is still listed')
+    return JSON.parse(res.text).some(s => s.sessionId === sessionId)
+  }
+  assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
+  const now = Date.now
+  try {
+    // Most of an hour without its heartbeats (the app put its engine to sleep).
+    Date.now = () => now() + 59 * 60_000
+    assert.ok(await isListed(), 'the sleeping conversation is still listed')
+    // Past the hour (it was deleted, or slept that long): forgotten.
+    Date.now = () => now() + 61 * 60_000
+    assert.ok(!(await isListed()), 'the silent conversation is forgotten')
+    // Opened again, its first heartbeat lists it once more.
+    assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
+    assert.ok(await isListed(), 'the conversation is back with its first heartbeat')
   } finally {
     Date.now = now
   }

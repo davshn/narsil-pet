@@ -38,7 +38,7 @@ Una banda encima del prompt muestra a Narsil con una postura y una animación pr
 La banda funciona en la terminal, en la app de escritorio, en VS Code y en la app móvil.
 
 ### Todas las conversaciones en un solo sitio
-Narsil es una sola para todas las conversaciones abiertas. Su dibujo y su titular muestran la más importante: primero un **ERROR**, luego lo que **TE NECESITA**, luego lo que está **TRABAJANDO** y por último lo **TERMINADO**. Si es otra conversación, el titular empieza por su nombre ("web: Me he detenido por un error"). Una conversación que no abres hace rato sigue en la lista con su último estado, aunque la app la haya dormido; las que borras se van cuando Narsil se reinicia (al cerrar Claude, por ejemplo).
+Narsil es una sola para todas las conversaciones abiertas. Su dibujo y su titular muestran la más importante: primero un **ERROR**, luego lo que **TE NECESITA**, luego lo que está **TRABAJANDO** y por último lo **TERMINADO**. Si es otra conversación, el titular empieza por su nombre ("web: Me he detenido por un error"). Una conversación que no abres hace rato sigue en la lista con su último estado durante una hora, aunque la app la haya dormido. Pasada esa hora sin noticias sale de la lista, y así se van también las que borras; si vuelves a abrirla, reaparece al instante.
 
 Debajo, la banda lista cada conversación con su estado, su nombre y su propia barra de contexto, de 4 en 4 (◂ ▸ para pasar de página). Esta conversación va siempre primera, con su barra en azul. La conversación abierta, que de entrada es esta, muestra bajo una línea:
 
