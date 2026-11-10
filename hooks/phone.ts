@@ -84,6 +84,28 @@ export function statusTopic(topic: string): string {
   return `${topic}-estado`
 }
 
+// The topic the phone app leaves its Web Push subscription on, as it opens:
+// ntfy.sh drops a subscription whose delivery failed once, and the mod
+// registers it again before each alert, so the alerts do not wait for you
+// to open the app. Never followed by push.
+export function pushTopic(topic: string): string {
+  return `${topic}-push`
+}
+
+export type PushSubscription = { endpoint: string; auth: string; p256dh: string }
+export const PUSH_KEY = 'phonePush'
+
+// A subscription as the app sends it (or as the store keeps it); null for
+// anything else, so nothing but an https endpoint and its keys reaches ntfy.sh.
+export function pushSubscriptionOf(value: unknown): PushSubscription | null {
+  const v = value as Partial<PushSubscription> | null
+  if (!v || typeof v !== 'object') return null
+  const { endpoint, auth, p256dh } = v
+  if (typeof endpoint !== 'string' || !/^https:\/\/[^\s]+$/.test(endpoint) || endpoint.length > 1000) return null
+  if (typeof auth !== 'string' || typeof p256dh !== 'string' || !/^[\w-]{1,200}$/.test(auth) || !/^[\w-]{1,200}$/.test(p256dh)) return null
+  return { endpoint, auth, p256dh }
+}
+
 // What ntfy.sh says of the day's messages from this network, as
 // GET /v1/account answers it: a usage row the extension shows with the
 // account's limits, counted down to its reset. ntfy.sh counts by IP, in a

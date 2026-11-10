@@ -9,7 +9,7 @@ import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { VOICE, say } from '../hooks/words'
 import { ART } from '../hooks/art'
 import { sprite } from '../hooks/sprite'
-import { SEAL_PREFIX, fromBase64Url, hmac, toBase64Url } from '../hooks/seal'
+import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, toBase64Url, unseal as openSealed } from '../hooks/seal'
 
 const BAND = {
   plugin: 'narsil-pet',
@@ -46,6 +46,7 @@ function engine(
     isOverlayDown = false,
     isOverlayStale = false,
     stateReply = () => '',
+    pushReply = () => '',
     account = '',
     git = () => '',
     files = {},
@@ -60,6 +61,8 @@ function engine(
     isOverlayStale?: boolean
     // what the window's server answers a pushed state
     stateReply?: (body: Record<string, unknown>) => string
+    // what the phone app left on its push topic, as ntfy.sh's poll returns it
+    pushReply?: () => Promise<string> | string
     // what ntfy.sh's /v1/account answers
     account?: string
     // what each git command prints (argv without the leading "git")
@@ -92,6 +95,10 @@ function engine(
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('http.fetch', async (_, e) => {
     if (e.url.endsWith('/v1/account')) return { value: { status: account ? 200 : 503, ok: Boolean(account), headers: {}, text: account } }
+    if (e.url.includes('-push/json')) {
+      const message = await pushReply()
+      return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}\n` : '' } }
+    }
     if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil' } }
     if (isStale && e.url.endsWith('/quit')) {
       isStale = false
@@ -2287,8 +2294,8 @@ const toPhone = (posts: Posted[]) => toNtfy(posts).filter(m => !String(m.topic).
 const toStatus = (posts: Posted[]) => toNtfy(posts).filter(m => String(m.topic).endsWith('-estado'))
 
 // The engine, with turns and tools answered.
-function phoneEngine(on: On, store: Record<string, unknown> = {}, account?: string): Posted[] {
-  const posts = engine(on, null, { store, account })
+function phoneEngine(on: On, store: Record<string, unknown> = {}, account?: string, pushReply?: () => Promise<string> | string): Posted[] {
+  const posts = engine(on, null, { store, account, pushReply })
   on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
@@ -2669,6 +2676,85 @@ test('an alert lists every open conversation, and the state wears the most impor
   expect(String(state.art)).toMatch(/error-oscuro\.png$/)
   expect(state.cacheMinutes).toBe(5)
   expect(alert?.tags).toEqual(['white_check_mark'])
+})
+
+const SUB = { endpoint: 'https://fcm.googleapis.com/fcm/send/abc123', auth: 'authKey_1', p256dh: 'BPubKey-2' }
+const renewalsOf = (posts: Posted[]) => posts.filter(p => p.url === 'https://ntfy.sh/v1/webpush').map(p => p.body)
+
+test('before each alert the phone app subscription is registered again on ntfy.sh, opened with the key', async ($, on) => {
+  const key = newKey()
+  const topic = 'narsil-0123456789abcdef0123'
+  const store: Record<string, unknown> = { prefs: { phoneTopic: topic, isPhoneOn: true, phoneKey: key } }
+  const posts = phoneEngine(on, store, undefined, () => seal(key, JSON.stringify({ message: JSON.stringify(SUB) })))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  const urls = posts.map(p => p.url)
+  const renewed = urls.indexOf('https://ntfy.sh/v1/webpush')
+  expect(posts[renewed]?.body).toEqual({ ...SUB, topics: [topic] })
+  // before the alert, which then finds it
+  expect(renewed).toBeLessThan(urls.indexOf('https://ntfy.sh'))
+  expect(store.phonePush).toEqual(SUB)
+})
+
+test('once ntfy.sh forgot what the app left (12 h), the kept subscription is registered; nothing odd reaches it', async ($, on) => {
+  const topic = 'narsil-0123456789abcdef0123'
+  const store: Record<string, unknown> = { prefs: { phoneTopic: topic, isPhoneOn: true }, phonePush: SUB }
+  let left = ''
+  const posts = phoneEngine(on, store, undefined, () => left)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  expect(renewalsOf(posts)).toEqual([{ ...SUB, topics: [topic] }])
+
+  // something that is not a subscription on the topic: the kept one still goes
+  left = JSON.stringify({ endpoint: 'http://evil.example/x', auth: 'a', p256dh: 'b' })
+  await finishTurn($)
+  expect(renewalsOf(posts).at(-1)).toEqual({ ...SUB, topics: [topic] })
+  expect(store.phonePush).toEqual(SUB)
+})
+
+test('the state the extension reads does not register the subscription; only alerts do', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true }, phonePush: SUB }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  // one alert and one state went: one renewal
+  expect(toPhone(posts).length).toBe(1)
+  expect(toStatus(posts).length).toBe(1)
+  expect(renewalsOf(posts).length).toBe(1)
+})
+
+test('the test alert registers the subscription again too', async ($, on) => {
+  const topic = 'narsil-0123456789abcdef0123'
+  const store: Record<string, unknown> = { prefs: { phoneTopic: topic, isPhoneOn: true }, phonePush: SUB }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'narsil', args: 'movil prueba', ...TYPED })
+  expect(renewalsOf(posts)).toEqual([{ ...SUB, topics: [topic] }])
+  expect(toPhone(posts).length).toBe(1)
+})
+
+test('with no subscription left or kept, the alert goes without registering anything', async ($, on) => {
+  const store: Record<string, unknown> = { prefs: { phoneTopic: 'narsil-0123456789abcdef0123', isPhoneOn: true } }
+  const posts = phoneEngine(on, store)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await fromPhone($)
+  await finishTurn($)
+  expect(renewalsOf(posts)).toEqual([])
+  expect(toPhone(posts).length).toBe(1)
+})
+
+test('what the mod seals, it opens; with another key, or tampered, it does not', async () => {
+  const key = newKey()
+  const sealed = await seal(key, 'hola Narsil')
+  expect(await openSealed(key, sealed)).toBe('hola Narsil')
+  expect(await openSealed(newKey(), sealed)).toBeNull()
+  const bytes = fromBase64Url(sealed.slice(SEAL_PREFIX.length))
+  bytes[20] = (bytes[20] ?? 0) ^ 1
+  expect(await openSealed(key, SEAL_PREFIX + toBase64Url(bytes))).toBeNull()
+  expect(await openSealed(key, 'no sellado')).toBeNull()
 })
 
 test('the state carries ntfy.sh count of the day, this message included, and when it resets', async ($, on) => {

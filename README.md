@@ -120,6 +120,8 @@ Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` un est
 
 `/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y la extensión. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si la usas para los avisos, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
 
+Si recibes los avisos con tu propia app web por Web Push (como [narsil-pwa](https://github.com/davshn/narsil-pwa)), la app deja su suscripción en el tema `<tu tema>-push`, cifrada con la clave si la hay. ntfy.sh descarta una suscripción en cuanto falla una entrega, así que antes de cada aviso Narsil la vuelve a registrar en ntfy.sh. Así los avisos siguen llegando aunque no abras la app. Registrar no publica nada, así que no cuenta en el límite diario.
+
 ### Resumen de la sesión
 `/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).
 
