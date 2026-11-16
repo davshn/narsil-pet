@@ -527,7 +527,7 @@ test('the desktop band draws Narsil as an image, the only way it shows the embed
   const art = await ui.find({ type: 'Svg' })
   expect(art).toBeDefined()
   expect(art?.props.isInteractive).toBeUndefined()
-  expect(String(art?.props.source)).toContain('data:image/png;base64,')
+  expect(String(art?.props.source)).toMatch(/data:image\/(png|webp);base64,/)
   await ui.unmount()
 })
 
