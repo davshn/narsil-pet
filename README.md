@@ -257,6 +257,16 @@ La última comprueba quién puede usar el servidor de la ventana flotante: solo 
 
 Los dibujos de `hooks/art.ts` y `hooks/art/` se generan a partir de `assets/raw` con `tools/build-art.ps1`. La cría está en `assets/raw/<pose>-<claro|oscuro>.png` y cada etapa siguiente tiene su propia carpeta, `assets/raw/etapa2` a `assets/raw/etapa5`, con los mismos nombres. Si a una etapa le falta una pose, se usa su pose `base`. Si le faltan todas en un tema, se usa la etapa anterior, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
 
+Cada pose también tiene un bucle animado, hecho con un video de Veo o Flow a partir de su dibujo. Si una pose tiene bucle, se usa en lugar del dibujo fijo. Los pasos son:
+
+1. `tools/anim-sources.ps1` prepara, para cada pose que aún no tiene bucle, su dibujo sobre verde puro y el prompt que va con él, en `Descargas\narsil-anim\etapa<N>\<pose>-<tema>.png` y `.txt`. En Flow funciona bien el modo *Frames*, con ese dibujo como primer y último fotograma, a 360p y 3 s.
+2. `tools/encode-anim.ps1 -Video <mp4> -Stage <N> -Pose <pose> -Theme <tema> -Seconds 3 -Fade 0` quita el verde y el audio y escribe dos versiones:
+   - `assets/anim/`: el bucle de la banda, con la mejor calidad que cabe en 38 KB. Los dos temas tienen que caber en el dibujo de la banda, que admite como máximo 131 072 caracteres.
+   - `assets/anim-hq/`: la versión nítida que sirve la ventana flotante.
+3. `tools/build-animated.ps1` (lo llama el paso anterior) los incrusta en `hooks/art/anim/` y `hooks/art/animated.ts`.
+
+Hace falta ffmpeg: `winget install Gyan.FFmpeg`.
+
 ## Licencia
 
 Narsil es software libre: puedes redistribuirlo y modificarlo bajo los términos de la [Licencia Pública General de GNU, versión 3](LICENSE) (GPL v3) o, a tu elección, cualquier versión posterior, publicada por la Free Software Foundation.
