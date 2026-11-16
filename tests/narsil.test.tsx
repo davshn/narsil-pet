@@ -505,7 +505,7 @@ test('every state is drawn from the art, light and dark, within the Svg size lim
   for (const mood of moods) {
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
-      expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+      expect(svg.match(/href="data:image\/(png|webp);base64,/g)?.length).toBe(2)
       expect(svg.length).toBeLessThan(131072)
     }
   }
@@ -1274,6 +1274,12 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
       for (const id of ['c', 'o']) {
+        // an animated loop moves by itself, drawn whole
+        if (svg.includes(`<image id="art-${id}" href="data:image/webp`)) {
+          expect(bandsOf(svg, id).length).toBe(0)
+          expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
+          continue
+        }
         const bands = bandsOf(svg, id)
         expect(bands.length).toBe(10)
         expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(bands.length)
@@ -1283,6 +1289,15 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
       expect(svg).not.toContain('feDisplacementMap')
     }
   }
+})
+
+test('a pose with an animated loop shows the loop, whole and within the Svg size limit, and its still picture elsewhere', () => {
+  const working = sprite('writing', 4)
+  expect(working).toContain('<image id="art-o" href="data:image/webp;base64,')
+  expect(working).toContain('<image id="art-c" href="data:image/png;base64,')
+  expect(working.length).toBeLessThan(131072)
+  expect(sprite('idle', 4)).not.toContain('data:image/webp')
+  expect(sprite('writing', 3)).not.toContain('data:image/webp')
 })
 
 test('her body sways more toward the head, the wave runs from the head to the tail, and her head moves whole', () => {
@@ -2248,7 +2263,7 @@ test('the celebrations stay within the Svg size limit at every stage', () => {
       expect(grown).toContain(`>¡ETAPA ${stage}!<`)
       for (const svg of [leveled, grown]) {
         expect(svg.length).toBeLessThan(131072)
-        expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+        expect(svg.match(/href="data:image\/(png|webp);base64,/g)?.length).toBe(2)
       }
     }
   }
