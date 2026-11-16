@@ -198,7 +198,7 @@ check('a request path no URL can be made of is refused, and the server keeps ans
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
 })
 
 ;(async () => {
