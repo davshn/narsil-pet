@@ -167,7 +167,7 @@ async function overlayToken($: EngineInterface): Promise<string> {
 // What this version's window server answers a ping. A server another version
 // started answers otherwise ("narsil" before the drawing was sent only on a
 // change): it outlives the mod's updates, so it is closed and started anew.
-const OVERLAY_PROTOCOL = 'narsil 3'
+const OVERLAY_PROTOCOL = 'narsil 4'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {

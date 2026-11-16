@@ -115,7 +115,7 @@ function engine(
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 3' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 4' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
@@ -1275,7 +1275,7 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
       const svg = sprite(mood, stage)
       for (const id of ['c', 'o']) {
         // an animated loop moves by itself, drawn whole
-        if (svg.includes(`<image id="art-${id}" href="data:image/webp`)) {
+        if (new RegExp(`<image id="art-${id}" data-loop="[^"]+" href="data:image/webp`).test(svg)) {
           expect(bandsOf(svg, id).length).toBe(0)
           expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
           continue
@@ -1293,7 +1293,8 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
 
 test('a pose with an animated loop shows the loop, whole and within the Svg size limit, and its still picture elsewhere', () => {
   const working = sprite('writing', 4)
-  expect(working).toContain('<image id="art-o" href="data:image/webp;base64,')
+  // named, so the floating window can swap in its sharp copy (/anim/<name>.webp)
+  expect(working).toContain('<image id="art-o" data-loop="etapa4/trabajando-oscuro" href="data:image/webp;base64,')
   expect(working).toContain('<image id="art-c" href="data:image/png;base64,')
   expect(working.length).toBeLessThan(131072)
   expect(sprite('idle', 4)).not.toContain('data:image/webp')

@@ -1,5 +1,6 @@
 # Turns a Veo video of one of Narsil's poses (made from tools/anim-sources.ps1)
-# into her animated loop, assets/anim/[etapa<N>/]<pose>-<theme>.webp, then
+# into her animated loop, assets/anim/[etapa<N>/]<pose>-<theme>.webp, and its
+# sharp copy for the floating window, assets/anim-hq/ alike, then
 # embeds the loops (tools/build-animated.ps1). The video's green is keyed out
 # and its audio dropped; the loop's end fades into its start; the quality is
 # the best that keeps the loop within -TargetKB, so both themes' loops fit the
@@ -41,16 +42,18 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 $out = Join-Path $dir "$Pose-$Theme.webp"
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "narsil-$PID.webp"
 
-function Encode([int]$quality, [int]$height, [double]$seconds) {
-  # A hard, binary edge, shrunk a pixel: a soft one costs some 45 KB, and the
-  # pixel takes the green fringe with it.
-  $fc = "[0:v]trim=0:$($seconds + $FADE),setpts=PTS-STARTPTS,crop=${cw}:${ch}:${cx}:${cy},fps=$Fps,scale=-2:${height}:flags=lanczos,format=rgba,$KEY,split[c1][c2];" +
-    "[c1]alphaextract,erosion,lut=y='if(gt(val\,128)\,255\,0)'[al];[c2][al]alphamerge,split[a][b];" +
+# Edge: a hard, binary edge shrunk a pixel for the band (a soft one costs some
+# 45 KB there), the pixel taking the green fringe with it; softened for the window.
+$HARD = "erosion,lut=y='if(gt(val\,128)\,255\,0)'"
+$SOFT = 'erosion,gblur=sigma=0.8'
+function Encode([int]$quality, [int]$height, [double]$seconds, [int]$fps = $Fps, [string]$edge = $HARD, [string]$to = $tmp) {
+  $fc = "[0:v]trim=0:$($seconds + $FADE),setpts=PTS-STARTPTS,crop=${cw}:${ch}:${cx}:${cy},fps=$fps,scale=-2:${height}:flags=lanczos,format=rgba,$KEY,split[c1][c2];" +
+    "[c1]alphaextract,$edge[al];[c2][al]alphamerge,split[a][b];" +
     "[a]trim=start=$FADE,setpts=PTS-STARTPTS[m];[b]trim=0:$FADE,setpts=PTS-STARTPTS[h];" +
     "[m][h]xfade=transition=fade:duration=${FADE}:offset=$($seconds - $FADE),format=yuva420p[v]"
-  & $FFMPEG -v error -y -i $Video -filter_complex $fc -map '[v]' -an -c:v libwebp_anim -lossless 0 -quality $quality -compression_level 6 -loop 0 $tmp
+  & $FFMPEG -v error -y -i $Video -filter_complex $fc -map '[v]' -an -c:v libwebp_anim -lossless 0 -quality $quality -compression_level 6 -loop 0 $to
   if ($LASTEXITCODE -ne 0) { throw 'ffmpeg failed' }
-  return (Get-Item $tmp).Length
+  return (Get-Item $to).Length
 }
 
 # The best quality within the target: a binary search, then smaller if even
@@ -69,4 +72,13 @@ foreach ($try in @(@{ h = $Height; s = $Seconds }, @{ h = $Height - 12; s = $Sec
 Remove-Item $tmp -ErrorAction SilentlyContinue
 if (-not $best) { throw "no loop within $TargetKB KB: ask Veo for less motion" }
 Write-Output ("{0}: quality {1}, {2} px, {3} s, {4:N1} KB" -f $out, $best.q, $best.h, $best.s, ($best.size / 1KB))
+
+# The floating window's sharp copy: no size limit there (overlay/server.cjs
+# serves it), the same crop and length so it lands where the small one does.
+$hqDir = Join-Path $root "assets\anim-hq\$sub"
+New-Item -ItemType Directory -Force $hqDir | Out-Null
+$hq = Join-Path $hqDir "$Pose-$Theme.webp"
+# She is some 93 px tall there: 200 px stays sharp on a 2x screen.
+$hqSize = Encode 75 200 $best.s 12 $SOFT $hq
+Write-Output ("{0}: 200 px, 12 fps, {1:N0} KB" -f $hq, ($hqSize / 1KB))
 powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-animated.ps1')
