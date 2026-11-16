@@ -38,7 +38,9 @@ foreach ($line in $log) {
 if ($x1 -lt 0) { throw "no character found in $Video (is the background pure green?)" }
 $pad = 6
 $cx = [Math]::Max(0, $x0 - $pad); $cy = [Math]::Max(0, $y0 - $pad)
-$cw = 2 * [int](($x1 - $cx + $pad + 1) / 2); $ch = 2 * [int](($y1 - $cy + $pad + 1) / 2)
+$size = (& (Join-Path (Split-Path $FFMPEG) 'ffprobe.exe') -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 $Video) -split ','
+$cw = [Math]::Min(2 * [int](($x1 - $cx + $pad + 1) / 2), 2 * [Math]::Floor(([int]$size[0] - $cx) / 2))
+$ch = [Math]::Min(2 * [int](($y1 - $cy + $pad + 1) / 2), 2 * [Math]::Floor(([int]$size[1] - $cy) / 2))
 
 $sub = if ($Stage -gt 1) { "etapa$Stage" } else { '' }
 $dir = Join-Path $root "assets\anim\$sub"

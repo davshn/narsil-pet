@@ -94,21 +94,23 @@ public static class GreenKey {
 }
 '@
 
-# What she does in each pose's loop: small, so the loop stays light (S5);
-# each keeps its pose, the sleeping one her eyes shut (S4).
+# What she does in each pose's loop: clear motion of her body, head and fins,
+# while the water stays calm (its churn costs the band's loop its sharpness);
+# she keeps her pose and place, so the loop closes on her picture (Flow: first
+# and last frame); the sleeping one keeps her eyes shut (S4).
 $motion = @{
-  hola       = "her 'greeting' state: she bobs her head in a small friendly nod, smiles, and her fins wave softly"
-  trabajando = "her 'focused, working' state: her head stays mostly still with a concentrated look and she blinks once, her body breathes and pulses very gently, her fins flutter slightly, and any small details on her body glow softly"
-  necesita   = "her 'waiting for you' state: she looks toward the viewer expectantly, tilts her head slightly once and back, blinks once, and her body sways very gently"
-  parada     = "her 'asleep' state: her eyes stay CLOSED the whole time, she never opens them or blinks; she breathes slowly and deeply, her body rising and falling very gently, and a few tiny bubbles drift up"
-  terminado  = "her 'job done' state: she looks proud and happy, gives a small pleased sway, and her fins flutter softly"
-  error      = "her 'something went wrong' state: she keeps the same worried expression and gives a small nervous shiver now and then, her fins drooping slightly"
+  hola       = "her 'greeting' state: she happily nods her head toward the viewer twice, her body sways side to side in a cheerful S-shaped wave, her fins and crest wave"
+  trabajando = "her 'focused, working' state: she concentrates with a determined look and blinks, her coiled body undulates in a steady rhythmic wave like she is busy, her fins flutter, any details on her body glow and pulse"
+  necesita   = "her 'waiting for you' state: she leans toward the viewer expectantly, tilts her head curiously to one side and back, blinks, and her body sways in a gentle wave while her fins flutter"
+  parada     = "her 'asleep' state: her eyes stay CLOSED the whole time, she never opens them or blinks; she breathes slowly and deeply with her whole body rising and falling, her head bobs softly as she dozes, her fins drift, and small bubbles float up"
+  terminado  = "her 'job done' state: she is proud and joyful, does a happy little wiggle of her whole body, bobs her head, her fins and crest flap with delight"
+  error      = "her 'something went wrong' state: she keeps her worried expression, flinches back a little and shivers, shakes her head slightly, her fins droop and tremble"
 }
 
 function Get-Prompt([string]$pose) {
   "Create a SILENT video from this image: no audio at all, no music, no sound effects, no water sounds. " +
   "Animate this exact character as a seamless loop of $($motion[$pose]). " +
-  'Keep the motion SUBTLE and small; any water at her base barely moves. ' +
+  'Her motion is clear and smooth, the water at her base stays calm and nearly still, and she ends exactly as she started. ' +
   'Keep the character identical in design, colors, expression, pose, size and position; the whole character stays fully visible with the green margin around her, never cropped. ' +
   'Static locked camera, no zoom, no pan, no cuts. ' +
   'Keep the background the exact same flat pure green (#00FF00), uniform, no shadows, no gradients, no lighting changes. ' +
