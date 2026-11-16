@@ -9,6 +9,7 @@ const assert = require('assert')
 const childProcess = require('child_process')
 const { EventEmitter } = require('events')
 const http = require('http')
+const net = require('net')
 const os = require('os')
 const path = require('path')
 
@@ -161,6 +162,28 @@ check('a window Edge hands to its running instance is not opened a second time',
   await request('POST', '/window?on=1', { headers: mod })
   await wait(50)
   assert.equal(launches.length, 1, 'no second window while the profile runs')
+})
+
+// Sends a request line as is, which http.request would not let through.
+function rawRequest(target) {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => {
+      socket.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\n\r\n`)
+    })
+    let text = ''
+    socket.on('data', chunk => (text += chunk))
+    socket.on('end', () => resolve(text))
+    socket.on('error', reject)
+  })
+}
+
+check('a request path no URL can be made of is refused, and the server keeps answering', async () => {
+  for (const target of ['//', 'http://']) {
+    const reply = await rawRequest(target)
+    assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
+  }
+  await wait(50)
+  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
 })
 
 ;(async () => {

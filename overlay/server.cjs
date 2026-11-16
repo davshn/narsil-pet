@@ -316,10 +316,17 @@ function readBody(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://127.0.0.1:${port}`)
   const send = (status, type, body) => {
     res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store' })
     res.end(body)
+  }
+  // A request line such as "GET // HTTP/1.1" makes no URL; throwing here
+  // would reject this async handler and end the whole server.
+  let url
+  try {
+    url = new URL(req.url, `http://127.0.0.1:${port}`)
+  } catch {
+    return send(400, 'text/plain', 'bad request')
   }
   if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
