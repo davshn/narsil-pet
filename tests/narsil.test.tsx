@@ -8,6 +8,7 @@ import { emptyStats, isClaudesCall, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { VOICE, say } from '../hooks/words'
 import { ART } from '../hooks/art'
+import { ANIMATED } from '../hooks/art/animated'
 import { sprite } from '../hooks/sprite'
 import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, toBase64Url, unseal as openSealed } from '../hooks/seal'
 
@@ -115,7 +116,7 @@ function engine(
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 3' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 4' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
@@ -505,7 +506,7 @@ test('every state is drawn from the art, light and dark, within the Svg size lim
   for (const mood of moods) {
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
-      expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+      expect(svg.match(/href="data:image\/(png|webp);base64,/g)?.length).toBe(2)
       expect(svg.length).toBeLessThan(131072)
     }
   }
@@ -526,7 +527,7 @@ test('the desktop band draws Narsil as an image, the only way it shows the embed
   const art = await ui.find({ type: 'Svg' })
   expect(art).toBeDefined()
   expect(art?.props.isInteractive).toBeUndefined()
-  expect(String(art?.props.source)).toContain('data:image/png;base64,')
+  expect(String(art?.props.source)).toMatch(/data:image\/(png|webp);base64,/)
   await ui.unmount()
 })
 
@@ -1274,6 +1275,12 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
     for (let stage = 1; stage <= 5; stage++) {
       const svg = sprite(mood, stage)
       for (const id of ['c', 'o']) {
+        // an animated loop moves by itself, drawn whole
+        if (new RegExp(`<image id="art-${id}" data-loop="[^"]+" href="data:image/webp`).test(svg)) {
+          expect(bandsOf(svg, id).length).toBe(0)
+          expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
+          continue
+        }
         const bands = bandsOf(svg, id)
         expect(bands.length).toBe(10)
         expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(bands.length)
@@ -1285,10 +1292,56 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
   }
 })
 
+test('a pose with an animated loop shows the loop, whole and within the Svg size limit, and its still picture elsewhere', () => {
+  const poseOf = { greeting: 'hola', writing: 'trabajando', asking: 'necesita', idle: 'parada', celebrating: 'terminado', failed: 'error' } as const
+  let loops = 0
+  for (let stage = 1; stage <= 5; stage++) {
+    for (const [mood, pose] of Object.entries(poseOf) as [keyof typeof poseOf, string][]) {
+      const svg = sprite(mood, stage)
+      expect(svg.length).toBeLessThan(131072)
+      for (const [id, theme] of [['c', 'claro'], ['o', 'oscuro']] as const) {
+        const name = stage === 1 ? `${pose}-${theme}` : `etapa${stage}/${pose}-${theme}`
+        if (ANIMATED[stage]?.[theme]?.[pose]) {
+          loops++
+          // named, so the floating window can swap in its sharp copy (/anim/<name>.webp)
+          expect(svg).toContain(`<image id="art-${id}" data-loop="${name}" href="data:image/webp;base64,`)
+        } else {
+          expect(svg).toContain(`<image id="art-${id}" href="data:image/png;base64,`)
+        }
+      }
+    }
+  }
+  expect(loops).toBeGreaterThan(0)
+})
+
+test('two loops of the largest size tools/build-animated.ps1 lets in, one per theme, still fit the band at every stage and celebration', () => {
+  const largestLoop = 'data:image/webp;base64,'.length + Math.ceil((40 * 1024) / 3) * 4
+  const moods = ['greeting', 'idle', 'writing', 'asking', 'celebrating', 'failed'] as const
+  for (let stage = 1; stage <= 5; stage++) {
+    for (const mood of moods) {
+      for (const milestone of [undefined, { kind: 'level', level: 12, stage }, { kind: 'grew', level: 20, stage }] as const) {
+        const svg = sprite(mood, stage, milestone)
+        const pictures = [...svg.matchAll(/href="(data:image\/[^"]+)"/g)].reduce((sum, m) => sum + m[1]!.length, 0)
+        expect(svg.length - pictures + 2 * largestLoop).toBeLessThan(131072)
+      }
+    }
+  }
+})
+
 test('her body sways more toward the head, the wave runs from the head to the tail, and her head moves whole', () => {
+  // A still picture is cut in bands; an animated loop moves by itself. Drawn
+  // with a mood whose pose has no loop yet in either theme, at the stages asked.
+  const poseOf = { writing: 'trabajando', asking: 'necesita', idle: 'parada', failed: 'error', greeting: 'hola' } as const
+  const isStill = (mood: keyof typeof poseOf, stage: number) => !ANIMATED[stage]?.claro?.[poseOf[mood]] && !ANIMATED[stage]?.oscuro?.[poseOf[mood]]
+  const still = (stages: number[]) => (Object.keys(poseOf) as (keyof typeof poseOf)[]).find(mood => stages.every(stage => isStill(mood, stage)))
+  const mood = still([2])
+  const compared = still([1, 5])
+  // every pose animated at those stages: the bands are no longer drawn there
+  if (!mood || !compared) return
   // the state's ring is centered on her head, in each theme
-  const svg = sprite('writing', 2)
-  for (const [id, theme] of [['c', 'claro'], ['o', 'oscuro']] as const) {
+  const svg = sprite(mood, 2)
+  // (working's ring, the mark this check reads)
+  for (const [id, theme] of mood === 'writing' ? ([['c', 'claro'], ['o', 'oscuro']] as const) : []) {
     const headY = Number(new RegExp(String.raw`<g class="th-${theme}">.*?class="ring" cx="[\d.]+" cy="([\d.]+)"`).exec(svg)?.[1])
     expect(headY).toBeGreaterThan(0)
     expect(bandsOf(svg, id)[0]!.bottom).toBeGreaterThan(headY)
@@ -1303,7 +1356,7 @@ test('her body sways more toward the head, the wave runs from the head to the ta
     expect(bands[i]!.lag).toBeGreaterThan(bands[i - 1]!.lag)
   }
   // the grown serpent sways less than the hatchling
-  expect(sway(sprite('writing', 5))[0]!.a).toBeLessThan(sway(sprite('writing', 1))[0]!.a)
+  expect(sway(sprite(compared, 5))[0]!.a).toBeLessThan(sway(sprite(compared, 1))[0]!.a)
   for (const status of ['working', 'idle', 'waiting', 'done', 'error']) expect(svg).toContain(`.s-${status}{--sway:`)
 })
 
@@ -2248,7 +2301,7 @@ test('the celebrations stay within the Svg size limit at every stage', () => {
       expect(grown).toContain(`>¡ETAPA ${stage}!<`)
       for (const svg of [leveled, grown]) {
         expect(svg.length).toBeLessThan(131072)
-        expect(svg.match(/href="data:image\/png;base64,/g)?.length).toBe(2)
+        expect(svg.match(/href="data:image\/(png|webp);base64,/g)?.length).toBe(2)
       }
     }
   }
@@ -2266,10 +2319,11 @@ test('a stage draws its own art, its base pose where one is missing, and the sta
     expect(grown).toContain(String(ART[lastDark].oscuro?.trabajando.src))
     // stage 10 has none of its own, so it shows stage 9
     expect(sprite('writing', 10)).toContain('ETAPA9')
-    // the hatchling shows her own art in both themes
+    // the hatchling shows her own art in both themes: her loop where made
     const hatchling = sprite('writing', 1)
-    expect(hatchling).toContain(String(ART[1].claro?.trabajando.src))
-    expect(hatchling).toContain(String(ART[1].oscuro?.trabajando.src))
+    for (const theme of ['claro', 'oscuro'] as const) {
+      expect(hatchling).toContain(String(ANIMATED[1]?.[theme]?.trabajando?.src ?? ART[1][theme]?.trabajando.src))
+    }
   } finally {
     delete ART[9]
   }

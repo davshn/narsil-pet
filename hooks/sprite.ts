@@ -1,6 +1,7 @@
 import type { Milestone, Mood, Status } from '../types'
 import { ART } from './art'
 import type { Art } from './art'
+import { ANIMATED } from './art/animated'
 
 // Narsil, a chibi sea serpent, drawn from painted art (hooks/art.ts, made by
 // tools/build-art.ps1): one pose per state, a light and a dark version of
@@ -53,8 +54,13 @@ const THEMES: readonly Theme[] = ['claro', 'oscuro']
 // The picture of a mood in a theme at a stage of her growth, with the name of
 // the pose it shows. A pose not drawn yet for her stage shows her base pose of
 // that stage, and a stage not drawn yet in a theme the one before it.
-function art(mood: Mood, theme: Theme, stage: number): { pose: string; image: Art } {
+function art(mood: Mood, theme: Theme, stage: number): { pose: string; image: Art; isAnimated?: boolean } {
   const wanted = mood === 'greeting' ? 'hola' : POSE[statusOf(mood)]
+  // An animated loop of the pose, where one is made, moves by itself (each
+  // some 40 KB: the band takes no drawing over 131072 characters).
+  const loop = ANIMATED[stage]?.[theme]?.[wanted]
+  // Its layout is the still picture's: both are cropped to her.
+  if (loop) return { pose: stage === 1 ? `${wanted}-${theme}` : `etapa${stage}/${wanted}-${theme}`, image: loop, isAnimated: true }
   const other: Theme = theme === 'claro' ? 'oscuro' : 'claro'
   for (const t of [theme, other]) {
     for (let s = stage; s >= 1; s--) {
@@ -367,10 +373,13 @@ function aura(status: Status, id: string, strength: number): string {
 // Her picture in one theme: the state's mark around her head and the picture
 // itself, defined once in the root <defs> (pictureDefs).
 function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
-  const { pose, image } = art(mood, theme, stage)
+  const { pose, image, isAnimated } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
-  return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>${cuts(id, at.headY)}`
+  // A loop names itself, so the floating window can swap in its sharper copy
+  // (assets/anim-hq, served by overlay/server.cjs at /anim/<loop>.webp).
+  const loop = isAnimated ? ` data-loop="${pose}"` : ''
+  return `<image id="art-${id}"${loop} href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>${isAnimated ? '' : cuts(id, at.headY)}`
 }
 
 // Her body is cut across in bands, each swaying by itself, so she undulates.
@@ -407,7 +416,7 @@ function bands(id: string, amp: number): string {
 }
 
 function picture(mood: Mood, status: Status, theme: Theme, stage: number, milestone?: Milestone): string {
-  const { pose, image } = art(mood, theme, stage)
+  const { pose, image, isAnimated } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
   return (
@@ -415,7 +424,7 @@ function picture(mood: Mood, status: Status, theme: Theme, stage: number, milest
     (status === 'idle' ? '' : `<ellipse class="aura" cx="${BOX.centerX}" cy="${r1(BOX.top + BOX.height * 0.55)}" rx="${r1(at.width * 0.55)}" ry="${r1(BOX.height * 0.46)}" fill="url(#aura-${id})"/>`) +
     (milestone ? '' : badge(mood, status, at.headX, at.headY, theme)) +
     `<g>${grows(milestone)}<g class="whole"><g class="gesture">` +
-    bands(id, stageMotion(stage).amp) +
+    (isAnimated ? `<use href="#art-${id}"/>` : bands(id, stageMotion(stage).amp)) +
     `</g></g>${grows(milestone) ? '</g>' : ''}</g>` +
     `</g>`
   )

@@ -227,7 +227,51 @@
       return
     }
     const leaving = [...box.children]
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }))
+    const loops = [...svg.matchAll(/data-loop="([^"]+)" href="data:image\/webp;base64,[^"]*"/g)]
+    if (loops.length === 0) {
+      paint(svg, svg, leaving)
+      return
+    }
+    // Her animated loops, swapped for their sharp copies; the small ones stay
+    // if the server has none.
+    Promise.all(loops.map(m => sharpLoop(m[1]))).then(sharp => {
+      let markup = svg
+      loops.forEach((m, i) => {
+        if (sharp[i]) markup = markup.replace(m[0], `data-loop="${m[1]}" href="${sharp[i]}"`)
+      })
+      paint(svg, markup, leaving)
+    })
+  }
+
+  // Each sharp loop as a data URL (a drawing shown as an image loads nothing
+  // from outside), fetched once; null when there is none.
+  const sharpLoops = new Map()
+  function sharpLoop(name) {
+    if (!sharpLoops.has(name)) {
+      sharpLoops.set(
+        name,
+        fetch(`/anim/${name}.webp`)
+          .then(r => (r.ok ? r.blob() : null))
+          .then(blob => blob && new Promise(resolve => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result)
+            reader.onerror = () => resolve(null)
+            reader.readAsDataURL(blob)
+          }))
+          .catch(() => null)
+          // None yet is asked again next time: it may be made meanwhile.
+          .then(url => {
+            if (!url) sharpLoops.delete(name)
+            return url
+          }),
+      )
+    }
+    return sharpLoops.get(name)
+  }
+
+  function paint(svg, markup, leaving) {
+    const box = $('sprite')
+    const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }))
     const image = new Image()
     image.alt = ''
     image.draggable = false

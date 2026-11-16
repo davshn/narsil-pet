@@ -49,6 +49,8 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'overlay.html'), 'utf8').repla
 const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`])
 // The window's icon on the taskbar (tools/build-icon.ps1).
 const ICON = fs.readFileSync(path.join(__dirname, 'icon.png'))
+// Narsil's sharp animated loops, by [etapa<N>/]<pose>-<theme>.webp.
+const ANIM_HQ = path.join(__dirname, '..', 'assets', 'anim-hq')
 const POWERSHELL = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File']
 
 // One entry per conversation, as its own mod last reported it. Kept for
@@ -332,10 +334,20 @@ const server = http.createServer(async (req, res) => {
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
   const isPage = isTrusted || req.headers['x-narsil-page'] === PAGE_KEY
 
-  // The protocol, as the mod checks it: "narsil 3" serves every conversation to the mods.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 3')
+  // The protocol, as the mod checks it: "narsil 4" also serves Narsil's sharp loops.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 4')
   if (req.method === 'GET' && url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE)
   if (req.method === 'GET' && (url.pathname === '/icon.png' || url.pathname === '/favicon.ico')) return send(200, 'image/png', ICON)
+  // Her sharp loops, for the page only: the drawing carries the small ones
+  // the band fits (tools/encode-anim.ps1 makes both).
+  const loop = req.method === 'GET' && /^\/anim\/((?:etapa[2-5]\/)?[a-z]+-(?:claro|oscuro))\.webp$/.exec(url.pathname)
+  if (loop) {
+    try {
+      return send(200, 'image/webp', await fs.promises.readFile(path.join(ANIM_HQ, `${loop[1]}.webp`)))
+    } catch {
+      return send(404, 'text/plain', 'not found')
+    }
+  }
   if (req.method === 'GET' && url.pathname === '/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' })
     res.write(`data: ${snapshot()}\n\n`)

@@ -68,6 +68,7 @@ class FakeImage extends Element {
   }
 }
 let source = null
+const fetched = []
 const byId = new Map()
 const context = vm.createContext({
   document: {
@@ -100,7 +101,19 @@ const context = vm.createContext({
   setInterval() {},
   requestAnimationFrame: run => run(),
   addEventListener() {},
-  fetch: () => Promise.resolve(),
+  // the server's sharp loops: one for etapa4/trabajando-oscuro, none else
+  fetch: url => {
+    if (!String(url).startsWith('/anim/')) return Promise.resolve()
+    fetched.push(url)
+    const isMade = url === '/anim/etapa4/trabajando-oscuro.webp'
+    return Promise.resolve({ ok: isMade, blob: () => Promise.resolve({ url }) })
+  },
+  FileReader: class {
+    readAsDataURL(blob) {
+      this.result = `data:image/webp;base64,SHARP${blob.url}`
+      Promise.resolve().then(() => this.onload())
+    }
+  },
   screenX: 0,
   screenY: 0,
   outerWidth: 300,
@@ -150,6 +163,20 @@ async function main() {
   send('<svg>E</svg>')
   await advance(1000)
   assert.equal(blobs.length, 4, 'back to the drawing on show before its turn: no redraw')
+
+  // her animated loops: the window draws the sharp copy the server has, once fetched
+  const looped = (name, n) => `<svg>${n}<image id="art-o" data-loop="${name}" href="data:image/webp;base64,small"/></svg>`
+  await advance(1000)
+  send(looped('etapa4/trabajando-oscuro', 1))
+  await advance(1000)
+  assert.ok(blobs.at(-1).includes('data-loop="etapa4/trabajando-oscuro" href="data:image/webp;base64,SHARP/anim/etapa4/trabajando-oscuro.webp"'), 'the sharp copy is drawn')
+  assert.ok(!blobs.at(-1).includes('base64,small'), 'in place of the small one')
+  send(looped('etapa4/trabajando-oscuro', 2))
+  await advance(1000)
+  assert.deepEqual(fetched, ['/anim/etapa4/trabajando-oscuro.webp'], 'fetched once')
+  send(looped('etapa3/hola-claro', 3))
+  await advance(1000)
+  assert.ok(blobs.at(-1).includes('href="data:image/webp;base64,small"'), 'with no sharp copy the small one stays')
 
   send('')
   await settle()

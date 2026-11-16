@@ -43,7 +43,7 @@ function request(method, url, { host = `127.0.0.1:${port}`, headers = {}, body }
     const req = http.request({ host: '127.0.0.1', port, method, path: url, headers: { host, ...headers } }, res => {
       let text = ''
       res.on('data', chunk => (text += chunk))
-      res.on('end', () => resolve({ status: res.statusCode, text }))
+      res.on('end', () => resolve({ status: res.statusCode, text, type: res.headers['content-type'] }))
     })
     req.on('error', reject)
     if (body) req.write(body)
@@ -68,7 +68,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 3', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 4', 'the protocol the mod checks')
 })
 
 check("the page's actions need its key", async () => {
@@ -136,13 +136,28 @@ check('a conversation that stops beating stays listed for an hour, then goes unt
   }
 })
 
+check("Narsil's sharp loops are served by name from assets/anim-hq, nothing else, at this address only", async () => {
+  const fs = require('fs')
+  const made = fs.existsSync(path.join(__dirname, '..', 'assets', 'anim-hq', 'etapa4', 'trabajando-oscuro.webp'))
+  const loop = await request('GET', '/anim/etapa4/trabajando-oscuro.webp')
+  if (made) {
+    assert.equal(loop.status, 200)
+    assert.equal(loop.type, 'image/webp')
+  }
+  assert.equal((await request('GET', '/anim/etapa4/nada-oscuro.webp')).status, 404)
+  for (const url of ['/anim/../hooks/register.tsx', '/anim/etapa9/hola-oscuro.webp', '/anim/etapa4/hola-gris.webp', '/anim/%2e%2e/overlay/server.cjs']) {
+    assert.equal((await request('GET', url)).status, 404, url)
+  }
+  assert.equal((await request('GET', '/anim/etapa4/trabajando-oscuro.webp', { host: `attacker.example:${port}` })).status, 403)
+})
+
 check('the window turns on and off for the mod alone, and the server stays', async () => {
   assert.equal((await request('POST', '/window?on=0')).status, 403)
   const mod = { 'x-narsil-token': 'mod-token' }
   assert.equal((await request('POST', '/window?on=0', { headers: mod })).status, 204)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
   assert.equal((await request('POST', '/window?on=1', { headers: mod })).status, 204)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 3')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
 })
 
 check('a window Edge hands to its running instance is not opened a second time', async () => {
