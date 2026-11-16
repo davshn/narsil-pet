@@ -14,13 +14,17 @@ param(
   [int]$TargetKB = 38,
   [double]$Seconds = 3,
   [int]$Fps = 6,
-  [int]$Height = 128
+  [int]$Height = 128,
+  # The seconds the loop's end fades into its start; 0 for a video that already
+  # ends where it starts (Flow, with her picture as both first and last frame):
+  # then the loop is its first -Seconds, as they are.
+  [double]$Fade = 0.5
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'ffmpeg.ps1')
 $KEY = 'colorkey=0x00FF00:0.28:0.06'
-$FADE = 0.5
+$FADE = $Fade
 
 # Where she is over the whole video: the union of her bounds in every frame.
 $log = cmd /c "`"$FFMPEG`" -hide_banner -i `"$Video`" -an -vf format=rgba,$KEY,alphaextract,bbox=min_val=128 -f null - 2>&1"
@@ -48,9 +52,11 @@ $HARD = "erosion,lut=y='if(gt(val\,128)\,255\,0)'"
 $SOFT = 'erosion,gblur=sigma=0.8'
 function Encode([int]$quality, [int]$height, [double]$seconds, [int]$fps = $Fps, [string]$edge = $HARD, [string]$to = $tmp) {
   $fc = "[0:v]trim=0:$($seconds + $FADE),setpts=PTS-STARTPTS,crop=${cw}:${ch}:${cx}:${cy},fps=$fps,scale=-2:${height}:flags=lanczos,format=rgba,$KEY,split[c1][c2];" +
-    "[c1]alphaextract,$edge[al];[c2][al]alphamerge,split[a][b];" +
-    "[a]trim=start=$FADE,setpts=PTS-STARTPTS[m];[b]trim=0:$FADE,setpts=PTS-STARTPTS[h];" +
-    "[m][h]xfade=transition=fade:duration=${FADE}:offset=$($seconds - $FADE),format=yuva420p[v]"
+    "[c1]alphaextract,$edge[al];[c2][al]alphamerge" +
+    $(if ($FADE -gt 0) {
+      ",split[a][b];[a]trim=start=$FADE,setpts=PTS-STARTPTS[m];[b]trim=0:$FADE,setpts=PTS-STARTPTS[h];" +
+      "[m][h]xfade=transition=fade:duration=${FADE}:offset=$($seconds - $FADE),format=yuva420p[v]"
+    } else { ',format=yuva420p[v]' })
   & $FFMPEG -v error -y -i $Video -filter_complex $fc -map '[v]' -an -c:v libwebp_anim -lossless 0 -quality $quality -compression_level 6 -loop 0 $to
   if ($LASTEXITCODE -ne 0) { throw 'ffmpeg failed' }
   return (Get-Item $to).Length
@@ -60,11 +66,13 @@ function Encode([int]$quality, [int]$height, [double]$seconds, [int]$fps = $Fps,
 # the lowest quality is too big.
 $limit = $TargetKB * 1024
 $best = $null
-foreach ($try in @(@{ h = $Height; s = $Seconds }, @{ h = $Height - 12; s = $Seconds }, @{ h = $Height - 12; s = $Seconds - 0.5 })) {
+# Without a fade, cutting the loop shorter would break it: fewer frames instead.
+$last = if ($FADE -gt 0) { @{ h = $Height - 12; s = $Seconds - 0.5; f = $Fps } } else { @{ h = $Height - 12; s = $Seconds; f = $Fps - 1 } }
+foreach ($try in @(@{ h = $Height; s = $Seconds; f = $Fps }, @{ h = $Height - 12; s = $Seconds; f = $Fps }, $last)) {
   $lo = 15; $hi = 70
   while ($lo -le $hi) {
     $q = [int](($lo + $hi) / 2)
-    $size = Encode $q $try.h $try.s
+    $size = Encode $q $try.h $try.s $try.f
     if ($size -le $limit) { $best = @{ q = $q; h = $try.h; s = $try.s; size = $size }; Copy-Item $tmp $out -Force; $lo = $q + 1 } else { $hi = $q - 1 }
   }
   if ($best) { break }
