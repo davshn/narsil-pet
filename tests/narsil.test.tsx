@@ -1300,6 +1300,20 @@ test('a pose with an animated loop shows the loop, whole and within the Svg size
   expect(sprite('writing', 3)).not.toContain('data:image/webp')
 })
 
+test('two loops of the largest size tools/build-animated.ps1 lets in, one per theme, still fit the band at every stage and celebration', () => {
+  const largestLoop = 'data:image/webp;base64,'.length + Math.ceil((40 * 1024) / 3) * 4
+  const moods = ['greeting', 'idle', 'writing', 'asking', 'celebrating', 'failed'] as const
+  for (let stage = 1; stage <= 5; stage++) {
+    for (const mood of moods) {
+      for (const milestone of [undefined, { kind: 'level', level: 12, stage }, { kind: 'grew', level: 20, stage }] as const) {
+        const svg = sprite(mood, stage, milestone)
+        const pictures = [...svg.matchAll(/href="(data:image\/[^"]+)"/g)].reduce((sum, m) => sum + m[1]!.length, 0)
+        expect(svg.length - pictures + 2 * largestLoop).toBeLessThan(131072)
+      }
+    }
+  }
+})
+
 test('her body sways more toward the head, the wave runs from the head to the tail, and her head moves whole', () => {
   // the state's ring is centered on her head, in each theme
   const svg = sprite('writing', 2)

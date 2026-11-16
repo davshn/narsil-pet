@@ -10,6 +10,7 @@ Branch: `feat/animated-poses` · Delivery: ask-on-risk · Tests: `claude plugin 
 - **S3 Original color, in the chat band.** "me gustaria que tuviera el color original, y sobretodo que se viera en la banda de chat". The band's `Svg` takes at most 131072 characters (host contract, `SvgProps.source`), both themes included.
 - **S4 Pose fidelity.** "la version idle que es la dormida parpadea, lo que es curioso": each loop is generated from its own pose's picture and keeps that pose (the sleeping one keeps her eyes closed).
 - **S5 Quality within the limit.** "no podemos directamente generarla con menos tamano para ahorrar limite? se ve algomas delgado y algo pixelado". Veo's output size does not change the cost; subtle motion and the encoder settings do. Assumption: about 38 KB of WebP per loop, so both themes fit the band at once.
+- **S7 Sharper in the floating window.** "en ventana externa podemos poner el video sin recortar? para que se vea mas nitido?" (proposed; the window has no 131072 limit).
 - **S6 All of them.** "si me agrada, vamos a cambiar todos": the poses shown (hola, trabajando, necesita, parada, terminado, error; `base` is only a fallback) at every stage 1-5, light and dark: 60 loops.
 
 ## Tasks
@@ -17,10 +18,11 @@ Branch: `feat/animated-poses` · Delivery: ask-on-risk · Tests: `claude plugin 
 | ID | Specs | Route | Status | Commit |
 | --- | --- | --- | --- | --- |
 | T1 | S1 S2 S3 | inline | done | stage 4 trabajando-oscuro loop + sprite support (see L3) |
-| T2 | S2 S3 S5 S6 | inline | in progress | tooling: sources, prompts, encoder, split module, two-theme budget |
+| T2 | S2 S3 S5 S6 | inline | done | tooling: sources, prompts, encoder, split module, two-theme budget (see L5) |
 | T3 | S4 S6 | inline | waiting on videos | stage 4, dark: hola, necesita, parada, terminado, error |
 | T4 | S4 S6 | inline | waiting on videos | stage 4, light: all six |
 | T5 | S4 S6 | inline | waiting on videos | stages 5, 3, 2, 1, both themes |
+| T6 | S7 | inline | proposed, waiting on the person | sharper loops in the floating window |
 
 ## Log
 
@@ -28,3 +30,5 @@ Branch: `feat/animated-poses` · Delivery: ask-on-risk · Tests: `claude plugin 
 - **L2** Findings: Veo outputs 720x1280 24 fps with an AAC track; a green (#00FF00) padded source image gives a clean key. The module loader refuses files over 1 MiB. `despill` turned her lilac: dropped; a 1 px alpha erosion removes the green fringe. A soft (blurred) alpha costs ~45 KB, too much.
 - **L3** Stage 4 `trabajando-oscuro`: 3 s, 6 fps, 128 px, q35, binary alpha → 41.8 KB; the stage 1 loop made from the awake `base` pose was removed (S4). Tests 136/137, the one failure pre-existing.
 - **L4** (2026-11-15) "si me agrada, vamos a cambiar todos". Video quota is the bottleneck (it ran out after two videos); the person launches the videos.
+- **L5** T2: `tools/anim-sources.ps1` writes the green source and its prompt for each missing loop to `~/Downloads/narsil-anim/etapa<N>/<pose>-<theme>.png|.txt` (59 made); holes are filled only when pure white, since the light theme's face is near-white with a tint. `tools/encode-anim.ps1 -Video -Stage -Pose -Theme` crops to her, keys, and searches the best quality within 38 KB (stage 4 trabajando: q30, 37.8 KB, 21 s); `tools/build-animated.ps1` writes one module per stage and theme and refuses a loop over 40 KB; a test proves two 40 KB loops fit the band at every stage and celebration. Tests 137/138, the failure pre-existing.
+- **L6** (2026-11-15) "en ventana externa podemos poner el video sin recortar? para que se vea mas nitido?"

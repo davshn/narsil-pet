@@ -59,7 +59,8 @@ function art(mood: Mood, theme: Theme, stage: number): { pose: string; image: Ar
   // An animated loop of the pose, where one is made, moves by itself (each
   // some 40 KB: the band takes no drawing over 131072 characters).
   const loop = ANIMATED[stage]?.[theme]?.[wanted]
-  if (loop) return { pose: `anim/etapa${stage}/${wanted}-${theme}`, image: loop, isAnimated: true }
+  // Its layout is the still picture's: both are cropped to her.
+  if (loop) return { pose: stage === 1 ? `${wanted}-${theme}` : `etapa${stage}/${wanted}-${theme}`, image: loop, isAnimated: true }
   const other: Theme = theme === 'claro' ? 'oscuro' : 'claro'
   for (const t of [theme, other]) {
     for (let s = stage; s >= 1; s--) {
@@ -129,7 +130,6 @@ const LAYOUT: Record<string, Layout> = {
   'etapa4/base-oscuro': { headX: 0.25, headY: 0.3 },
   'etapa4/hola-oscuro': { headX: 0.25, headY: 0.3 },
   'etapa4/trabajando-oscuro': { headX: 0.25, headY: 0.3 },
-  'anim/etapa4/trabajando-oscuro': { headX: 0.27, headY: 0.3 },
   'etapa4/necesita-oscuro': { headX: 0.25, headY: 0.3 },
   'etapa4/parada-oscuro': { headX: 0.25, headY: 0.3 },
   'etapa4/terminado-oscuro': { headX: 0.3, headY: 0.27 },
