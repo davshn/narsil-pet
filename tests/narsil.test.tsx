@@ -2319,10 +2319,11 @@ test('a stage draws its own art, its base pose where one is missing, and the sta
     expect(grown).toContain(String(ART[lastDark].oscuro?.trabajando.src))
     // stage 10 has none of its own, so it shows stage 9
     expect(sprite('writing', 10)).toContain('ETAPA9')
-    // the hatchling shows her own art in both themes
+    // the hatchling shows her own art in both themes: her loop where made
     const hatchling = sprite('writing', 1)
-    expect(hatchling).toContain(String(ART[1].claro?.trabajando.src))
-    expect(hatchling).toContain(String(ART[1].oscuro?.trabajando.src))
+    for (const theme of ['claro', 'oscuro'] as const) {
+      expect(hatchling).toContain(String(ANIMATED[1]?.[theme]?.trabajando?.src ?? ART[1][theme]?.trabajando.src))
+    }
   } finally {
     delete ART[9]
   }
