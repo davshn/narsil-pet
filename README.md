@@ -5,6 +5,10 @@
   <img src="assets/readme/greeting-oscuro.svg" width="150" alt="Narsil saluda (modo oscuro)">
 </p>
 
+> **Narsil Workshop · [narsil.davshn.tech](https://narsil.davshn.tech)**
+>
+> Un taller gratuito, en español, inglés, italiano, francés y portugués de Brasil, que enseña paso a paso a construir mods de Claude Code como Narsil y [Narsil Check](https://github.com/davshn/narsil-check), y a montar un bot de escritorio de Narsil con cuerpo: una pantalla táctil ESP32-P4 en la barriga y una cabeza holográfica ESP32-S3, que habla con Xiaozhi y Claude desde tu propio servidor y muestra tus pull requests de GitHub y el estado de Narsil. Sin registro, sin analítica, y nunca te pide tokens ni claves.
+
 Narsil es una serpiente marina chibi que vive encima del prompt de Claude Code y te muestra de un vistazo qué está haciendo Claude: si trabaja, si espera tu respuesta, si ha terminado o si algo ha fallado. Te avisa con su voz y con una ventana flotante cuando la necesitas, te da consejos sobre el trabajo en curso y vigila el uso del contexto y de tus límites.
 
 Su nombre viene de la espada reforjada de *El Señor de los Anillos*: Narsil está aquí para cortar bugs.
