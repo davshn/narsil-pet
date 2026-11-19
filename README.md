@@ -1,216 +1,218 @@
 # Narsil
 
 <p align="center">
-  <img src="assets/readme/greeting-claro.svg" width="150" alt="Narsil saluda (modo claro)">
-  <img src="assets/readme/greeting-oscuro.svg" width="150" alt="Narsil saluda (modo oscuro)">
+  <img src="assets/readme/greeting-claro.svg" width="150" alt="Narsil says hello (light mode)">
+  <img src="assets/readme/greeting-oscuro.svg" width="150" alt="Narsil says hello (dark mode)">
 </p>
 
 > **Narsil Workshop · [narsil.davshn.tech](https://narsil.davshn.tech)**
 >
-> Un taller gratuito, en español, inglés, italiano, francés y portugués de Brasil, que enseña paso a paso a construir mods de Claude Code como Narsil y [Narsil Check](https://github.com/davshn/narsil-check), y a montar un bot de escritorio de Narsil con cuerpo: una pantalla táctil ESP32-P4 en la barriga y una cabeza holográfica ESP32-S3, que habla con Xiaozhi y Claude desde tu propio servidor y muestra tus pull requests de GitHub y el estado de Narsil. Sin registro, sin analítica, y nunca te pide tokens ni claves.
+> A free workshop, in English, Spanish, Italian, French, and Brazilian Portuguese, that teaches step by step how to build Claude Code mods like Narsil and [Narsil Check](https://github.com/davshn/narsil-check), and how to build a Narsil desk bot with a body: an ESP32-P4 touch screen in the belly and a holographic ESP32-S3 head, which talks through Xiaozhi and Claude on your own server and shows your GitHub pull requests and the Narsil status. No sign-up, no analytics, and it never asks for tokens or keys.
 
-Narsil es una serpiente marina chibi que vive encima del prompt de Claude Code y te muestra de un vistazo qué está haciendo Claude: si trabaja, si espera tu respuesta, si ha terminado o si algo ha fallado. Te avisa con su voz y con una ventana flotante cuando la necesitas, te da consejos sobre el trabajo en curso y vigila el uso del contexto y de tus límites.
+Narsil is a chibi sea serpent that lives above the Claude Code prompt and shows you at a glance what Claude is doing: whether it is working, waiting for your answer, done, or whether something failed. She alerts you with her voice and with a floating window when you are needed, gives you tips about the work in progress, and keeps an eye on context use and your usage limits.
 
-Su nombre viene de la espada reforjada de *El Señor de los Anillos*: Narsil está aquí para cortar bugs.
+Her name comes from the reforged sword in *The Lord of the Rings*: Narsil is here to cut bugs.
 
-Es un mod de Claude Code de **código abierto**, publicado bajo la licencia [GPL v3](#licencia).
+It is an **open source** Claude Code mod, released under the [GPL v3](#license) license.
 
-## Índice
+> **Language note:** Narsil's interface, commands, and voice are in Spanish. This README keeps those labels as they appear on screen, with their English meaning next to them.
 
-- [Funcionalidades](#funcionalidades)
-- [Animaciones](#animaciones)
-- [Instalación](#instalación)
-- [Comandos](#comandos)
-- [Sistemas compatibles](#sistemas-compatibles)
-- [Otros mods de Narsil](#otros-mods-de-narsil)
-- [Desarrollo](#desarrollo)
-- [Licencia](#licencia)
+## Contents
 
-## Funcionalidades
+- [Features](#features)
+- [Animations](#animations)
+- [Installation](#installation)
+- [Commands](#commands)
+- [Supported systems](#supported-systems)
+- [Other Narsil mods](#other-narsil-mods)
+- [Development](#development)
+- [License](#license)
 
-### Estado de un vistazo
-Una banda encima del prompt muestra a Narsil con una postura y una animación propias de cada estado, una frase que dice exactamente qué hace Claude ("Estoy editando: register.tsx") y un comentario suyo. Los estados son:
+## Features
 
-| Estado | Cuándo |
+### Status at a glance
+A band above the prompt shows Narsil with a pose and an animation for each state, a line that says exactly what Claude is doing ("Estoy editando: register.tsx", *I'm editing: register.tsx*), and a comment of her own. The states are:
+
+| State | When |
 | --- | --- |
-| **TRABAJANDO** | Claude piensa, lee, busca, edita o ejecuta comandos. |
-| **PARADA** | La conversación espera tu mensaje. |
-| **TE NECESITA** | Hay una pregunta, un plan para aprobar o un permiso que decidir. |
-| **TERMINADA** | Claude ha terminado su respuesta. |
-| **ERROR** | El turno se ha detenido por un error. |
+| **TRABAJANDO** (working) | Claude is thinking, reading, searching, editing, or running commands. |
+| **PARADA** (idle) | The conversation is waiting for your message. |
+| **TE NECESITA** (needs you) | There is a question, a plan to approve, or a permission to decide. |
+| **TERMINADA** (done) | Claude has finished its answer. |
+| **ERROR** | The turn stopped because of an error. |
 
-La banda funciona en la terminal, en la app de escritorio, en VS Code y en la app móvil.
+The band works in the terminal, the desktop app, VS Code, and the mobile app.
 
-### Todas las conversaciones en un solo sitio
-Narsil es una sola para todas las conversaciones abiertas. Su dibujo y su titular muestran la más importante: primero un **ERROR**, luego lo que **TE NECESITA**, luego lo que está **TRABAJANDO** y por último lo **TERMINADO**. Si es otra conversación, el titular empieza por su nombre ("web: Me he detenido por un error"). Una conversación que no abres hace rato sigue en la lista con su último estado durante una hora, aunque la app la haya dormido. Pasada esa hora sin noticias sale de la lista, y así se van también las que borras; si vuelves a abrirla, reaparece al instante.
+### Every conversation in one place
+There is one Narsil for all open conversations. Her drawing and headline show the most important one: first an **ERROR**, then what **TE NECESITA** (needs you), then what is **TRABAJANDO** (working), and last what is **TERMINADA** (done). If it is another conversation, the headline starts with its name ("web: Me he detenido por un error", *web: I stopped because of an error*). A conversation you have not opened in a while stays on the list with its last state for one hour, even if the app has put it to sleep. After an hour with no news it leaves the list, and so do the ones you delete; if you open it again, it comes back right away.
 
-Debajo, la banda lista cada conversación con su estado, su nombre y su propia barra de contexto, de 4 en 4 (◂ ▸ para pasar de página). Esta conversación va siempre primera, con su barra en azul. La conversación abierta, que de entrada es esta, muestra bajo una línea:
+Below, the band lists each conversation with its state, its name, and its own context bar, 4 at a time (◂ ▸ to change page). This conversation always comes first, with its bar in blue. The open conversation, which is this one at first, shows under a line:
 
-- **Sus tareas**, con su estado (○ pendiente, ◐ en curso, ● hecha, ⟳ en segundo plano). Salen de `TodoWrite`, `TaskCreate`/`TaskUpdate`, del plan de la app de escritorio y del trabajo que sigue en segundo plano cuando Claude para.
-- **Sus subagentes**.
+- **Its tasks**, with their status (○ pending, ◐ in progress, ● done, ⟳ in the background). They come from `TodoWrite`, `TaskCreate`/`TaskUpdate`, the desktop app's plan, and the work that keeps running in the background when Claude stops.
+- **Its subagents**.
 
-Su contexto ya está en su fila: al pulsar su porcentaje aparecen sus tokens, cuándo se llenará y en qué se llena.
+Its context is already on its row: click its percentage to see its tokens, when it will fill up, and what is filling it.
 
-Al pulsar el nombre de otra conversación, se abre esa en su lugar.
+Click the name of another conversation to open that one instead.
 
-Cuando Narsil propone próximos pasos («➜ ¿Y ahora?», bajo su propia línea), las conversaciones se cierran para que se vean solas. Si abres una conversación, las propuestas se ocultan; al cerrarlas todas, vuelven.
+When Narsil suggests next steps ("➜ ¿Y ahora?", *what now?*, under their own line), the conversations collapse so the suggestions stand on their own. If you open a conversation, the suggestions hide; when you close them all, they come back.
 
-Para reunirlas, cada conversación manda su estado a un pequeño servidor local (el de la ventana flotante), que arranca con la primera conversación aunque la ventana esté desactivada.
+To bring them together, each conversation sends its state to a small local server (the floating window's server), which starts with the first conversation even if the window is turned off.
 
-### Ventana flotante
-Una pequeña ventana siempre visible que aparece cuando Claude está minimizado o cuando algo te espera, y se oculta sola cuando vuelves a Claude. Muestra a Narsil con la conversación más importante (o la del aviso que te espera), los límites de la cuenta y la lista de todas las conversaciones, con scroll si son muchas. Al pulsar una conversación se despliega con su contexto (la palabra «Contexto» muestra en qué se llena), sus tareas, sus subagentes, su caché y sus próximos pasos, y con un botón para abrirla. Si cierras la ventana, vuelve con el siguiente aviso (pasado un minuto).
+### Floating window
+A small always-visible window that appears when Claude is minimized or when something is waiting for you, and hides on its own when you go back to Claude. It shows Narsil with the most important conversation (or the one whose alert is waiting for you), the account limits, and the list of all conversations, scrolling if there are many. Click a conversation to expand it with its context (the word "Contexto" shows what is filling it), its tasks, its subagents, its cache, and its next steps, plus a button to open it. If you close the window, it comes back with the next alert (after one minute).
 
-En Windows aparece en la misma pantalla en la que está Claude, aunque tengas varios monitores.
+On Windows it appears on the same screen as Claude, even with several monitors.
 
-### Voz y avisos
-Narsil te avisa en voz alta, en español, cuando empieza a trabajar en tu prompt, cuando termina un turno, cuando una pregunta o un permiso te espera y cuando un turno falla. En cada momento elige al azar una de varias frases, para no repetir siempre la misma. En la app de escritorio, un turno que termina con una pregunta en el recuadro de siguiente paso te avisa como pregunta, con esa pregunta. Con la ventana flotante activada, el aviso aparece en ella; si la desactivas, llega como notificación del sistema.
+### Voice and alerts
+Narsil tells you out loud, in Spanish, when she starts working on your prompt, when a turn ends, when a question or a permission is waiting for you, and when a turn fails. Each time she picks one of several phrases at random, so she does not always repeat the same one. In the desktop app, a turn that ends with a question in the next-step box alerts you as a question, with that question. With the floating window on, the alert appears in it; if you turn it off, it arrives as a system notification.
 
-### Consejos
-Consejos sobre el trabajo en curso, generados con Haiku (esfuerzo medio): al terminar un turno, tras varios fallos seguidos o en un turno muy largo. El de fin de turno lee el diff de lo que se hizo (o el último commit, si ya se guardó) y comenta una decisión de diseño: por qué se hizo así, qué alternativa había y qué se gana o se pierde, o cómo mejorar esa funcionalidad. Nada de comprobaciones rutinarias como "ejecuta los tests" o "revisa el push"; tras varios fallos, en cambio, el consejo es de depuración. Se le pide que mencione algo concreto y que no invente datos. Con `/narsil consejo profundo` analiza la conversación completa. Las frecuencias son configurables y nunca frenan a Claude.
+### Tips
+Tips about the work in progress, generated with Haiku (medium effort): when a turn ends, after several failures in a row, or during a very long turn. The end-of-turn tip reads the diff of what was done (or the last commit, if it was already saved) and comments on a design decision: why it was done that way, what the alternative was and what is gained or lost, or how to improve that feature. No routine checks like "run the tests" or "check the push"; after several failures, on the other hand, the tip is about debugging. It is asked to mention something concrete and not to make up data. `/narsil consejo profundo` analyzes the whole conversation. The frequencies are configurable and never slow Claude down.
 
-En Windows y macOS cada consejo se abre completo en una ventanita propia con el icono de Narsil: encima de la ventana flotante si está a la vista y, si no, en la esquina del monitor donde está Claude (en macOS, donde está el ratón). No te quita el foco, se cierra sola a los 3 minutos o cuando llega otro consejo, y tiene un botón para volver a la conversación. Así la banda y la ventana flotante dejan ese espacio para lo demás. En los demás sistemas, el consejo se muestra en la banda y en la ventana flotante.
+On Windows and macOS each tip opens in full in its own small window with Narsil's icon: above the floating window if it is visible and, if not, in the corner of the monitor where Claude is (on macOS, where the mouse is). It does not steal focus, closes on its own after 3 minutes or when another tip arrives, and has a button to go back to the conversation. That way the band and the floating window keep that space for everything else. On other systems, the tip shows in the band and in the floating window.
 
-### Uso del contexto y de los límites
-Los límites de la cuenta (5 horas y semanal) aparecen una sola vez, con el tiempo que falta para que se reinicien. No hay una barra de contexto general: cada conversación tiene la suya, en su fila.
+### Context and limit usage
+The account limits (5-hour and weekly) appear only once, with the time left until they reset. There is no overall context bar: each conversation has its own, on its row.
 
-La barra de contexto de cada conversación calcula, al ritmo de los últimos 15 minutos, cuándo se llenará ("120k / 200k · lleno en ~20 min"). Cuando pasa del 70 % y quedan menos de 20 minutos (o en cuanto pasa del 85 %), Narsil te sugiere una vez usar `/compact`.
+Each conversation's context bar estimates, at the pace of the last 15 minutes, when it will fill up ("120k / 200k · lleno en ~20 min", *full in ~20 min*). When it passes 70 % and less than 20 minutes remain (or as soon as it passes 85 %), Narsil suggests using `/compact`, once.
 
-Pulsa el porcentaje de la conversación abierta, en su fila, y aparecen sus tokens, cuándo se llenará y el desglose de `/context`: cuánto ocupan los mensajes, el system prompt, las herramientas MCP, los archivos de memoria, la reserva de compactación y el espacio libre, cada parte con su porcentaje y sus tokens. Se calcula en local, sin peticiones extra, y se actualiza con cada medición. Otra pulsación lo cierra.
+Click the open conversation's percentage, on its row, to see its tokens, when it will fill up, and the `/context` breakdown: how much the messages, the system prompt, the MCP tools, the memory files, the compaction reserve, and the free space take up, each part with its percentage and tokens. It is calculated locally, with no extra requests, and updates with each measurement. Another click closes it.
 
-### Reacciones a lo que ejecuta Claude
-- **Tests**: celebra cuando pasan, se da cuenta cuando fallan y celebra cuando se recuperan. Reconoce npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle y más.
-- **Comandos peligrosos**: avisa antes de que se ejecute un comando sin vuelta atrás, como `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `git branch -D`, `Remove-Item -Recurse -Force`, `DROP TABLE`, `chmod -R 777` o `curl … | sh`. Solo avisa: nunca bloquea nada.
+### Reactions to what Claude runs
+- **Tests**: she celebrates when they pass, notices when they fail, and celebrates when they recover. She recognizes npm, pnpm, yarn, bun, vitest, jest, pytest, go, cargo, dotnet, maven, gradle, and more.
+- **Dangerous commands**: she warns you before a command that cannot be undone runs, such as `rm -rf`, `git push --force`, `git reset --hard`, `git clean -f`, `git branch -D`, `Remove-Item -Recurse -Force`, `DROP TABLE`, `chmod -R 777`, or `curl … | sh`. She only warns: she never blocks anything.
 
-### Reloj de la caché
-Cuando termina un turno, Narsil muestra cuánto le queda a la caché del prompt ("🧊 Caché: 42 min"), en verde mientras está fresca y en rojo cuando está a punto de caducar. Si vuelves a escribir antes de que llegue a cero, Claude reutiliza la conversación ya cacheada y el mensaje sale más barato. Al caducar avisa: "🧊 Caché fría: el próximo mensaje se cobra completo".
+### Cache clock
+When a turn ends, Narsil shows how much time the prompt cache has left ("🧊 Caché: 42 min"), in green while it is fresh and in red when it is about to expire. If you write again before it reaches zero, Claude reuses the already cached conversation and the message costs less. When it expires she warns you: "🧊 Caché fría: el próximo mensaje se cobra completo" (*cold cache: the next message is charged in full*).
 
-Con un plan de suscripción cuenta 60 minutos y con una clave de API, 5. La API no informa de la duración real, así que puedes fijarla con `/narsil cache <min>`. El reloj corre desde que empezó la última petición del turno, como mide la API, así que una respuesta larga ya gasta parte de ese tiempo.
+With a subscription plan it counts 60 minutes, and with an API key, 5. The API does not report the real duration, so you can set it with `/narsil cache <min>`. The clock runs from the start of the turn's last request, as the API measures it, so a long answer already uses part of that time.
 
-### Próximos pasos
-Quince minutos después de terminar un turno, si no has escrito nada, Narsil propone hasta tres próximos pasos que responden a "¿cómo seguimos con el proyecto?" y "¿qué nos falta por hacer?" ("Añade reintentos con backoff a net.ts"). Para ello lee los últimos commits, los archivos sin commit y las tareas pendientes de `odd/tasks/*.md`, si las hay. Al hacer clic en uno, lo deja escrito en el prompt para que lo revises y lo envíes. La ventana flotante también los muestra. Se desactivan con `/narsil pasos off`.
+### Next steps
+Fifteen minutes after a turn ends, if you have not written anything, Narsil suggests up to three next steps that answer "how do we continue with the project?" and "what is left to do?" ("Añade reintentos con backoff a net.ts", *add retries with backoff to net.ts*). To do that she reads the latest commits, the uncommitted files, and the pending tasks in `odd/tasks/*.md`, if there are any. Click one and she writes it into the prompt for you to review and send. The floating window shows them too. Turn them off with `/narsil pasos off`.
 
-### Subagentes
-Cada subagente aparece como una pequeña serpiente con su tarea, en la banda y en la ventana flotante:
+### Subagents
+Each subagent appears as a small serpent with its task, in the band and in the floating window:
 
-- **Su tipo**, con un accesorio: 🐍🔍 Explore, 🐍📜 Plan, 🐍📖 claude-code-guide, 🐍🪞 fork, 🐍 general-purpose y 🐍✨ cualquier otro.
-- **El modelo con el que corre** y **cuánto lleva** ("🐍🔍 Explorar el overlay · Haiku 4.5 · 4 min"). Si pasa 5 minutos sin usar ninguna herramienta, se pone amarillo con "sin actividad": puede estar atascado.
-- **Cómo terminó**, durante unos segundos: "✓ … · terminado en 1 min 20 s", "✗ … · falló" o "■ … · detenido".
+- **Its type**, with an accessory: 🐍🔍 Explore, 🐍📜 Plan, 🐍📖 claude-code-guide, 🐍🪞 fork, 🐍 general-purpose, and 🐍✨ any other.
+- **The model it runs on** and **how long it has been running** ("🐍🔍 Explorar el overlay · Haiku 4.5 · 4 min"). If it goes 5 minutes without using any tool, it turns yellow with "sin actividad" (*no activity*): it may be stuck.
+- **How it ended**, for a few seconds: "✓ … · terminado en 1 min 20 s" (*finished*), "✗ … · falló" (*failed*), or "■ … · detenido" (*stopped*).
 
-Si el subagente corría en segundo plano, Narsil además avisa con voz y en la ventana flotante cuando termina.
+If the subagent ran in the background, Narsil also alerts you by voice and in the floating window when it finishes.
 
-### Permisos que esperan
-Si un permiso, una pregunta o un plan llevan 5 minutos esperando tu respuesta, Narsil insiste una vez, con voz y en la ventana flotante, aunque estés mirando Claude.
+### Waiting permissions
+If a permission, a question, or a plan has been waiting for your answer for 5 minutes, Narsil insists once, by voice and in the floating window, even if you are looking at Claude.
 
-### Experiencia
-Narsil gana experiencia con el trabajo: 10 XP por cada turno terminado, 5 cada vez que los tests pasan y 3 por cada subagente que termina bien. Del nivel 1 al 2 hacen falta 100 XP, del 2 al 3 otros 200, y así sucesivamente. El nivel ("⭐ Nivel 3 · 120/300 XP") aparece en la banda y en la ventana flotante, y Narsil celebra cada nivel nuevo. La experiencia se guarda entre sesiones y la suman todas las conversaciones abiertas.
+### Experience
+Narsil gains experience from the work: 10 XP for each finished turn, 5 each time the tests pass, and 3 for each subagent that finishes well. Level 1 to 2 takes 100 XP, 2 to 3 another 200, and so on. The level ("⭐ Nivel 3 · 120/300 XP") appears in the band and in the floating window, and Narsil celebrates each new level. Experience is kept between sessions and every open conversation adds to it.
 
-Con los niveles, Narsil crece. Pasa por cinco etapas: la cría (niveles 1 a 4) y las etapas 2 (desde el nivel 5), 3 (desde el 10), 4 (desde el 20) y 5 (desde el 35). Cada nivel nuevo lo celebra con un brillo dorado, aros, estrellas y el número del nivel; cada etapa nueva, con un destello y rayos de luz mientras crece hasta su nuevo tamaño. `/narsil nivel` muestra el nivel y la etapa en la que está.
+With the levels, Narsil grows. She goes through five stages: the hatchling (levels 1 to 4) and stages 2 (from level 5), 3 (from 10), 4 (from 20), and 5 (from 35). Each new level is celebrated with a golden glow, rings, stars, and the level number; each new stage, with a flash and rays of light while she grows to her new size. `/narsil nivel` shows her level and stage.
 
-### Modo discreto
-Si Narsil te resulta demasiado, `/narsil discreto` la calla: sin voz, sin avisos al terminar un turno y sin consejos ni próximos pasos automáticos. Sigue avisándote, sin hablar, cuando te necesita o hay un error, y la banda sigue mostrando lo que hace. `/narsil normal` lo devuelve todo como lo tenías.
+### Quiet mode
+If Narsil is too much for you, `/narsil discreto` quiets her: no voice, no alerts when a turn ends, and no automatic tips or next steps. She still alerts you, silently, when you are needed or there is an error, and the band still shows what she is doing. `/narsil normal` brings everything back as you had it.
 
-### Avisos en el móvil y el reloj
-Cuando trabajas lejos del ordenador con Remote Control, `/narsil movil` envía a tu móvil lo que te necesita: cuando una conversación termina, te necesita o falla. Solo envía mientras tu último mensaje, en cualquier conversación, salió de Remote Control (el móvil o la web): así también te avisan las conversaciones que empezaste en el escritorio. En cuanto vuelves a escribir en el escritorio, en cualquiera de ellas, deja de enviar. Cada aviso acaba con la lista de todas las conversaciones abiertas y su estado ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). Los avisos van a un tema privado de [ntfy.sh](https://ntfy.sh) que el comando crea con un nombre aleatorio. Instala la app ntfy, suscríbete a ese tema y te llegarán como notificaciones, con Narsil en la etapa en la que está y la pose del aviso; un reloj Wear OS las muestra también. Narsil envía como mucho 200 al día entre todas las conversaciones, por debajo de los 250 gratuitos de ntfy.sh, y avisa cuál es el último del día. Quien conozca el nombre del tema puede leer los avisos: `/narsil movil nuevo` crea otro. En modo discreto solo llega lo que te necesita.
+### Phone and watch alerts
+When you work away from your computer with Remote Control, `/narsil movil` sends to your phone what needs you: when a conversation finishes, needs you, or fails. It only sends while your last message, in any conversation, came from Remote Control (the phone or the web): that way the conversations you started on the desktop alert you too. As soon as you write on the desktop again, in any of them, it stops sending. Each alert ends with the list of all open conversations and their state ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). The alerts go to a private [ntfy.sh](https://ntfy.sh) topic that the command creates with a random name. Install the ntfy app, subscribe to that topic, and you will get them as notifications, with Narsil in her current stage and the alert's pose; a Wear OS watch shows them too. Narsil sends at most 200 a day across all conversations, under ntfy.sh's 250 free ones, and tells you which one is the last of the day. Anyone who knows the topic name can read the alerts: `/narsil movil nuevo` creates another one. In quiet mode only what needs you gets through.
 
-Al terminar cada turno, Narsil también envía al tema `<tu tema>-estado` un estado mínimo, que no genera notificaciones y cuenta dentro de los 200 diarios. Lo lee la extensión de Firefox (`narsil-claude`), porque son datos que solo conoce el PC:
+At the end of each turn, Narsil also sends a minimal status to the `<your topic>-estado` topic, which creates no notifications and counts toward the 200 a day. The Firefox extension (`narsil-claude`) reads it, because this is data only the PC knows:
 
-| Campo | Qué es |
+| Field | What it is |
 | --- | --- |
-| `xp` | Nivel y XP de Narsil. |
-| `art` | La URL de su dibujo, en su etapa y en la pose de la conversación más importante. |
-| `at` | Cuándo se envió (segundos Unix). |
-| `cacheMinutes` | Cuántos minutos dura la caché; no viene si ninguna conversación tiene caché. |
-| `usage` | Una sola fila, `ntfy`, con los mensajes del día desde tu red: `[{ key, label, percent, color, note, resetsAt }]`. Va vacía si ntfy.sh no responde. |
+| `xp` | Narsil's level and XP. |
+| `art` | The URL of her drawing, in her stage and in the pose of the most important conversation. |
+| `at` | When it was sent (Unix seconds). |
+| `cacheMinutes` | How many minutes the cache lasts; missing if no conversation has a cache. |
+| `usage` | A single row, `ntfy`, with the day's messages from your network: `[{ key, label, percent, color, note, resetsAt }]`. Empty if ntfy.sh does not respond. |
 
-`/narsil movil clave` cifra todo lo que Narsil envía con una clave que solo tienen tu PC y la extensión. Quien lea el tema solo verá "Narsil" y un texto ilegible. La app ntfy no puede descifrarlo: si la usas para los avisos, `/narsil movil clave off` vuelve a enviarlo sin cifrar.
+`/narsil movil clave` encrypts everything Narsil sends with a key that only your PC and the extension have. Anyone reading the topic only sees "Narsil" and unreadable text. The ntfy app cannot decrypt it: if you use it for the alerts, `/narsil movil clave off` sends them unencrypted again.
 
-Si recibes los avisos con tu propia app web por Web Push (como [narsil-pwa](https://github.com/davshn/narsil-pwa)), la app deja su suscripción en el tema `<tu tema>-push`, cifrada con la clave si la hay. ntfy.sh descarta una suscripción en cuanto falla una entrega, así que antes de cada aviso Narsil la vuelve a registrar en ntfy.sh. Así los avisos siguen llegando aunque no abras la app. Registrar no publica nada, así que no cuenta en el límite diario.
+If you receive the alerts with your own web app through Web Push (like [narsil-pwa](https://github.com/davshn/narsil-pwa)), the app leaves its subscription in the `<your topic>-push` topic, encrypted with the key if there is one. ntfy.sh drops a subscription as soon as a delivery fails, so before each alert Narsil registers it again with ntfy.sh. That way the alerts keep arriving even if you do not open the app. Registering publishes nothing, so it does not count toward the daily limit.
 
-### Resumen de la sesión
-`/narsil resumen` muestra cuánto dura la sesión, los turnos y su tiempo de trabajo, los archivos editados, los comandos, los fallos, los subagentes y el uso del contexto. Narsil también lo muestra por su cuenta cuando pasan 30 minutos sin actividad después de un turno. Si cierras Claude Code y retomas la conversación, el resumen sigue sumando desde donde lo dejó (se guardan las 20 conversaciones más recientes).
+### Session summary
+`/narsil resumen` shows how long the session has lasted, the turns and their working time, the edited files, the commands, the failures, the subagents, and context use. Narsil also shows it on her own after 30 minutes without activity following a turn. If you close Claude Code and resume the conversation, the summary keeps adding from where it left off (the 20 most recent conversations are kept).
 
-## Animaciones
+## Animations
 
-Narsil tiene una animación para cada momento, dibujada para el modo claro y para el modo oscuro. La banda usa la que corresponde al tema de tu sistema.
+Narsil has an animation for each moment, drawn for light mode and for dark mode. The band uses the one that matches your system theme.
 
-| Momento | Modo claro | Modo oscuro |
+| Moment | Light mode | Dark mode |
 | --- | :---: | :---: |
-| **Hola**: una conversación nueva | <img src="assets/readme/greeting-claro.svg" width="120" alt="Hola, modo claro"> | <img src="assets/readme/greeting-oscuro.svg" width="120" alt="Hola, modo oscuro"> |
-| **Parada**: espera tu mensaje | <img src="assets/readme/idle-claro.svg" width="120" alt="Parada, modo claro"> | <img src="assets/readme/idle-oscuro.svg" width="120" alt="Parada, modo oscuro"> |
-| **Pensando** | <img src="assets/readme/thinking-claro.svg" width="120" alt="Pensando, modo claro"> | <img src="assets/readme/thinking-oscuro.svg" width="120" alt="Pensando, modo oscuro"> |
-| **Escribiendo la respuesta** | <img src="assets/readme/talking-claro.svg" width="120" alt="Escribiendo, modo claro"> | <img src="assets/readme/talking-oscuro.svg" width="120" alt="Escribiendo, modo oscuro"> |
-| **Leyendo** un archivo | <img src="assets/readme/reading-claro.svg" width="120" alt="Leyendo, modo claro"> | <img src="assets/readme/reading-oscuro.svg" width="120" alt="Leyendo, modo oscuro"> |
-| **Buscando** en el código o en la web | <img src="assets/readme/searching-claro.svg" width="120" alt="Buscando, modo claro"> | <img src="assets/readme/searching-oscuro.svg" width="120" alt="Buscando, modo oscuro"> |
-| **Editando** un archivo | <img src="assets/readme/writing-claro.svg" width="120" alt="Editando, modo claro"> | <img src="assets/readme/writing-oscuro.svg" width="120" alt="Editando, modo oscuro"> |
-| **Ejecutando** un comando | <img src="assets/readme/running-claro.svg" width="120" alt="Ejecutando, modo claro"> | <img src="assets/readme/running-oscuro.svg" width="120" alt="Ejecutando, modo oscuro"> |
-| **Te necesita**: una pregunta o un permiso | <img src="assets/readme/asking-claro.svg" width="120" alt="Te necesita, modo claro"> | <img src="assets/readme/asking-oscuro.svg" width="120" alt="Te necesita, modo oscuro"> |
-| **Tropiezo**: un paso ha fallado, pero sigue trabajando | <img src="assets/readme/scared-claro.svg" width="120" alt="Tropiezo, modo claro"> | <img src="assets/readme/scared-oscuro.svg" width="120" alt="Tropiezo, modo oscuro"> |
-| **Terminada**: salta de alegría | <img src="assets/readme/celebrating-claro.svg" width="120" alt="Terminada, modo claro"> | <img src="assets/readme/celebrating-oscuro.svg" width="120" alt="Terminada, modo oscuro"> |
-| **Error**: el turno se ha detenido | <img src="assets/readme/failed-claro.svg" width="120" alt="Error, modo claro"> | <img src="assets/readme/failed-oscuro.svg" width="120" alt="Error, modo oscuro"> |
+| **Hello**: a new conversation | <img src="assets/readme/greeting-claro.svg" width="120" alt="Hello, light mode"> | <img src="assets/readme/greeting-oscuro.svg" width="120" alt="Hello, dark mode"> |
+| **Idle**: waiting for your message | <img src="assets/readme/idle-claro.svg" width="120" alt="Idle, light mode"> | <img src="assets/readme/idle-oscuro.svg" width="120" alt="Idle, dark mode"> |
+| **Thinking** | <img src="assets/readme/thinking-claro.svg" width="120" alt="Thinking, light mode"> | <img src="assets/readme/thinking-oscuro.svg" width="120" alt="Thinking, dark mode"> |
+| **Writing the answer** | <img src="assets/readme/talking-claro.svg" width="120" alt="Writing, light mode"> | <img src="assets/readme/talking-oscuro.svg" width="120" alt="Writing, dark mode"> |
+| **Reading** a file | <img src="assets/readme/reading-claro.svg" width="120" alt="Reading, light mode"> | <img src="assets/readme/reading-oscuro.svg" width="120" alt="Reading, dark mode"> |
+| **Searching** the code or the web | <img src="assets/readme/searching-claro.svg" width="120" alt="Searching, light mode"> | <img src="assets/readme/searching-oscuro.svg" width="120" alt="Searching, dark mode"> |
+| **Editing** a file | <img src="assets/readme/writing-claro.svg" width="120" alt="Editing, light mode"> | <img src="assets/readme/writing-oscuro.svg" width="120" alt="Editing, dark mode"> |
+| **Running** a command | <img src="assets/readme/running-claro.svg" width="120" alt="Running, light mode"> | <img src="assets/readme/running-oscuro.svg" width="120" alt="Running, dark mode"> |
+| **Needs you**: a question or a permission | <img src="assets/readme/asking-claro.svg" width="120" alt="Needs you, light mode"> | <img src="assets/readme/asking-oscuro.svg" width="120" alt="Needs you, dark mode"> |
+| **Stumble**: a step failed, but she keeps working | <img src="assets/readme/scared-claro.svg" width="120" alt="Stumble, light mode"> | <img src="assets/readme/scared-oscuro.svg" width="120" alt="Stumble, dark mode"> |
+| **Done**: jumps for joy | <img src="assets/readme/celebrating-claro.svg" width="120" alt="Done, light mode"> | <img src="assets/readme/celebrating-oscuro.svg" width="120" alt="Done, dark mode"> |
+| **Error**: the turn stopped | <img src="assets/readme/failed-claro.svg" width="120" alt="Error, light mode"> | <img src="assets/readme/failed-oscuro.svg" width="120" alt="Error, dark mode"> |
 
-## Instalación
+## Installation
 
-Necesitas [Claude Code](https://claude.com/claude-code). Dentro de Claude Code, ejecuta:
+You need [Claude Code](https://claude.com/claude-code). Inside Claude Code, run:
 
 ```
 /plugin marketplace add davshn/narsil-pet
 /plugin install narsil-pet@narsil
 ```
 
-Narsil aparece encima del prompt en la siguiente conversación. Para comprobar que la voz y los avisos funcionan, ejecuta `/narsil prueba`.
+Narsil appears above the prompt in the next conversation. To check that the voice and the alerts work, run `/narsil prueba`.
 
-Para actualizarla a la última versión:
+To update to the latest version:
 
 ```
 /plugin marketplace update narsil
 /plugin update narsil-pet@narsil
 ```
 
-La ventana flotante necesita, además:
-- **Windows**: Microsoft Edge (viene instalado) y [Node.js](https://nodejs.org).
-- **macOS**: Chrome, Edge o Brave, y [Node.js](https://nodejs.org).
+The floating window also needs:
+- **Windows**: Microsoft Edge (preinstalled) and [Node.js](https://nodejs.org).
+- **macOS**: Chrome, Edge, or Brave, and [Node.js](https://nodejs.org).
 
-## Comandos
+## Commands
 
-| Comando | Qué hace |
+| Command | What it does |
 | --- | --- |
-| `/narsil` | Muestra la configuración actual y la ayuda. |
-| `/narsil estado` | Dice qué hace Narsil, cuántas conversaciones hay abiertas y en qué superficies se dibuja. |
-| `/narsil ocultar` · `mostrar` | Oculta o muestra la banda. |
-| `/narsil silencio` · `voz` | Apaga o enciende la voz. |
-| `/narsil discreto` · `normal` | Activa o desactiva el modo discreto. |
-| `/narsil flotante` | Activa o desactiva la ventana flotante. |
-| `/narsil prueba` | Lanza un aviso de prueba, con voz. |
-| `/narsil consejo` | Pide un consejo ahora. |
-| `/narsil consejo profundo` | Pide un consejo que analiza toda la conversación. |
-| `/narsil consejos on` · `off` | Activa o desactiva los consejos automáticos. |
-| `/narsil consejos cada <min>` | Como mucho un consejo automático cada tantos minutos (30 por defecto; dos del mismo tipo seguidos esperan el doble). |
-| `/narsil consejos voz` | Dice en voz alta, o no, los consejos de fin de turno. |
-| `/narsil pasos on` · `off` | Activa o desactiva los próximos pasos tras cada turno. |
-| `/narsil cache` | Dice cuánto dura la caché del prompt; `/narsil cache <min>` la fija y `/narsil cache auto` la deduce de tu cuenta. |
-| `/narsil nivel` | Muestra el nivel y la experiencia de Narsil, y cómo se gana. |
-| `/narsil movil` · `on` · `off` · `nuevo` · `prueba` · `clave [off]` | Activa los avisos al móvil y dice cómo seguirlos; los apaga, crea un tema nuevo, envía uno de prueba o cifra lo que envía para tu propia app. |
-| `/narsil resumen` | Resume la sesión: turnos, archivos editados, comandos, fallos, subagentes y contexto. |
+| `/narsil` | Shows the current settings and the help. |
+| `/narsil estado` | Says what Narsil is doing, how many conversations are open, and on which surfaces she is drawn. |
+| `/narsil ocultar` · `mostrar` | Hides or shows the band. |
+| `/narsil silencio` · `voz` | Turns the voice off or on. |
+| `/narsil discreto` · `normal` | Turns quiet mode on or off. |
+| `/narsil flotante` | Turns the floating window on or off. |
+| `/narsil prueba` | Sends a test alert, with voice. |
+| `/narsil consejo` | Asks for a tip now. |
+| `/narsil consejo profundo` | Asks for a tip that analyzes the whole conversation. |
+| `/narsil consejos on` · `off` | Turns automatic tips on or off. |
+| `/narsil consejos cada <min>` | At most one automatic tip every that many minutes (30 by default; two of the same kind in a row wait twice as long). |
+| `/narsil consejos voz` | Says the end-of-turn tips out loud, or not. |
+| `/narsil pasos on` · `off` | Turns the next steps after each turn on or off. |
+| `/narsil cache` | Says how long the prompt cache lasts; `/narsil cache <min>` sets it and `/narsil cache auto` works it out from your account. |
+| `/narsil nivel` | Shows Narsil's level and experience, and how she earns it. |
+| `/narsil movil` · `on` · `off` · `nuevo` · `prueba` · `clave [off]` | Turns on phone alerts and says how to follow them; turns them off, creates a new topic, sends a test one, or encrypts what it sends for your own app. |
+| `/narsil resumen` | Summarizes the session: turns, edited files, commands, failures, subagents, and context. |
 
-## Sistemas compatibles
+## Supported systems
 
-La banda, sus animaciones, los consejos y las barras de uso funcionan dondequiera que Claude Code las dibuje: terminal, app de escritorio, VS Code y app móvil. La voz, los avisos y la ventana flotante se ejecutan en el ordenador donde corre la sesión:
+The band, its animations, the tips, and the usage bars work wherever Claude Code draws them: terminal, desktop app, VS Code, and mobile app. The voice, the alerts, and the floating window run on the computer where the session runs:
 
-| | Windows | macOS | Otros |
+| | Windows | macOS | Others |
 | --- | --- | --- | --- |
-| Voz | Voz en español de Windows, latinoamericana si hay una (por ejemplo Sabina, de México) | `say`, con Paulina u otra voz latinoamericana si están instaladas, si no Mónica | La voz de Claude Code |
-| Avisos | Notificación de Windows; al hacer clic abre la conversación | Notificación de macOS | Las de Claude Code, si las hay |
-| Ventana flotante | Edge, siempre encima, en la pantalla de Claude | Chrome, Edge o Brave, abierta detrás de tu app | No disponible |
-| Consejos | Ventanita propia, en la pantalla de Claude | Ventanita propia, en la pantalla del ratón | En la banda |
+| Voice | A Windows Spanish voice, Latin American if there is one (for example Sabina, from Mexico) | `say`, with Paulina or another Latin American voice if installed, otherwise Mónica | Claude Code's voice |
+| Alerts | Windows notification; clicking it opens the conversation | macOS notification | Claude Code's, if any |
+| Floating window | Edge, always on top, on Claude's screen | Chrome, Edge, or Brave, opened behind your app | Not available |
+| Tips | Their own small window, on Claude's screen | Their own small window, on the mouse's screen | In the band |
 
-En macOS la ventana se abre y se cierra en lugar de ocultarse (ocultar la ventana de otra app requiere el permiso de accesibilidad) y no se mantiene siempre encima: colócala donde quieras y el navegador recordará su posición.
+On macOS the window opens and closes instead of hiding (hiding another app's window requires the accessibility permission) and does not stay on top: put it where you want and the browser will remember its position.
 
-## Otros mods de Narsil
+## Other Narsil mods
 
-Narsil tiene dos compañeros, también de código abierto. Cada uno se instala por su cuenta y funciona junto a los demás: Narsil ocupa la banda encima del prompt, Narsil Check un panel lateral y Narsil Skin el fondo de la ventana.
+Narsil has two companions, also open source. Each one installs on its own and works alongside the others: Narsil takes the band above the prompt, Narsil Check a side pane, and Narsil Skin the window background.
 
 ### [Narsil Check](https://github.com/davshn/narsil-check)
-Un panel lateral, con los colores de Narsil, que revisa el proyecto en el que trabajas: el entorno de la sesión (repositorio, rama, conectores, control remoto y Auto-fix), qué librerías se pueden actualizar y cuánto cuesta hacerlo, las vulnerabilidades conocidas de los paquetes instalados y una lista de tareas pendientes. Lee proyectos de JavaScript y TypeScript, Python, Go, Rust, Dart y Flutter, Kotlin y Java, C#, Ruby y Swift.
+A side pane, in Narsil's colors, that checks the project you are working on: the session environment (repository, branch, connectors, remote control, and Auto-fix), which libraries can be upgraded and how much effort it takes, the known vulnerabilities of the installed packages, and a list of pending tasks. It reads JavaScript and TypeScript, Python, Go, Rust, Dart and Flutter, Kotlin and Java, C#, Ruby, and Swift projects.
 
 ```
 /plugin marketplace add davshn/narsil-check
@@ -218,26 +220,26 @@ Un panel lateral, con los colores de Narsil, que revisa el proyecto en el que tr
 ```
 
 ### [Narsil Skin](https://github.com/davshn/narsil-skin)
-Le cambia la piel a la app de escritorio de Claude: temas de color (colores, fuentes, esquinas y sombras) y fondos animados dibujados con caracteres detrás del chat, entre ellos uno con Narsil nadando en el mar de noche. Los temas reaccionan a lo que hace Claude y se eligen desde un panel lateral con `/narsil-skin themes`. Es un *fork* de [claude-desktop-themes](https://github.com/0toshigami/claude-desktop-themes), de 0toshigami.
+Reskins the Claude desktop app: color themes (colors, fonts, corners, and shadows) and animated wallpapers drawn with characters behind the chat, including one with Narsil swimming in the night sea. The themes react to what Claude is doing and are picked from a side pane with `/narsil-skin themes`. It is a fork of [claude-desktop-themes](https://github.com/0toshigami/claude-desktop-themes), by 0toshigami.
 
 ```
 /plugin marketplace add davshn/narsil-skin
 /plugin install narsil-skin@narsil-skin
 ```
 
-### Dónde funciona cada uno
+### Where each one works
 
-| | Terminal | App de escritorio | VS Code | App móvil |
+| | Terminal | Desktop app | VS Code | Mobile app |
 | --- | --- | --- | --- | --- |
-| **Narsil** | Sí | Sí | Sí | Sí |
-| **Narsil Check** | Actualizaciones, vulnerabilidades y pendientes | Todo | Actualizaciones, vulnerabilidades y pendientes | Actualizaciones, vulnerabilidades y pendientes (sin campo para escribir tareas) |
-| **Narsil Skin** | No | Sí, en la pestaña Code, en Windows y macOS | No | No |
+| **Narsil** | Yes | Yes | Yes | Yes |
+| **Narsil Check** | Upgrades, vulnerabilities, and pending tasks | Everything | Upgrades, vulnerabilities, and pending tasks | Upgrades, vulnerabilities, and pending tasks (no field to add tasks) |
+| **Narsil Skin** | No | Yes, in the Code tab, on Windows and macOS | No | No |
 
-La voz, los avisos y la ventana flotante de Narsil dependen además del sistema del ordenador (consulta [Sistemas compatibles](#sistemas-compatibles)). En Narsil Check, el entorno, los conectores, el control remoto, el Auto-fix y el CI del PR se leen de los servidores propios de la app de escritorio, así que solo aparecen allí. Narsil Skin pinta los temas con una extensión dentro de la app de escritorio, así que no hace nada en otras superficies y todavía no funciona en Linux.
+Narsil's voice, alerts, and floating window also depend on the computer's system (see [Supported systems](#supported-systems)). In Narsil Check, the environment, connectors, remote control, Auto-fix, and the PR's CI are read from the desktop app's own servers, so they only appear there. Narsil Skin paints the themes with an extension inside the desktop app, so it does nothing on other surfaces and does not work on Linux yet.
 
-## Desarrollo
+## Development
 
-Narsil es de código abierto y las contribuciones son bienvenidas: abre un *issue* o un *pull request* en [GitHub](https://github.com/davshn/narsil-pet).
+Narsil is open source and contributions are welcome: open an issue or a pull request on [GitHub](https://github.com/davshn/narsil-pet).
 
 ```
 claude plugin validate .claude-plugin/plugin.json
@@ -246,35 +248,35 @@ node tests/overlay-server.check.cjs
 node tests/overlay-drawing.check.cjs
 ```
 
-La última comprueba quién puede usar el servidor de la ventana flotante: solo su propia página (con la clave que recibe al cargarse) y el mod (con su token), y solo en su dirección local, así que ninguna web que visites puede manejarlo.
+The `overlay-server` check verifies who can use the floating window's server: only its own page (with the key it receives when it loads) and the mod (with its token), and only on its local address, so no website you visit can control it.
 
-- `overlay/tip.ps1`, `overlay/tip.sh` y `overlay/tip.js`: la ventanita de los consejos en Windows y en macOS.
-- `hooks/register.tsx`: los hooks del mod (estados, avisos, consejos, uso, reacciones).
-- `hooks/words.ts`: cómo lo dice Narsil (nombres de los estados, titulares, frases, comandos peligrosos o de tests).
-- `hooks/phone.ts`: los avisos al móvil (el mensaje para ntfy.sh con su icono, el tema y la cuenta diaria).
-- `hooks/fleet.ts`: todas las conversaciones como una lista: el orden por importancia, las páginas de la banda y cuál está abierta.
-- `hooks/tasks.ts`: la lista de tareas de una conversación, tal como la dejan `TodoWrite`, `TaskCreate`/`TaskUpdate` y el plan de la app de escritorio.
-- `hooks/seal.ts`: el cifrado de `/narsil movil clave` (HMAC-SHA256 en modo contador, con etiqueta).
-- `hooks/sprite.ts`: las animaciones de Narsil.
-- `overlay/`: la ventana flotante (servidor local, página y scripts de Windows y macOS).
-- `tests/`: los tests.
+- `overlay/tip.ps1`, `overlay/tip.sh`, and `overlay/tip.js`: the small tip window on Windows and macOS.
+- `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
+- `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
+- `hooks/phone.ts`: the phone alerts (the ntfy.sh message with its icon, the topic, and the daily count).
+- `hooks/fleet.ts`: all conversations as a list: the order by importance, the band's pages, and which one is open.
+- `hooks/tasks.ts`: a conversation's task list, as `TodoWrite`, `TaskCreate`/`TaskUpdate`, and the desktop app's plan leave it.
+- `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).
+- `hooks/sprite.ts`: Narsil's animations.
+- `overlay/`: the floating window (local server, page, and Windows and macOS scripts).
+- `tests/`: the tests.
 
-Los dibujos de `hooks/art.ts` y `hooks/art/` se generan a partir de `assets/raw` con `tools/build-art.ps1`. La cría está en `assets/raw/<pose>-<claro|oscuro>.png` y cada etapa siguiente tiene su propia carpeta, `assets/raw/etapa2` a `assets/raw/etapa5`, con los mismos nombres. Si a una etapa le falta una pose, se usa su pose `base`. Si le faltan todas en un tema, se usa la etapa anterior, y las animaciones de este README, con `node tools/build-readme-art.mjs`.
+The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` with `tools/build-art.ps1`. The hatchling is in `assets/raw/<pose>-<claro|oscuro>.png`, and each later stage has its own folder, `assets/raw/etapa2` to `assets/raw/etapa5`, with the same names. If a stage is missing a pose, its `base` pose is used. If it is missing all of them in a theme, the previous stage is used. The animations in this README are generated with `node tools/build-readme-art.mjs`.
 
-Cada pose también tiene un bucle animado, hecho con un video de Veo o Flow a partir de su dibujo. Si una pose tiene bucle, se usa en lugar del dibujo fijo. Los pasos son:
+Each pose also has an animated loop, made from a Veo or Flow video based on its drawing. If a pose has a loop, it is used instead of the still drawing. The steps are:
 
-1. `tools/anim-sources.ps1` prepara, para cada pose que aún no tiene bucle, su dibujo sobre verde puro y el prompt que va con él, en `Descargas\narsil-anim\etapa<N>\<pose>-<tema>.png` y `.txt`. En Flow funciona bien el modo *Frames*, con ese dibujo como primer y último fotograma, a 360p y 3 s.
-2. `tools/encode-anim.ps1 -Video <mp4> -Stage <N> -Pose <pose> -Theme <tema> -Seconds 3 -Fade 0` quita el verde y el audio y escribe dos versiones:
-   - `assets/anim/`: el bucle de la banda, con la mejor calidad que cabe en 38 KB. Los dos temas tienen que caber en el dibujo de la banda, que admite como máximo 131 072 caracteres.
-   - `assets/anim-hq/`: la versión nítida que sirve la ventana flotante.
-3. `tools/build-animated.ps1` (lo llama el paso anterior) los incrusta en `hooks/art/anim/` y `hooks/art/animated.ts`.
+1. `tools/anim-sources.ps1` prepares, for each pose that does not have a loop yet, its drawing on pure green and the prompt that goes with it, in `Descargas\narsil-anim\etapa<N>\<pose>-<theme>.png` and `.txt`. In Flow, *Frames* mode works well, with that drawing as the first and last frame, at 360p and 3 s.
+2. `tools/encode-anim.ps1 -Video <mp4> -Stage <N> -Pose <pose> -Theme <theme> -Seconds 3 -Fade 0` removes the green and the audio and writes two versions:
+   - `assets/anim/`: the band's loop, at the best quality that fits in 38 KB. Both themes have to fit in the band's drawing, which allows at most 131,072 characters.
+   - `assets/anim-hq/`: the sharp version the floating window serves.
+3. `tools/build-animated.ps1` (called by the previous step) embeds them in `hooks/art/anim/` and `hooks/art/animated.ts`.
 
-Hace falta ffmpeg: `winget install Gyan.FFmpeg`.
+You need ffmpeg: `winget install Gyan.FFmpeg`.
 
-## Licencia
+## License
 
-Narsil es software libre: puedes redistribuirlo y modificarlo bajo los términos de la [Licencia Pública General de GNU, versión 3](LICENSE) (GPL v3) o, a tu elección, cualquier versión posterior, publicada por la Free Software Foundation.
+Narsil is free software: you can redistribute it and modify it under the terms of the [GNU General Public License, version 3](LICENSE) (GPL v3) or, at your option, any later version, as published by the Free Software Foundation.
 
-En resumen: puedes usarlo, estudiarlo, modificarlo y compartirlo libremente, pero si distribuyes una versión modificada debes publicarla también como código abierto bajo la misma licencia. Se distribuye sin ninguna garantía. Consulta el archivo [LICENSE](LICENSE) para ver el texto completo.
+In short: you can use, study, modify, and share it freely, but if you distribute a modified version you must also publish it as open source under the same license. It comes with no warranty. See the [LICENSE](LICENSE) file for the full text.
 
 Copyright © 2026 Davshn
