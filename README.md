@@ -253,7 +253,7 @@ The `overlay-server` check verifies who can use the floating window's server: on
 - `overlay/tip.ps1`, `overlay/tip.sh`, and `overlay/tip.js`: the small tip window on Windows and macOS.
 - `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
 - `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
-- `hooks/phone.ts`: the phone alerts (the ntfy.sh message with its icon, the topic, and the daily count).
+- `hooks/phone.ts`: the phone alerts (the ntfy.sh message with its icon, the topic, and the daily count), and the state the [Narsil Watch](https://github.com/davshn/narsil-watch) reads (Claude's limits and the open conversations).
 - `hooks/fleet.ts`: all conversations as a list: the order by importance, the band's pages, and which one is open.
 - `hooks/tasks.ts`: a conversation's task list, as `TodoWrite`, `TaskCreate`/`TaskUpdate`, and the desktop app's plan leave it.
 - `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).

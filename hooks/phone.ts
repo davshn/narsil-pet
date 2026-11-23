@@ -149,3 +149,35 @@ export function sealedMessage<M extends { title?: string; message: string }>(m: 
 export function sealedPayload(m: { title?: string; message: string }): string {
   return JSON.stringify(m.title ? { title: m.title, message: m.message } : { message: m.message })
 }
+
+// --- What the watch reads on the status topic (narsil-watch) ---
+
+// One Claude limit as the watch draws it: its arc, its color and when it
+// resets, in seconds since the epoch (null when Claude did not say).
+export type WatchLimit = { key: 'fiveHour' | 'week'; label: string; percent: number; color: string; resetsAt: number | null }
+
+type Meter = { percent: number; resetsAt?: string }
+
+// The 5-hour and weekly limits; the context is each conversation's own.
+export function watchLimits(u: { fiveHour: Meter | null; week: Meter | null }): WatchLimit[] {
+  const row = (key: WatchLimit['key'], label: string, m: Meter | null): WatchLimit[] => {
+    if (!m) return []
+    const at = m.resetsAt ? Date.parse(m.resetsAt) : NaN
+    return [{ key, label, percent: m.percent, color: levelColor(m.percent), resetsAt: Number.isNaN(at) ? null : Math.floor(at / 1000) }]
+  }
+  return [...row('fiveHour', '5 horas', u.fiveHour), ...row('week', 'Semana', u.week)]
+}
+
+export type WatchSession = { title: string; status: string; label: string }
+
+// The open conversations, most important first, as few and as short as an
+// ntfy message (4 KB, more once sealed) holds with room to spare.
+export const WATCH_SESSIONS = 8
+const WATCH_TITLE = 40
+
+export function watchSessions(list: readonly WatchSession[]): WatchSession[] {
+  return list.slice(0, WATCH_SESSIONS).map(s => {
+    const title = s.title || 'conversación'
+    return { title: title.length > WATCH_TITLE ? `${title.slice(0, WATCH_TITLE - 1)}…` : title, status: s.status, label: s.label }
+  })
+}
