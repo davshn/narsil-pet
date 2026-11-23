@@ -16,7 +16,7 @@ Branch: `feat/equipped-stages` · Delivery: ask-on-risk · Tests: `claude plugin
 | T1 | S1-S3 | inline | done | stage 2 (0daf159) |
 | T2 | S1-S3 | inline | done | stage 3 (10827d1, edge trim f705b2e) |
 | T3 | S1-S3 | inline | done | stage 4 (34d6b82) |
-| T4 | S1-S3 | inline | partial | stage 5 light done (c1b38b0); dark waits on Gemini's image limit |
+| T4 | S1-S3 | inline | done | stage 5 light (c1b38b0), dark (see L7) |
 | T5 | S3 | inline | done | build-art no longer deletes hooks/art/animated.ts; tests 137/138 |
 
 ## Log
@@ -27,3 +27,4 @@ Branch: `feat/equipped-stages` · Delivery: ask-on-risk · Tests: `claude plugin
 - **L4** Gemini refused the dark `error` pose twice ("interests of third-party content providers"); stage 3 passed when the prompt called her "my own original mascot"; stage 4 dark `error` is the stage 4 light `error` recolored to the dark palette, so its pose follows the light one.
 - **L5** `tools/build-art.ps1` deleted every `hooks/art/*.ts`, `animated.ts` (from `build-animated.ps1`) too, so the test file did not load: it now deletes only `etapa*-*.ts`; `animated.ts` restored. Tests 137/138, the failure the pre-existing "bypass permissions" one.
 - **L6** (2026-11-22 11:01) Gemini's image limit reached; resets 13:54. Pending: stage 5 dark (7 pictures). The animated loops of stages 2-5 still show the grown Narsil until they are made again from these pictures.
+- **L7** (2026-11-22 20:10) Stage 5 dark made after the limit reset: all 7 poses from stage 4 dark plus `concepto-etapa5-oscuro`. `terminado` was refused once ("third-party content providers") and passed on Try again; `error` passed first time. `parada` asked for the suit lights and keyboard off. Built widths 96-105 px; tests 137/138 (same pre-existing failure). All 56 pictures done; the animated loops of stages 2-5 remain.
