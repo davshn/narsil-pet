@@ -18,6 +18,7 @@ Branch: `feat/equipped-stages` · Delivery: ask-on-risk · Tests: `claude plugin
 | T3 | S1-S3 | inline | done | stage 4 (34d6b82) |
 | T4 | S1-S3 | inline | done | stage 5 light (c1b38b0), dark (see L7) |
 | T5 | S3 | inline | done | build-art no longer deletes hooks/art/animated.ts; tests 137/138 |
+| T6 | S1-S3 | inline | partial | loops: stages 3-5 done, stage 2 only dark hola (Flow credits) |
 
 ## Log
 
@@ -28,3 +29,5 @@ Branch: `feat/equipped-stages` · Delivery: ask-on-risk · Tests: `claude plugin
 - **L5** `tools/build-art.ps1` deleted every `hooks/art/*.ts`, `animated.ts` (from `build-animated.ps1`) too, so the test file did not load: it now deletes only `etapa*-*.ts`; `animated.ts` restored. Tests 137/138, the failure the pre-existing "bypass permissions" one.
 - **L6** (2026-11-22 11:01) Gemini's image limit reached; resets 13:54. Pending: stage 5 dark (7 pictures). The animated loops of stages 2-5 still show the grown Narsil until they are made again from these pictures.
 - **L7** (2026-11-22 20:10) Stage 5 dark made after the limit reset: all 7 poses from stage 4 dark plus `concepto-etapa5-oscuro`. `terminado` was refused once ("third-party content providers") and passed on Try again; `error` passed first time. `parada` asked for the suit lights and keyboard off. Built widths 96-105 px; tests 137/138 (same pre-existing failure). All 56 pictures done; the animated loops of stages 2-5 remain.
+- **L8** (2026-11-22 23:20) User: "hazlo hasta que agotes los tokens que me quedan en flow (se renuevan pronto) arranca con la etapa en la que estoy y la siguiente a la que llegare". Their XP is 37049 (level 27, stage 4; stage 5 at level 35). Flow project "Nov 22 - 22:54" (Frames, 9:16, Omni 1.2 Flash, 360p, 3 s, 3 credits each): stages 4 and 5 both themes (24) and stage 3 (12) generated, plus stage 2 dark trabajando; 5 credits left. Only the first download landed: Chrome blocks the site's further automatic downloads until the user allows them. 
+- **L9** (2026-11-23) After the user allowed the site's automatic downloads, the 37 videos were downloaded and matched to their sources by first frame (one each, no gaps) and encoded with `tools/encode-anim.ps1 -Seconds 3 -Fade 0`: stages 3, 4 and 5 all poses both themes, stage 2 dark `hola` (32-38 KB each). Stage 2's other 11 loops still show the grown Narsil (Flow credits ran out; 5 left). Tests 137/138 (same pre-existing failure), validate passes.
