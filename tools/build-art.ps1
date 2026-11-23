@@ -221,7 +221,8 @@ foreach ($source in $sources) {
 # gathers them.
 $dir = Join-Path $root 'hooks/art'
 New-Item -ItemType Directory -Force $dir | Out-Null
-Get-ChildItem $dir -Filter '*.ts' | Remove-Item
+# Only its own files: hooks/art/animated.ts belongs to build-animated.ps1.
+Get-ChildItem $dir -Filter 'etapa*-*.ts' | Remove-Item
 $imports = @(); $index = @()
 foreach ($stage in ($stages.Keys | Sort-Object)) {
   $entries = $stages[$stage]
