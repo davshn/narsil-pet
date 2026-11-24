@@ -10,6 +10,7 @@ import { VOICE, say } from '../hooks/words'
 import { ART } from '../hooks/art'
 import { ANIMATED } from '../hooks/art/animated'
 import { sprite } from '../hooks/sprite'
+import { watchLimits, watchSessions } from '../hooks/phone'
 import { SEAL_PREFIX, fromBase64Url, hmac, newKey, seal, toBase64Url, unseal as openSealed } from '../hooks/seal'
 
 const BAND = {
@@ -2419,7 +2420,9 @@ test('as a turn ends from the phone, the extension gets only what it reads on th
   expect(state.xp).toBeTruthy()
   expect(state.cacheMinutes).toBeGreaterThan(0)
   expect(state.usage).toEqual([])
-  expect(Object.keys(state).sort()).toEqual(['art', 'at', 'cacheMinutes', 'usage', 'xp'])
+  expect(state.limits).toEqual([])
+  expect(state.sessions).toEqual([{ title: expect.any(String), status: 'done', label: 'TERMINADA' }])
+  expect(Object.keys(state).sort()).toEqual(['art', 'at', 'cacheMinutes', 'limits', 'sessions', 'usage', 'xp'])
   expect(posts.some(p => p.url.endsWith('/v1/webpush'))).toBe(false)
 
   // at the desk nothing goes
@@ -2729,6 +2732,10 @@ test('an alert lists every open conversation, and the state wears the most impor
   const state = JSON.parse(String(toStatus(posts).at(-1)?.message))
   expect(String(state.art)).toMatch(/error-oscuro\.png$/)
   expect(state.cacheMinutes).toBe(5)
+  expect(state.sessions).toEqual([
+    { title: 'web', status: 'error', label: 'ERROR' },
+    { title: 'landing', status: 'done', label: 'TERMINADA' },
+  ])
   expect(alert?.tags).toEqual(['white_check_mark'])
 })
 
@@ -2798,6 +2805,20 @@ test('with no subscription left or kept, the alert goes without registering anyt
   await finishTurn($)
   expect(renewalsOf(posts)).toEqual([])
   expect(toPhone(posts).length).toBe(1)
+})
+
+test('the watch gets the 5-hour and weekly limits with their color and reset, and at most 8 conversations', () => {
+  expect(watchLimits({ fiveHour: { percent: 62.4, resetsAt: '2026-11-23T18:00:00Z' }, week: { percent: 90 } })).toEqual([
+    { key: 'fiveHour', label: '5 horas', percent: 62.4, color: '#F5B400', resetsAt: Date.parse('2026-11-23T18:00:00Z') / 1000 },
+    { key: 'week', label: 'Semana', percent: 90, color: '#F0435A', resetsAt: null },
+  ])
+  expect(watchLimits({ fiveHour: null, week: null })).toEqual([])
+  const many = Array.from({ length: 10 }, (_, i) => ({ title: `${'x'.repeat(50)}${i}`, status: 'idle', label: 'PARADA' }))
+  const shown = watchSessions(many)
+  expect(shown.length).toBe(8)
+  expect(shown[0]?.title.length).toBe(40)
+  expect(shown[0]?.title.endsWith('…')).toBe(true)
+  expect(watchSessions([{ title: '', status: 'working', label: 'TRABAJANDO' }])).toEqual([{ title: 'conversación', status: 'working', label: 'TRABAJANDO' }])
 })
 
 test('what the mod seals, it opens; with another key, or tampered, it does not', async () => {

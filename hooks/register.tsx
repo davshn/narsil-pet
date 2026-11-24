@@ -7,7 +7,7 @@ import { TASK_ICON, TASK_TOOLS, applyTaskCall, backgroundTasks } from './tasks'
 import type { TipKind } from './advice'
 import { MAX_ANSWER, MAX_CALLS, MAX_FAILURES, STEPS_SYSTEM, SYSTEM, describe, emptyContext, forkPrompt, parse, parseSteps, pendingTasks, prompt, remember, stepsPrompt } from './advice'
 import { TONE_COLOR, agentChip, liveRuns } from './agents'
-import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload } from './phone'
+import { NTFY_URL, PHONE_DAILY, PHONE_KEY, PUSH_KEY, artUrl, countOf, dayOf, fleetText, newTopic, ntfyRow, phoneHelp, phoneMessage, phoneStatus, pushSubscriptionOf, pushTopic, sealedMessage, sealedPayload, watchLimits, watchSessions } from './phone'
 import type { PushSubscription } from './phone'
 import { newKey, seal, unseal } from './seal'
 import { FACE, POSE, STATUS_COLOR, sprite, statusOf } from './sprite'
@@ -503,7 +503,8 @@ async function sendToPhone($: EngineInterface, kind: EventKind, title: string, t
 // turn ends and with each question, under the same rules and daily count as
 // the alerts. Narsil's level, her art in the most important conversation's
 // pose, when it went, how long a cache lasts, and ntfy.sh's count of the
-// day's messages, this one included: read only once it is going.
+// day's messages, this one included: read only once it is going. The
+// watch (narsil-watch) reads Claude's limits and the conversations from it.
 async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
   const list = await fleetNow($)
   const earned = await read($, xp)
@@ -512,6 +513,9 @@ async function sendStatus($: EngineInterface, force = false): Promise<boolean> {
     art: artUrl(POSE[list[0]!.status], stageOf(levelOf(earned).level)),
     at: Math.floor((await $.clock.now()) / 1000),
     cacheMinutes: list.map(s => s.cacheMinutes).find(m => m),
+    // what the watch shows: Claude's limits and every open conversation
+    limits: watchLimits(await read($, usage)),
+    sessions: watchSessions(list.map(s => ({ title: s.title, status: s.status, label: STATUS_LABEL[s.status] }))),
   }
   return postToPhone(
     $,
