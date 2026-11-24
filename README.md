@@ -112,9 +112,9 @@ With the levels, Narsil grows. She goes through five stages: the hatchling (leve
 If Narsil is too much for you, `/narsil discreto` quiets her: no voice, no alerts when a turn ends, and no automatic tips or next steps. She still alerts you, silently, when you are needed or there is an error, and the band still shows what she is doing. `/narsil normal` brings everything back as you had it.
 
 ### Phone and watch alerts
-When you work away from your computer with Remote Control, `/narsil movil` sends to your phone what needs you: when a conversation finishes, needs you, or fails. It only sends while your last message, in any conversation, came from Remote Control (the phone or the web): that way the conversations you started on the desktop alert you too. As soon as you write on the desktop again, in any of them, it stops sending. Each alert ends with the list of all open conversations and their state ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). The alerts go to a private [ntfy.sh](https://ntfy.sh) topic that the command creates with a random name. Install the ntfy app, subscribe to that topic, and you will get them as notifications, with Narsil in her current stage and the alert's pose; a Wear OS watch shows them too. Narsil sends at most 200 a day across all conversations, under ntfy.sh's 250 free ones, and tells you which one is the last of the day. Anyone who knows the topic name can read the alerts: `/narsil movil nuevo` creates another one. In quiet mode only what needs you gets through.
+When you work away from your computer with Remote Control, `/narsil movil` sends to your phone what needs you: when a conversation finishes, needs you, or fails. It only sends while your last message, in any conversation, came from Remote Control (the phone or the web): that way the conversations you started on the desktop alert you too. As soon as you write on the desktop again, in any of them, it stops sending. Each alert ends with the list of all open conversations and their state ("Conversaciones: ● web · ERROR ● api · TRABAJANDO"). The alerts go to a private [ntfy.sh](https://ntfy.sh) topic that the command creates with a random name. To get them as notifications, install [Narsil for Android](#narsil-for-android) and write the topic in its settings, or subscribe to the topic in the ntfy app. Either way they arrive with Narsil in her current stage and the alert's pose; a Wear OS watch shows them too. Narsil sends at most 200 a day across all conversations, under ntfy.sh's 250 free ones, and tells you which one is the last of the day. Anyone who knows the topic name can read the alerts: `/narsil movil nuevo` creates another one. In quiet mode only what needs you gets through.
 
-At the end of each turn, Narsil also sends a minimal status to the `<your topic>-estado` topic, which creates no notifications and counts toward the 200 a day. The Firefox extension (`narsil-claude`) reads it, because this is data only the PC knows:
+At the end of each turn, Narsil also sends a minimal status to the `<your topic>-estado` topic, which creates no notifications and counts toward the 200 a day. Narsil for Android reads it for its band, because this is data only the PC knows:
 
 | Field | What it is |
 | --- | --- |
@@ -124,9 +124,9 @@ At the end of each turn, Narsil also sends a minimal status to the `<your topic>
 | `cacheMinutes` | How many minutes the cache lasts; missing if no conversation has a cache. |
 | `usage` | A single row, `ntfy`, with the day's messages from your network: `[{ key, label, percent, color, note, resetsAt }]`. Empty if ntfy.sh does not respond. |
 
-`/narsil movil clave` encrypts everything Narsil sends with a key that only your PC and the extension have. Anyone reading the topic only sees "Narsil" and unreadable text. The ntfy app cannot decrypt it: if you use it for the alerts, `/narsil movil clave off` sends them unencrypted again.
+`/narsil movil clave` encrypts everything Narsil sends, alerts and status, with a key that only your PC and your phone have: put it in Narsil for Android's settings. Anyone reading the topic only sees "Narsil" and unreadable text. Each run creates a new key, so put the new one in the app again. The ntfy app cannot decrypt it: if you use it for the alerts, `/narsil movil clave off` sends them unencrypted again.
 
-If you receive the alerts with your own web app through Web Push (like [narsil-pwa](https://github.com/davshn/narsil-pwa)), the app leaves its subscription in the `<your topic>-push` topic, encrypted with the key if there is one. ntfy.sh drops a subscription as soon as a delivery fails, so before each alert Narsil registers it again with ntfy.sh. That way the alerts keep arriving even if you do not open the app. Registering publishes nothing, so it does not count toward the daily limit.
+If you receive the alerts with your own web app through Web Push, the app leaves its subscription in the `<your topic>-push` topic, encrypted with the key if there is one. ntfy.sh drops a subscription as soon as a delivery fails, so before each alert Narsil registers it again with ntfy.sh. That way the alerts keep arriving even if you do not open the app. Registering publishes nothing, so it does not count toward the daily limit.
 
 ### Session summary
 `/narsil resumen` shows how long the session has lasted, the turns and their working time, the edited files, the commands, the failures, the subagents, and context use. Narsil also shows it on her own after 30 minutes without activity following a turn. If you close Claude Code and resume the conversation, the summary keeps adding from where it left off (the 20 most recent conversations are kept).
@@ -209,7 +209,7 @@ On macOS the window opens and closes instead of hiding (hiding another app's win
 
 ## Other Narsil mods
 
-Narsil has two companions, also open source. Each one installs on its own and works alongside the others: Narsil takes the band above the prompt, Narsil Check a side pane, and Narsil Skin the window background.
+Narsil has three companions, also open source. Each one installs on its own and works alongside the others: Narsil takes the band above the prompt, Narsil Check a side pane, Narsil Skin the window background, and Narsil for Android your phone.
 
 ### [Narsil Check](https://github.com/davshn/narsil-check)
 A side pane, in Narsil's colors, that checks the project you are working on: the session environment (repository, branch, connectors, remote control, and Auto-fix), which libraries can be upgraded and how much effort it takes, the known vulnerabilities of the installed packages, and a list of pending tasks. It reads JavaScript and TypeScript, Python, Go, Rust, Dart and Flutter, Kotlin and Java, C#, Ruby, and Swift projects.
@@ -225,6 +225,20 @@ Reskins the Claude desktop app: color themes (colors, fonts, corners, and shadow
 ```
 /plugin marketplace add davshn/narsil-skin
 /plugin install narsil-skin@narsil-skin
+```
+
+### [Narsil for Android](https://github.com/davshn/narsil-android)
+An Android app that brings `claude.ai` and Narsil's [phone alerts](#phone-and-watch-alerts) together, for when you work with Remote Control. It works like this:
+
+- **Claude in Narsil's colors.** The app opens Claude's real web app in a WebView and dresses it from the very start of each page: the night-sea palette by night and the light one by day, whatever appearance you picked in Claude.
+- **Her band, inside Claude.** Above the box where you write, a strip shows the open conversation: Narsil in her stage and in its state's pose, **TRABAJANDO**, **TE NECESITA**, **TERMINADA**, or **EN REPOSO**, its context, its cache, and the last thing Claude said. In the side menu, a block shows her level and XP, the 5-hour and weekly limits, and ntfy.sh's count. The state, context, and limits come from Claude's own page; the level, her drawing, and the count from `<your topic>-estado`.
+- **Native alerts.** A foreground service keeps a connection to your topic open, also with the app closed and after restarting the phone. A question or an error pops up on its own channel and stays until you touch it; each "done" replaces the previous one of its conversation; the alert's links show as buttons; and a tap opens Claude Code inside the app. Alerts missed while the phone was off arrive once it is back, as ntfy.sh keeps them for 12 hours.
+- **Encrypted alerts.** With the key of `/narsil movil clave` in its settings, it opens what Narsil encrypts. The topic and the key stay on the phone and never reach Claude's page.
+
+You sign in to Claude once, with your email: Google and Apple do not allow signing in inside an app like this one. With the phone connected by USB, in a copy of its repository:
+
+```
+./gradlew installDebug
 ```
 
 ### Where each one works
