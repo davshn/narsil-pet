@@ -53,6 +53,7 @@ function engine(
     git = () => '',
     files = {},
     fleet = [],
+    hub,
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -73,6 +74,9 @@ function engine(
     files?: Record<string, string>
     // the other conversations the hub serves at /sessions
     fleet?: Record<string, unknown>[]
+    // the hub's ping answer, which a test may change; '' once /quit closed it
+    // (pushes then fail), this version's again once the mod starts one
+    hub?: { ping: string; quits?: number }
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -101,6 +105,12 @@ function engine(
       const message = await pushReply()
       return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}\n` : '' } }
     }
+    if (hub && e.url.endsWith('/ping')) return { value: { status: hub.ping ? 200 : 503, ok: Boolean(hub.ping), headers: {}, text: hub.ping } }
+    if (hub && e.url.endsWith('/quit')) {
+      hub.ping = ''
+      hub.quits = (hub.quits ?? 0) + 1
+    }
+    if (hub && !hub.ping) return { value: { status: 503, ok: false, headers: {}, text: '' } }
     if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil 4' } }
     if (isStale && e.url.endsWith('/quit')) {
       isStale = false
@@ -123,7 +133,10 @@ function engine(
   on('process.run', (_, e) => {
     runs.push({ argv: e.argv, env: e.init?.env ?? {} })
     // the hub, started through PowerShell or start.sh
-    if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) isUp = true
+    if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) {
+      isUp = true
+      if (hub) hub.ping = 'narsil 6'
+    }
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -1585,6 +1598,26 @@ test('on another system Narsil runs none of her scripts', async ($, on) => {
 // --- Saying "Narsil" to dictate (overlay/listen.ps1, overlay/ear.cjs) ---
 
 const earPosts = (posts: Posted[]) => posts.filter(p => p.url.includes('/ear?')).map(p => p.url.split('/ear')[1])
+
+test('an older hub that took over after the start is replaced from the heartbeat, though it takes the beats', async ($, on) => {
+  const runs: Ran[] = []
+  const hub: { ping: string; quits?: number } = { ping: 'narsil 6' }
+  engine(on, null, { os: 'windows', runs, hub, hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+  const started = () => runs.filter(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs')).length
+  expect(started()).toBe(0)
+  expect(hub.quits ?? 0).toBe(0)
+
+  // a conversation of an older version put its own hub in place
+  hub.ping = 'narsil 5'
+  await clock.advance(40_000)
+
+  expect(hub.quits).toBe(1)
+  expect(started()).toBe(1)
+  expect(hub.ping).toBe('narsil 6')
+})
 
 test('/narsil escucha on turns the ear on in the hub, with the token, and keeps it', async ($, on) => {
   const store = noWindow() as Record<string, unknown>

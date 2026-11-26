@@ -165,9 +165,9 @@ async function overlayToken($: EngineInterface): Promise<string> {
 }
 
 // What this version's hub answers a ping. A hub another version started
-// answers otherwise ("narsil 4" still opened the floating window): it outlives
-// the mod's updates, so it is closed and started anew.
-const OVERLAY_PROTOCOL = 'narsil 5'
+// answers otherwise ("narsil 5" had no ear): it outlives the mod's updates, so
+// it is closed and started anew. Keep it equal to overlay/server.cjs's /ping.
+const OVERLAY_PROTOCOL = 'narsil 6'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -349,9 +349,26 @@ async function beat($: EngineInterface): Promise<void> {
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
-  // A hub that went down (or never started) is started again, at most once a minute.
+  // A hub that went down (or never started) is started again, at most once a
+  // minute. One of an older version takes the beats too, so its version is
+  // checked every PROTOCOL_CHECK_MS, and it is replaced the same way.
   if (!(await pushOverlay($))) void ensureOverlay($).catch(() => undefined)
+  else if (await isOlderHub($)) void ensureOverlay($).catch(() => undefined)
   await readSessions($)
+}
+
+const PROTOCOL_CHECK_MS = 30_000
+let lastProtocolCheck = Number.NEGATIVE_INFINITY
+
+// Whether the hub answering is another version's, asked at most every
+// PROTOCOL_CHECK_MS.
+async function isOlderHub($: EngineInterface): Promise<boolean> {
+  const now = await $.clock.now()
+  // A clock set back (or a reload's fresh one) counts as due.
+  const since = now - lastProtocolCheck
+  if (since >= 0 && since < PROTOCOL_CHECK_MS) return false
+  lastProtocolCheck = now
+  return (await overlayPing($)) === 'stale'
 }
 
 // `/narsil escucha on|off`: the hub's ear (overlay/ear.cjs, overlay/listen.ps1),
@@ -398,8 +415,18 @@ type EventKind = 'done' | 'question' | 'error'
 const OVERLAY_RESTART_MS = 60_000
 const OVERLAY_WAIT_MS = 3000
 let lastOverlayStart = Number.NEGATIVE_INFINITY
+// The start under way, if any: a start outlasts the 2 s between beats, and a
+// second one would close the hub the first just started.
+let overlayStarting: Promise<boolean> | null = null
 
-async function ensureOverlay($: EngineInterface): Promise<boolean> {
+function ensureOverlay($: EngineInterface): Promise<boolean> {
+  overlayStarting ??= startOverlayOnce($).finally(() => {
+    overlayStarting = null
+  })
+  return overlayStarting
+}
+
+async function startOverlayOnce($: EngineInterface): Promise<boolean> {
   if (await isOverlayUp($)) return true
   const now = await $.clock.now()
   if (now - lastOverlayStart < OVERLAY_RESTART_MS) return false

@@ -147,6 +147,12 @@ check("the listener's ticks are answered with the keys to press", async () => {
   await request('POST', '/ear?on=0', { headers: MOD })
 })
 
+check('the mod expects the protocol this hub answers, or it would take it for an older one', async () => {
+  const source = require('fs').readFileSync(path.join(__dirname, '..', 'hooks', 'register.tsx'), 'utf8')
+  const expected = /const OVERLAY_PROTOCOL = '([^']+)'/.exec(source)?.[1]
+  assert.equal((await request('GET', '/ping')).text, expected)
+})
+
 check('a request path no URL can be made of is refused, and the server keeps answering', async () => {
   for (const target of ['//', 'http://']) {
     const reply = await rawRequest(target)
