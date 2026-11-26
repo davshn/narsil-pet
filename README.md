@@ -9,7 +9,7 @@
 >
 > A free workshop, in English, Spanish, Italian, French, and Brazilian Portuguese, that teaches step by step how to build Claude Code mods like Narsil and [Narsil Check](https://github.com/davshn/narsil-check), and how to build a Narsil desk bot with a body: an ESP32-P4 touch screen in the belly and a holographic ESP32-S3 head, which talks through Xiaozhi and Claude on your own server and shows your GitHub pull requests and the Narsil status. No sign-up, no analytics, and it never asks for tokens or keys.
 
-Narsil is a chibi sea serpent that lives above the Claude Code prompt and shows you at a glance what Claude is doing: whether it is working, waiting for your answer, done, or whether something failed. She alerts you with her voice and with a floating window when you are needed, gives you tips about the work in progress, and keeps an eye on context use and your usage limits.
+Narsil is a chibi sea serpent that lives above the Claude Code prompt and shows you at a glance what Claude is doing: whether it is working, waiting for your answer, done, or whether something failed. She alerts you with her voice and a system notification when you are needed, gives you tips about the work in progress, and keeps an eye on context use and your usage limits.
 
 Her name comes from the reforged sword in *The Lord of the Rings*: Narsil is here to cut bugs.
 
@@ -57,20 +57,15 @@ Click the name of another conversation to open that one instead.
 
 When Narsil suggests next steps ("➜ ¿Y ahora?", *what now?*, under their own line), the conversations collapse so the suggestions stand on their own. If you open a conversation, the suggestions hide; when you close them all, they come back.
 
-To bring them together, each conversation sends its state to a small local server (the floating window's server), which starts with the first conversation even if the window is turned off.
-
-### Floating window
-A small always-visible window that appears when Claude is minimized or when something is waiting for you, and hides on its own when you go back to Claude. It shows Narsil with the most important conversation (or the one whose alert is waiting for you), the account limits, and the list of all conversations, scrolling if there are many. Click a conversation to expand it with its context (the word "Contexto" shows what is filling it), its tasks, its subagents, its cache, and its next steps, plus a button to open it. If you close the window, it comes back with the next alert (after one minute).
-
-On Windows it appears on the same screen as Claude, even with several monitors.
+To bring them together, each conversation sends its state to a small local server (the hub), which starts with the first conversation and stops on its own once no conversation is open. It opens no window: everything shows in the band.
 
 ### Voice and alerts
-Narsil tells you out loud, in Spanish, when she starts working on your prompt, when a turn ends, when a question or a permission is waiting for you, and when a turn fails. Each time she picks one of several phrases at random, so she does not always repeat the same one. In the desktop app, a turn that ends with a question in the next-step box alerts you as a question, with that question. With the floating window on, the alert appears in it; if you turn it off, it arrives as a system notification.
+Narsil tells you out loud, in Spanish, when she starts working on your prompt, when a turn ends, when a question or a permission is waiting for you, and when a turn fails. Each time she picks one of several phrases at random, so she does not always repeat the same one. In the desktop app, a turn that ends with a question in the next-step box alerts you as a question, with that question. The alert arrives as a system notification.
 
 ### Tips
 Tips about the work in progress, generated with Haiku (medium effort): when a turn ends, after several failures in a row, or during a very long turn. The end-of-turn tip reads the diff of what was done (or the last commit, if it was already saved) and comments on a design decision: why it was done that way, what the alternative was and what is gained or lost, or how to improve that feature. No routine checks like "run the tests" or "check the push"; after several failures, on the other hand, the tip is about debugging. It is asked to mention something concrete and not to make up data. `/narsil consejo profundo` analyzes the whole conversation. The frequencies are configurable and never slow Claude down.
 
-On Windows and macOS each tip opens in full in its own small window with Narsil's icon: above the floating window if it is visible and, if not, in the corner of the monitor where Claude is (on macOS, where the mouse is). It does not steal focus, closes on its own after 3 minutes or when another tip arrives, and has a button to go back to the conversation. That way the band and the floating window keep that space for everything else. On other systems, the tip shows in the band and in the floating window.
+Each tip shows in the band, under the headline, on every system. It leaves on its own after 3 minutes, when another tip arrives, or when you close it with its ×.
 
 ### Context and limit usage
 The account limits (5-hour and weekly) appear only once, with the time left until they reset. There is no overall context bar: each conversation has its own, on its row.
@@ -89,22 +84,22 @@ When a turn ends, Narsil shows how much time the prompt cache has left ("🧊 Ca
 With a subscription plan it counts 60 minutes, and with an API key, 5. The API does not report the real duration, so you can set it with `/narsil cache <min>`. The clock runs from the start of the turn's last request, as the API measures it, so a long answer already uses part of that time.
 
 ### Next steps
-Fifteen minutes after a turn ends, if you have not written anything, Narsil suggests up to three next steps that answer "how do we continue with the project?" and "what is left to do?" ("Añade reintentos con backoff a net.ts", *add retries with backoff to net.ts*). To do that she reads the latest commits, the uncommitted files, and the pending tasks in `odd/tasks/*.md`, if there are any. Click one and she writes it into the prompt for you to review and send. The floating window shows them too. Turn them off with `/narsil pasos off`.
+Fifteen minutes after a turn ends, if you have not written anything, Narsil suggests up to three next steps that answer "how do we continue with the project?" and "what is left to do?" ("Añade reintentos con backoff a net.ts", *add retries with backoff to net.ts*). To do that she reads the latest commits, the uncommitted files, and the pending tasks in `odd/tasks/*.md`, if there are any. Click one and she writes it into the prompt for you to review and send. Turn them off with `/narsil pasos off`.
 
 ### Subagents
-Each subagent appears as a small serpent with its task, in the band and in the floating window:
+Each subagent appears as a small serpent with its task, in the band:
 
 - **Its type**, with an accessory: 🐍🔍 Explore, 🐍📜 Plan, 🐍📖 claude-code-guide, 🐍🪞 fork, 🐍 general-purpose, and 🐍✨ any other.
 - **The model it runs on** and **how long it has been running** ("🐍🔍 Explorar el overlay · Haiku 4.5 · 4 min"). If it goes 5 minutes without using any tool, it turns yellow with "sin actividad" (*no activity*): it may be stuck.
 - **How it ended**, for a few seconds: "✓ … · terminado en 1 min 20 s" (*finished*), "✗ … · falló" (*failed*), or "■ … · detenido" (*stopped*).
 
-If the subagent ran in the background, Narsil also alerts you by voice and in the floating window when it finishes.
+If the subagent ran in the background, Narsil also alerts you by voice and with a notification when it finishes.
 
 ### Waiting permissions
-If a permission, a question, or a plan has been waiting for your answer for 5 minutes, Narsil insists once, by voice and in the floating window, even if you are looking at Claude.
+If a permission, a question, or a plan has been waiting for your answer for 5 minutes, Narsil insists once, by voice and with a notification.
 
 ### Experience
-Narsil gains experience from the work: 10 XP for each finished turn, 5 each time the tests pass, and 3 for each subagent that finishes well. Level 1 to 2 takes 100 XP, 2 to 3 another 200, and so on. The level ("⭐ Nivel 3 · 120/300 XP") appears in the band and in the floating window, and Narsil celebrates each new level. Experience is kept between sessions and every open conversation adds to it.
+Narsil gains experience from the work: 10 XP for each finished turn, 5 each time the tests pass, and 3 for each subagent that finishes well. Level 1 to 2 takes 100 XP, 2 to 3 another 200, and so on. The level ("⭐ Nivel 3 · 120/300 XP") appears in the band, and Narsil celebrates each new level. Experience is kept between sessions and every open conversation adds to it.
 
 With the levels, Narsil grows. She goes through five stages: the hatchling (levels 1 to 4) and stages 2 (from level 5), 3 (from 10), 4 (from 20), and 5 (from 35). Each new level is celebrated with a golden glow, rings, stars, and the level number; each new stage, with a flash and rays of light while she grows to her new size. `/narsil nivel` shows her level and stage.
 
@@ -168,9 +163,7 @@ To update to the latest version:
 /plugin update narsil-pet@narsil
 ```
 
-The floating window also needs:
-- **Windows**: Microsoft Edge (preinstalled) and [Node.js](https://nodejs.org).
-- **macOS**: Chrome, Edge, or Brave, and [Node.js](https://nodejs.org).
+On Windows and macOS, the list of open conversations needs [Node.js](https://nodejs.org) for its hub.
 
 ## Commands
 
@@ -181,7 +174,6 @@ The floating window also needs:
 | `/narsil ocultar` · `mostrar` | Hides or shows the band. |
 | `/narsil silencio` · `voz` | Turns the voice off or on. |
 | `/narsil discreto` · `normal` | Turns quiet mode on or off. |
-| `/narsil flotante` | Turns the floating window on or off. |
 | `/narsil prueba` | Sends a test alert, with voice. |
 | `/narsil consejo` | Asks for a tip now. |
 | `/narsil consejo profundo` | Asks for a tip that analyzes the whole conversation. |
@@ -196,16 +188,13 @@ The floating window also needs:
 
 ## Supported systems
 
-The band, its animations, the tips, and the usage bars work wherever Claude Code draws them: terminal, desktop app, VS Code, and mobile app. The voice, the alerts, and the floating window run on the computer where the session runs:
+The band, its animations, the tips, and the usage bars work wherever Claude Code draws them: terminal, desktop app, VS Code, and mobile app. The voice, the alerts, and the hub run on the computer where the session runs:
 
 | | Windows | macOS | Others |
 | --- | --- | --- | --- |
 | Voice | A Windows Spanish voice, Latin American if there is one (for example Sabina, from Mexico) | `say`, with Paulina or another Latin American voice if installed, otherwise Mónica | Claude Code's voice |
 | Alerts | Windows notification; clicking it opens the conversation | macOS notification | Claude Code's, if any |
-| Floating window | Edge, always on top, on Claude's screen | Chrome, Edge, or Brave, opened behind your app | Not available |
-| Tips | Their own small window, on Claude's screen | Their own small window, on the mouse's screen | In the band |
-
-On macOS the window opens and closes instead of hiding (hiding another app's window requires the accessibility permission) and does not stay on top: put it where you want and the browser will remember its position.
+| Other conversations in the band | Yes, with Node.js | Yes, with Node.js | Only this one |
 
 ## Other Narsil mods
 
@@ -249,7 +238,7 @@ You sign in to Claude once, with your email: Google and Apple do not allow signi
 | **Narsil Check** | Upgrades, vulnerabilities, and pending tasks | Everything | Upgrades, vulnerabilities, and pending tasks | Upgrades, vulnerabilities, and pending tasks (no field to add tasks) |
 | **Narsil Skin** | No | Yes, in the Code tab, on Windows and macOS | No | No |
 
-Narsil's voice, alerts, and floating window also depend on the computer's system (see [Supported systems](#supported-systems)). In Narsil Check, the environment, connectors, remote control, Auto-fix, and the PR's CI are read from the desktop app's own servers, so they only appear there. Narsil Skin paints the themes with an extension inside the desktop app, so it does nothing on other surfaces and does not work on Linux yet.
+Narsil's voice, alerts, and hub also depend on the computer's system (see [Supported systems](#supported-systems)). In Narsil Check, the environment, connectors, remote control, Auto-fix, and the PR's CI are read from the desktop app's own servers, so they only appear there. Narsil Skin paints the themes with an extension inside the desktop app, so it does nothing on other surfaces and does not work on Linux yet.
 
 ## Development
 
@@ -259,12 +248,10 @@ Narsil is open source and contributions are welcome: open an issue or a pull req
 claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 node tests/overlay-server.check.cjs
-node tests/overlay-drawing.check.cjs
 ```
 
-The `overlay-server` check verifies who can use the floating window's server: only its own page (with the key it receives when it loads) and the mod (with its token), and only on its local address, so no website you visit can control it.
+The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window.
 
-- `overlay/tip.ps1`, `overlay/tip.sh`, and `overlay/tip.js`: the small tip window on Windows and macOS.
 - `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
 - `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
 - `hooks/phone.ts`: the phone alerts (the ntfy.sh message with its icon, the topic, and the daily count), and the state the [Narsil Watch](https://github.com/davshn/narsil-watch) reads (Claude's limits and the open conversations).
@@ -272,7 +259,7 @@ The `overlay-server` check verifies who can use the floating window's server: on
 - `hooks/tasks.ts`: a conversation's task list, as `TodoWrite`, `TaskCreate`/`TaskUpdate`, and the desktop app's plan leave it.
 - `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).
 - `hooks/sprite.ts`: Narsil's animations.
-- `overlay/`: the floating window (local server, page, and Windows and macOS scripts).
+- `overlay/`: the hub (`server.cjs`, the local server the conversations share) and the Windows and macOS scripts for the voice and the notifications.
 - `tests/`: the tests.
 
 The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` with `tools/build-art.ps1`. The hatchling is in `assets/raw/<pose>-<claro|oscuro>.png`, and each later stage has its own folder, `assets/raw/etapa2` to `assets/raw/etapa5`, with the same names. If a stage is missing a pose, its `base` pose is used. If it is missing all of them in a theme, the previous stage is used. The animations in this README are generated with `node tools/build-readme-art.mjs`.
@@ -280,9 +267,7 @@ The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` 
 Each pose also has an animated loop, made from a Veo or Flow video based on its drawing. If a pose has a loop, it is used instead of the still drawing. The steps are:
 
 1. `tools/anim-sources.ps1` prepares, for each pose that does not have a loop yet, its drawing on pure green and the prompt that goes with it, in `Descargas\narsil-anim\etapa<N>\<pose>-<theme>.png` and `.txt`. In Flow, *Frames* mode works well, with that drawing as the first and last frame, at 360p and 3 s.
-2. `tools/encode-anim.ps1 -Video <mp4> -Stage <N> -Pose <pose> -Theme <theme> -Seconds 3 -Fade 0` removes the green and the audio and writes two versions:
-   - `assets/anim/`: the band's loop, at the best quality that fits in 38 KB. Both themes have to fit in the band's drawing, which allows at most 131,072 characters.
-   - `assets/anim-hq/`: the sharp version the floating window serves.
+2. `tools/encode-anim.ps1 -Video <mp4> -Stage <N> -Pose <pose> -Theme <theme> -Seconds 3 -Fade 0` removes the green and the audio and writes the band's loop to `assets/anim/`, at the best quality that fits in 38 KB. Both themes have to fit in the band's drawing, which allows at most 131,072 characters.
 3. `tools/build-animated.ps1` (called by the previous step) embeds them in `hooks/art/anim/` and `hooks/art/animated.ts`.
 
 You need ffmpeg: `winget install Gyan.FFmpeg`.

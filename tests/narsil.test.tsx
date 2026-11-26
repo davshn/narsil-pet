@@ -33,10 +33,10 @@ const TYPED = { origin: { kind: 'composer' }, presentation: { isFullscreen: fals
 type Posted = { url: string; token?: string; body: Record<string, unknown> }
 type Ran = { argv: readonly string[]; env: Record<string, string> }
 
-// Stands in for the engine and the floating window: records what the window
-// receives and what the mod runs, and answers /summary with `summary`. `os` is
-// the system the session runs on, as the environment and `uname` tell it.
-// `isOverlayDown`: the window is not running until the mod starts its server.
+// Stands in for the engine and the hub: records what the hub receives and
+// what the mod runs, and answers /summary with `summary`. `os` is the system
+// the session runs on, as the environment and `uname` tell it.
+// `isOverlayDown`: the hub is not running until the mod starts it.
 function engine(
   on: On,
   summary: Record<string, number> | null = null,
@@ -61,7 +61,7 @@ function engine(
     isOverlayDown?: boolean
     // an older server holds the port: it answers the ping the old way
     isOverlayStale?: boolean
-    // what the window's server answers a pushed state
+    // what the hub answers a pushed state
     stateReply?: (body: Record<string, unknown>) => string
     // what the phone app left on its push topic, as ntfy.sh's poll returns it
     pushReply?: () => Promise<string> | string
@@ -101,7 +101,7 @@ function engine(
       const message = await pushReply()
       return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}\n` : '' } }
     }
-    if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil' } }
+    if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil 4' } }
     if (isStale && e.url.endsWith('/quit')) {
       isStale = false
       isUp = false
@@ -117,12 +117,12 @@ function engine(
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 4' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 5' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
     runs.push({ argv: e.argv, env: e.init?.env ?? {} })
-    // the window's server, started through PowerShell or start.sh
+    // the hub, started through PowerShell or start.sh
     if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) isUp = true
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -188,7 +188,7 @@ test('working says exactly what Narsil does, and a failed step keeps her working
   await term.unmount()
 })
 
-test('each state change is pushed to the floating window with its token and session', async ($, on) => {
+test('each state change is pushed to the hub with its token and session, without a drawing', async ($, on) => {
   const posts = engine(on)
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -201,45 +201,48 @@ test('each state change is pushed to the floating window with its token and sess
   expect(last?.body.title).toBe('landing')
   expect(last?.body.status).toBe('working')
   expect(last?.body.headline).toBe('Estoy editando: a.ts')
-  // the drawing goes with the change of state, not with each heartbeat after
-  const drawn = posts.filter(p => p.url.endsWith('/state') && p.body.svg).at(-1)
-  expect(drawn?.body.status).toBe('working')
-  expect(String(drawn?.body.svg).startsWith('<svg')).toBe(true)
+  // each band draws its own Narsil: no drawing travels
+  expect(posts.some(p => 'svg' in p.body)).toBe(false)
 })
 
-test('a question from Claude pops up with the conversation it belongs to', async ($, on) => {
-  const posts = engine(on)
+test('a question from Claude is a system notification that opens its conversation', async ($, on) => {
+  const runs: Ran[] = []
+  const posts = engine(on, null, { runs })
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
 
-  const asked = posts.find(p => p.url.endsWith('/event'))
-  expect(asked?.body.kind).toBe('question')
-  expect(asked?.body.sessionId).toBe('local_abc-123')
+  const asked = toasts(runs)
+  expect(asked.length).toBe(1)
+  expect(asked[0]?.NARSIL_TITLE).toBe('Narsil · Te necesito')
+  expect(asked[0]?.NARSIL_LINK).toBe('claude://code/continue?session=local_abc-123&source=desktop_action')
+  expect(posts.some(p => p.url.endsWith('/event'))).toBe(false)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Te necesito: tengo una pregunta para ti' })).toBeDefined()
   await ui.unmount()
 })
 
-test('a permission dialog you must answer pops up as a question', async ($, on) => {
-  const posts = engine(on)
+test('a permission dialog you must answer is told as a question', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { runs })
   on('classic.PermissionRequest', () => ({}))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' }, permission_mode: 'default' })
 
-  const asked = posts.find(p => p.url.endsWith('/event'))
-  expect(asked?.body.kind).toBe('question')
-  expect(asked?.body.text).toBe('Pido permiso para usar Bash.')
+  const asked = toasts(runs)
+  expect(asked[0]?.NARSIL_TITLE).toBe('Narsil · Te necesito')
+  expect(asked[0]?.NARSIL_TEXT).toBe('Pido permiso para usar Bash.')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('an ask the mode settles by itself (bypass permissions) raises no alarm', async ($, on) => {
-  const posts = engine(on)
+  const runs: Ran[] = []
+  engine(on, null, { runs })
   // the engine's verdict before the mode settles it: "ask", then allowed
   on('tool.check', () => ({ decision: 'ask' as const }))
   on('tool.call', () => ({ result: {} }))
@@ -250,20 +253,21 @@ test('an ask the mode settles by itself (bypass permissions) raises no alarm', a
   await $.tool.call({ tool: 'Bash', command: 'rm -rf build' })
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: {}, permission_mode: 'bypassPermissions' })
 
-  expect(posts.find(p => p.url.endsWith('/event'))).toBeUndefined()
+  expect(toasts(runs)).toEqual([])
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /TE NECESITA/ })).toBeUndefined()
   await ui.unmount()
 })
 
 test('a permission a settings hook answers raises no alarm', async ($, on) => {
-  const posts = engine(on)
+  const runs: Ran[] = []
+  engine(on, null, { runs })
   on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' as const } }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.classic.PermissionRequest({ tool_name: 'Edit', tool_input: {}, permission_mode: 'default' })
 
-  expect(posts.find(p => p.url.endsWith('/event'))).toBeUndefined()
+  expect(toasts(runs)).toEqual([])
 })
 
 test('the open conversations are counted by state for /narsil estado, and the band lists them instead', async ($, on) => {
@@ -533,14 +537,14 @@ test('the desktop band draws Narsil as an image, the only way it shows the embed
 })
 
 test('Narsil names herself, never Claude, in what she says and shows', async ($, on) => {
-  const posts = engine(on)
+  const runs: Ran[] = []
+  const posts = engine(on, null, { runs })
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'TODO' } as never)
 
-  const event = posts.find(p => p.url.endsWith('/event'))
-  expect(event?.body.title).toBe('Te necesito')
+  expect(toasts(runs)[0]?.NARSIL_TITLE).toBe('Narsil · Te necesito')
   for (const post of posts.filter(p => p.url.endsWith('/state'))) {
     expect(String(post.body.headline)).not.toContain('Claude')
   }
@@ -572,9 +576,8 @@ function model(on: On, reply: string | ModelCompleteResult = TIP): Asked[] {
 // own events answered beneath the plugin.
 // `hasSteps` keeps the next steps on; `hasPlan` reads a plan's limits.
 // `everyMinutes` shortens the throttle, so a test of several tips moves the
-// clock (and the 2-second heartbeat with it) only a little. A system with
-// no tip window by default: there tips show in the band and the floating
-// window; on Windows and macOS they open in a window of their own.
+// clock (and the 2-second heartbeat with it) only a little. The session runs on
+// Linux by default; tips show in the band on every system.
 async function tipEngine(
   $: Engine,
   on: On,
@@ -634,63 +637,33 @@ async function bandTip($: Engine, surface: 'terminal' | 'desktop') {
   return found
 }
 
-test('on Windows a tip opens whole in its own window, and leaves the band and the floating window free', async ($, on) => {
+test('on Windows a tip shows in the band, and opens no window of its own', async ($, on) => {
   model(on)
   const runs: Ran[] = []
-  const { posts, clock } = await tipEngine($, on, { os: 'windows', runs })
+  const { clock } = await tipEngine($, on, { os: 'windows', runs })
 
   await finishTurn($)
   await clock.settle()
-
-  const opened = runs.filter(r => scriptOf(r).endsWith('\\overlay\\tip.ps1'))
-  expect(opened.length).toBe(1)
-  const env = opened[0]!.env
-  expect(env.NARSIL_TEXT).toBe(TIP)
-  expect(env.NARSIL_LINK).toBe('claude://code/continue?session=local_abc-123&source=desktop_action')
-  expect(env.NARSIL_STAGE).toBe('1')
-  expect(env.NARSIL_SECONDS).toBe('180')
-  expect(String(env.NARSIL_ASSETS).endsWith('\\assets')).toBe(true)
-  // the band and the floating window keep their room for the rest
-  for (const surface of ['terminal', 'desktop'] as const) expect(await bandTip($, surface)).toBeUndefined()
-  expect(windowTip(posts)).toBeNull()
-  // a tip asked for opens there too
   await $.command.run({ command: 'narsil', args: 'consejo', ...TYPED })
-  expect(runs.filter(r => scriptOf(r).endsWith('\\overlay\\tip.ps1')).length).toBe(2)
+
+  for (const surface of ['terminal', 'desktop'] as const) expect(await bandTip($, surface)).toBeDefined()
+  expect(runs.filter(r => /tip\.(ps1|sh)$/.test(scriptOf(r)))).toEqual([])
 })
 
-test('on macOS a tip opens whole in its own window too, through tip.sh, detached', async ($, on) => {
+test('on macOS a tip shows in the band, and opens no window of its own', async ($, on) => {
   model(on)
   const runs: Ran[] = []
-  const { posts, clock } = await tipEngine($, on, { os: 'mac', runs })
+  const { clock } = await tipEngine($, on, { os: 'mac', runs })
 
   await finishTurn($)
   await clock.settle()
+  await $.command.run({ command: 'narsil', args: 'consejo', ...TYPED })
 
-  const opened = runs.filter(r => scriptOf(r).endsWith('/overlay/tip.sh'))
-  expect(opened.length).toBe(1)
-  expect(opened[0]!.argv).toEqual(['/bin/sh', '-c', 'nohup /bin/sh "$NARSIL_SCRIPT" </dev/null >/dev/null 2>&1 &'])
-  const env = opened[0]!.env
-  expect(env.NARSIL_TEXT).toBe(TIP)
-  expect(env.NARSIL_STAGE).toBe('1')
-  expect(env.NARSIL_SECONDS).toBe('180')
-  expect(String(env.NARSIL_ASSETS).endsWith('/assets')).toBe(true)
-  // where the floating window says it is, to open above it
-  expect(env.NARSIL_OVERLAY).toBe('http://127.0.0.1:47190')
-  for (const surface of ['terminal', 'desktop'] as const) expect(await bandTip($, surface)).toBeUndefined()
-  expect(windowTip(posts)).toBeNull()
+  for (const surface of ['terminal', 'desktop'] as const) expect(await bandTip($, surface)).toBeDefined()
+  expect(runs.filter(r => /tip\.(ps1|sh)$/.test(scriptOf(r)))).toEqual([])
 })
 
-test('the tip window opens with her stage, grown with her', async ($, on) => {
-  model(on)
-  const runs: Ran[] = []
-  // 3600 XP is level 9: stage 2
-  const { clock } = await tipEngine($, on, { os: 'windows', runs, store: { xp: 3600 } })
-  await finishTurn($)
-  await clock.settle()
-  expect(runs.find(r => scriptOf(r).endsWith('\\overlay\\tip.ps1'))?.env.NARSIL_STAGE).toBe('2')
-})
-
-test('a finished turn gives a tip about it, under the headline and in the window', async ($, on) => {
+test('a finished turn gives a tip about it, under the headline', async ($, on) => {
   const asked = model(on)
   const { posts, clock } = await tipEngine($, on)
 
@@ -731,18 +704,16 @@ test('a tip is dismissed with its ×, and leaves on its own after 3 minutes', as
   expect(await bandTip($, 'desktop')).toBeUndefined()
 })
 
-test('the floating window keeps the tip after it leaves the band, for 15 minutes', async ($, on) => {
+test('a tip leaves the hub when it leaves the band, after 3 minutes', async ($, on) => {
   model(on)
   const { posts, clock } = await tipEngine($, on)
   const lastTip = () => posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.tip
   await finishTurn($)
   await clock.settle()
-
-  await clock.advance(5 * MINUTE)
-  expect(await bandTip($, 'desktop')).toBeUndefined()
   expect(lastTip()).toBe(TIP)
 
-  await clock.advance(10 * MINUTE + 2000)
+  await clock.advance(3 * MINUTE + 2000)
+  expect(await bandTip($, 'desktop')).toBeUndefined()
   expect(lastTip()).toBeNull()
 })
 
@@ -942,7 +913,7 @@ test('/narsil discreto keeps her quiet, and /narsil normal brings everything bac
 })
 
 test('prefs stored before tips existed get the tip defaults', async ($, on) => {
-  await tipEngine($, on, { store: { prefs: { isHidden: false, isMuted: true, isFloating: false } } })
+  await tipEngine($, on, { store: { prefs: { isHidden: false, isMuted: true } } })
 
   const answer = await $.command.run({ command: 'narsil', args: '', ...TYPED })
 
@@ -1277,7 +1248,7 @@ test('she is cut in bands that meet and never overlap, sharp, so no part of her 
       const svg = sprite(mood, stage)
       for (const id of ['c', 'o']) {
         // an animated loop moves by itself, drawn whole
-        if (new RegExp(`<image id="art-${id}" data-loop="[^"]+" href="data:image/webp`).test(svg)) {
+        if (new RegExp(`<image id="art-${id}" href="data:image/webp`).test(svg)) {
           expect(bandsOf(svg, id).length).toBe(0)
           expect(svg.split(`<use href="#art-${id}"/>`).length - 1).toBe(1)
           continue
@@ -1301,11 +1272,9 @@ test('a pose with an animated loop shows the loop, whole and within the Svg size
       const svg = sprite(mood, stage)
       expect(svg.length).toBeLessThan(131072)
       for (const [id, theme] of [['c', 'claro'], ['o', 'oscuro']] as const) {
-        const name = stage === 1 ? `${pose}-${theme}` : `etapa${stage}/${pose}-${theme}`
         if (ANIMATED[stage]?.[theme]?.[pose]) {
           loops++
-          // named, so the floating window can swap in its sharp copy (/anim/<name>.webp)
-          expect(svg).toContain(`<image id="art-${id}" data-loop="${name}" href="data:image/webp;base64,`)
+          expect(svg).toContain(`<image id="art-${id}" href="data:image/webp;base64,`)
         } else {
           expect(svg).toContain(`<image id="art-${id}" href="data:image/png;base64,`)
         }
@@ -1466,11 +1435,15 @@ test('in the light theme the glow and halo are fainter, so her pale body keeps i
   expect(halos.filter(h => h.includes('fill-opacity=".55"')).length).toBe(1)
 })
 
-// --- Each system's own voice, notifications and floating window ---
+// --- Each system's own voice, notifications and hub ---
 
 // A fresh store each time: the test engine keeps what the mod writes to it.
-const noWindow = () => ({ prefs: { isHidden: false, isMuted: false, isFloating: false } })
+const noWindow = () => ({ prefs: { isHidden: false, isMuted: false } })
 const scriptOf = (r: Ran) => r.env.NARSIL_SCRIPT ?? ''
+// The system notifications the mod's own scripts showed (toast.ps1, toast.sh).
+function toasts(runs: Ran[]): Record<string, string>[] {
+  return runs.filter(r => /toast\.(ps1|sh)$/.test(scriptOf(r))).map(r => r.env)
+}
 
 test('on macOS Narsil speaks and notifies with its own scripts, detached, never PowerShell', async ($, on) => {
   const runs: Ran[] = []
@@ -1541,72 +1514,56 @@ test('what Narsil says is neutral Latin American Spanish: no Spain-only words, t
   }
 })
 
-test('on macOS the floating window starts through start.sh with the overlay token', async ($, on) => {
+test('on macOS the hub starts through start.sh with the overlay token, and no browser', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'mac', runs, store: noWindow() })
+  engine(on, null, { os: 'mac', runs, store: noWindow(), hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
 
-  const answer = await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
-
-  expect(JSON.stringify(answer)).toContain('ventana flotante activada')
   const start = runs.find(r => r.argv[0] === '/bin/sh' && String(r.argv[1]).endsWith('/overlay/start.sh'))
   expect(start?.env.NARSIL_TOKEN).toBe('secret-token')
   expect(start?.env.NARSIL_PORT).toBe('47190')
+  expect(start?.env.NARSIL_WINDOW).toBeUndefined()
 })
 
-test('with the window on but down, an event starts it again and shows there, never as a notification', async ($, on) => {
+test('with the hub down, the heartbeat starts it again, and a question still goes as a notification', async ($, on) => {
   const runs: Ran[] = []
-  const posts = engine(on, null, { os: 'windows', runs, isOverlayDown: true })
-  on('tool.call', () => ({ result: {} }))
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-
-  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
-
-  expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
-  const asked = posts.find(p => p.url.endsWith('/event'))
-  expect(asked?.body.kind).toBe('question')
-  expect(asked?.body.title).toBe('Te necesito')
-  expect(runs.some(r => scriptOf(r).endsWith('toast.ps1'))).toBe(false)
-})
-
-test('an older window server left running is closed and replaced by this version', async ($, on) => {
-  const runs: Ran[] = []
-  const posts = engine(on, null, { os: 'windows', runs, isOverlayStale: true })
-  on('tool.call', () => ({ result: {} }))
-  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-
-  await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
-
-  expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
-  expect(posts.find(p => p.url.endsWith('/event'))?.body.kind).toBe('question')
-  // the new server gets the drawing at once
-  expect(posts.some(p => p.url.endsWith('/state') && typeof p.body.svg === 'string')).toBe(true)
-})
-
-test('with the window off, the conversation still reaches the hub: started with no window, and pushed to', async ($, on) => {
-  const runs: Ran[] = []
-  const posts = engine(on, null, { os: 'windows', runs, isOverlayDown: true, hasClock: false, store: noWindow() })
+  const posts = engine(on, null, { os: 'windows', runs, isOverlayDown: true, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('tool.call', () => ({ result: {} }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(2000)
 
   const server = runs.find(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))
-  expect(server?.env.NARSIL_WINDOW).toBe('0')
+  expect(server).toBeDefined()
+  expect(String(server?.argv.at(-1))).not.toContain('msedge')
   await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/a.ts', old_string: 'a', new_string: 'b' } as never)
   expect(posts.filter(p => p.url.endsWith('/state')).at(-1)?.body.status).toBe('working')
-  // an alert still goes as a system notification, not to a window
   await $.tool.call({ tool: 'AskUserQuestion', questions: [] } as never)
+  expect(toasts(runs).map(t => t.NARSIL_TITLE)).toEqual(['Narsil · Te necesito'])
   expect(posts.some(p => p.url.endsWith('/event'))).toBe(false)
 })
 
-test('on Windows Narsil still speaks and starts the window through PowerShell', async ($, on) => {
+test('an older hub left running (one that still opened the window) is closed and replaced by this version', async ($, on) => {
   const runs: Ran[] = []
-  engine(on, null, { os: 'windows', runs, store: noWindow() })
+  const posts = engine(on, null, { os: 'windows', runs, isOverlayStale: true, hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+
+  expect(runs.some(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))).toBe(true)
+  expect(posts.some(p => p.url.endsWith('/state'))).toBe(true)
+})
+
+test('on Windows Narsil speaks, notifies and starts the hub through PowerShell', async ($, on) => {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'windows', runs, store: noWindow(), hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
-  await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
+  await clock.advance(2000)
 
   const powershell = runs.filter(r => r.argv[0] === 'powershell.exe')
   expect(powershell.some(r => scriptOf(r).endsWith('\\overlay\\speak.ps1'))).toBe(true)
@@ -1621,9 +1578,21 @@ test('on another system Narsil runs none of her scripts', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
-  await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED })
 
   expect(runs.filter(r => r.argv[0] !== 'uname')).toEqual([])
+})
+
+test('/narsil flotante is gone: it changes nothing, and the usage no longer names it', async ($, on) => {
+  const store = noWindow()
+  engine(on, null, { store })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: 'flotante', ...TYPED }))
+
+  expect(answer).toContain('Uso:')
+  expect(answer).not.toContain('flotante')
+  expect(answer).not.toContain('ventana')
+  expect(store.prefs).toEqual({ isHidden: false, isMuted: false })
 })
 
 // --- The prompt cache and the next steps ---
@@ -2020,27 +1989,29 @@ test('the subagent chips show each type with its own mark', () => {
 
 // --- A permission left waiting, and the session's summary ---
 
-// The tip the floating window was last sent, whole.
-function windowTip(posts: Posted[]): unknown {
+// The tip the hub was last sent, whole.
+function hubTip(posts: Posted[]): unknown {
   return posts.filter(p => p.url.endsWith('/state')).pop()?.body.tip
 }
 
-function events(posts: Posted[], title: string): Posted[] {
-  return posts.filter(p => p.url.endsWith('/event') && p.body.title === title)
+// The system notifications titled `title`.
+function alerts(runs: Ran[], title: string): Record<string, string>[] {
+  return toasts(runs).filter(t => t.NARSIL_TITLE === `Narsil · ${title}`)
 }
 
 test('a command failing again and again, or a file edited again and again, raises no loop alert', async ($, on) => {
   model(on, 'SKIP')
   let shouldFail = true
   on('tool.call', () => (shouldFail ? { isError: true, result: 'boom', text: 'boom' } : { result: {} }))
-  const { posts, clock } = await tipEngine($, on, { hasTools: false })
+  const runs: Ran[] = []
+  const { posts, clock } = await tipEngine($, on, { hasTools: false, os: 'windows', runs })
   await $.turn.start({ text: 'arregla los tests', turnId: 'loop' })
   for (let i = 0; i < 6; i++) await $.tool.call({ tool: 'Bash', command: 'npm test' }).catch(() => undefined)
   shouldFail = false
   for (let i = 0; i < 11; i++) await $.tool.call({ tool: 'Edit', file_path: 'C:/repo/app.ts', old_string: 'a', new_string: 'b' } as never)
   await clock.settle()
-  expect(events(posts, 'Veo un bucle')).toHaveLength(0)
-  expect(String(windowTip(posts) ?? '')).not.toContain('se está repitiendo')
+  expect(alerts(runs, 'Veo un bucle')).toHaveLength(0)
+  expect(String(hubTip(posts) ?? '')).not.toContain('se está repitiendo')
 })
 
 // The test engine makes every call as the engine: a call another mod makes
@@ -2050,32 +2021,32 @@ test('only the tools Claude calls are its work; a call another mod makes is not'
   expect(isClaudesCall({ plugin: 'narsil-check', tier: 'user' } as never)).toBe(false)
 })
 
-test('a permission left waiting five minutes is insisted on once, even while you look', async ($, on) => {
+test('a permission left waiting five minutes is insisted on once', async ($, on) => {
   model(on, 'SKIP')
   on('classic.PermissionRequest', () => ({}))
-  const { posts, clock } = await tipEngine($, on)
+  const runs: Ran[] = []
+  const { clock } = await tipEngine($, on, { os: 'windows', runs })
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm i' }, permission_mode: 'default' })
 
   await clock.advance(4 * MINUTE + 50_000)
   await clock.settle()
-  expect(events(posts, 'Sigo esperándote')).toHaveLength(0)
+  expect(alerts(runs, 'Sigo esperándote')).toHaveLength(0)
 
   await clock.advance(12_000)
   await clock.settle()
   await clock.advance(10 * MINUTE)
   await clock.settle()
-  const nudged = events(posts, 'Sigo esperándote')
+  const nudged = alerts(runs, 'Sigo esperándote')
   expect(nudged).toHaveLength(1)
-  expect(nudged[0]!.body.kind).toBe('question')
-  expect(nudged[0]!.body.force).toBe(true)
-  expect(nudged[0]!.body.text).toBe('Sigo esperándote desde hace 5 min: pido permiso para usar Bash.')
+  expect(nudged[0]!.NARSIL_TEXT).toBe('Sigo esperándote desde hace 5 min: pido permiso para usar Bash.')
 })
 
 test('a permission or question answered in time is not insisted on', async ($, on) => {
   model(on, 'SKIP')
   on('classic.PermissionRequest', () => ({}))
   on('classic.PostToolUse', () => ({}))
-  const { posts, clock } = await tipEngine($, on)
+  const runs: Ran[] = []
+  const { clock } = await tipEngine($, on, { os: 'windows', runs })
   await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'npm i' }, permission_mode: 'default' })
   await clock.advance(MINUTE)
   await $.classic.PostToolUse({ tool_name: 'Bash', tool_input: {}, tool_response: {}, tool_use_id: 'x' } as never)
@@ -2083,7 +2054,7 @@ test('a permission or question answered in time is not insisted on', async ($, o
   await clock.advance(5 * MINUTE)
   await clock.settle()
 
-  expect(events(posts, 'Sigo esperándote')).toHaveLength(0)
+  expect(alerts(runs, 'Sigo esperándote')).toHaveLength(0)
 })
 
 // Half an hour of beats: slow on a busy machine, hence the longer time.
@@ -2099,10 +2070,10 @@ test('/narsil resumen sums the session up, and so does a 30-minute pause after a
 
   await clock.advance(29 * MINUTE)
   await clock.settle()
-  expect(String(windowTip(posts) ?? '')).not.toContain('📋')
+  expect(String(hubTip(posts) ?? '')).not.toContain('📋')
   await clock.advance(MINUTE + 2000)
   await clock.settle()
-  expect(windowTip(posts)).toBe('📋 Sesión de 30 min: 2 turnos (1 min 24 s de trabajo) · 2 archivos editados (a.ts, b.ts) · 1 comando, 0 fallos.')
+  expect(hubTip(posts)).toBe('📋 Sesión de 30 min: 2 turnos (1 min 24 s de trabajo) · 2 archivos editados (a.ts, b.ts) · 1 comando, 0 fallos.')
 })
 
 test('a conversation taken up again keeps counting its session, kept across restarts', async ($, on) => {
@@ -2138,47 +2109,15 @@ test('only the last 20 conversations keep their counts, and an odd stored value 
   expect((store['stats:conv-new'] as { turns: number }).turns).toBe(1)
 })
 
-const states = (posts: Posted[]) => posts.filter(p => p.url.endsWith('/state')).map(p => p.body)
-
-test('the drawing goes to the floating window only when it changes', async ($, on) => {
+test('no drawing goes to the hub, on a heartbeat or a change of state', async ($, on) => {
   model(on, 'SKIP')
   const { posts, clock } = await tipEngine($, on)
-  const first = states(posts).length
-  expect(String(states(posts).at(-1)?.svg).startsWith('<svg')).toBe(true)
-
-  // heartbeats with nothing new to draw carry no drawing
   await clock.advance(6000)
   await clock.settle()
-  const beats = states(posts).slice(first)
-  expect(beats.length).toBeGreaterThan(1)
-  for (const beat of beats) expect(beat.svg).toBeUndefined()
-
-  // a new state does
   await finishTurn($)
-  expect(states(posts).some(s => String(s.svg).includes('class="confetti"'))).toBe(true)
-})
-
-test('a window that lost the drawing (its server restarted) gets it again at once', async ($, on) => {
-  model(on, 'SKIP')
-  let hasDrawing = true
-  const { posts, clock } = await tipEngine($, on, {
-    stateReply: body => {
-      if (body.svg) hasDrawing = true
-      return hasDrawing ? '' : 'need-svg'
-    },
-  })
-  hasDrawing = false
-  const before = states(posts).length
-
-  await clock.advance(2000)
-  await clock.settle()
-
-  const sent = states(posts).slice(before)
-  // the heartbeat without it, told it is missing, and the drawing right after
-  expect(sent.length).toBeGreaterThanOrEqual(2)
-  expect(sent[0]?.svg).toBeUndefined()
-  expect(String(sent[1]?.svg).startsWith('<svg')).toBe(true)
-  expect(hasDrawing).toBe(true)
+  const states = posts.filter(p => p.url.endsWith('/state'))
+  expect(states.length).toBeGreaterThan(1)
+  expect(states.some(p => 'svg' in p.body)).toBe(false)
 })
 
 test('the summary names three files at most, and counts subagents and context', () => {
@@ -2258,10 +2197,10 @@ async function bandArt($: Engine): Promise<string> {
   return String(art?.props.source ?? '')
 }
 
-test('a new level plays its own celebration for a while, in the band and the window', async ($, on) => {
+test('a new level plays its own celebration for a while, in the band', async ($, on) => {
   model(on, 'SKIP')
   const store: Record<string, unknown> = { xp: 95 }
-  const { posts, clock } = await tipEngine($, on, { store })
+  const { clock } = await tipEngine($, on, { store })
   expect(await bandArt($)).not.toContain('class="burst"')
 
   await finishTurn($)
@@ -2270,7 +2209,6 @@ test('a new level plays its own celebration for a while, in the band and the win
   expect(art).toContain('class="burst"')
   expect(art).toContain('>NIVEL 2<')
   expect(art).not.toContain('class="rays"')
-  expect(String(posts.filter(p => p.url.endsWith('/state')).pop()?.body.svg)).toContain('>NIVEL 2<')
   await clock.advance(8000)
   await clock.settle()
   expect(await bandArt($)).not.toContain('class="burst"')

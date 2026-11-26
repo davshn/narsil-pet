@@ -376,10 +376,7 @@ function pictureDefs(mood: Mood, theme: Theme, stage: number): string {
   const { pose, image, isAnimated } = art(mood, theme, stage)
   const at = place(image, pose)
   const id = theme === 'claro' ? 'c' : 'o'
-  // A loop names itself, so the floating window can swap in its sharper copy
-  // (assets/anim-hq, served by overlay/server.cjs at /anim/<loop>.webp).
-  const loop = isAnimated ? ` data-loop="${pose}"` : ''
-  return `<image id="art-${id}"${loop} href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>${isAnimated ? '' : cuts(id, at.headY)}`
+  return `<image id="art-${id}" href="${image.src}" x="${at.left}" y="${BOX.top}" width="${at.width}" height="${BOX.height}"/>${isAnimated ? '' : cuts(id, at.headY)}`
 }
 
 // Her body is cut across in bands, each swaying by itself, so she undulates.
@@ -639,7 +636,7 @@ function celebration(milestone: Milestone): string {
 }
 
 // The drawings made lately, by what they show: a drawing is some 100 KB, and
-// the band and the window ask for the same one again and again.
+// the band asks for the same one again and again.
 const DRAWN_KEPT = 8
 const drawn = new Map<string, string>()
 
