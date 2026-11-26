@@ -1,39 +1,22 @@
-// Checks who may use the floating window's server (overlay/server.cjs): only
-// its own page (the key it is served with) and the mod (the token), and only
-// at its own local address, so no web page you visit can drive it.
+// Checks Narsil's hub (overlay/server.cjs): only the mod (the token) may push
+// or read the conversations, only at its own local address, so no web page you
+// visit can reach them; and it opens no window.
 //   node tests/overlay-server.check.cjs
-// The browser and the keeper are stood in for: nothing opens or closes.
 'use strict'
 
 const assert = require('assert')
 const childProcess = require('child_process')
-const { EventEmitter } = require('events')
 const http = require('http')
 const net = require('net')
-const os = require('os')
 const path = require('path')
 
 const port = 47000 + Math.floor(Math.random() * 900)
 process.env.NARSIL_PORT = String(port)
 process.env.NARSIL_TOKEN = 'mod-token'
-process.env.NARSIL_EDGE = 'edge.exe'
-// A profile of its own, should anything try to close its windows.
-process.env.LOCALAPPDATA = path.join(os.tmpdir(), `narsil-check-${port}`)
-// A browser and a keeper that never exit, and no process run for real. Each
-// browser launched is kept, so a check can count them or make one exit.
-const launches = []
-// Whether a process of the window's profile runs, as running.ps1 answers.
-let isProfileRunning = false
-childProcess.spawn = command => {
-  const child = Object.assign(new EventEmitter(), { unref() {}, kill() {} })
-  if (command === 'edge.exe') launches.push(child)
-  return child
-}
-childProcess.execFile = (...args) => {
-  const done = args.find(a => typeof a === 'function')
-  const isRunningCheck = (args.find(Array.isArray) || []).some(a => String(a).endsWith('running.ps1'))
-  if (done) done(null, isRunningCheck ? (isProfileRunning ? '1' : '0') : '', '')
-}
+// Whatever the hub would start is counted, and nothing runs for real.
+const started = []
+childProcess.spawn = (...args) => started.push(args)
+childProcess.execFile = (...args) => started.push(args)
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 require(path.join(__dirname, '..', 'overlay', 'server.cjs'))
@@ -51,59 +34,43 @@ function request(method, url, { host = `127.0.0.1:${port}`, headers = {}, body }
   })
 }
 
+const MOD = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
 const checks = []
 const check = (name, run) => checks.push({ name, run })
 
-check('the page is served with its key, and the key is not a placeholder', async () => {
-  const page = await request('GET', '/')
-  assert.equal(page.status, 200)
-  const key = /<meta name="narsil-key" content="([0-9a-f]{32})">/.exec(page.text)?.[1]
-  assert.ok(key, 'the page carries a 32-hex key')
-})
-
 check('another host name (a page rebound to this address) is refused everywhere', async () => {
-  for (const [method, url] of [['GET', '/'], ['GET', '/window'], ['GET', '/sessions'], ['POST', '/open'], ['POST', '/dismiss']]) {
-    const res = await request(method, url, { host: `attacker.example:${port}` })
+  for (const [method, url] of [['GET', '/ping'], ['GET', '/sessions'], ['POST', '/state'], ['POST', '/quit']]) {
+    const res = await request(method, url, { host: `attacker.example:${port}`, headers: MOD })
     assert.equal(res.status, 403, `${method} ${url}`)
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 4', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 5', 'the protocol the mod checks')
 })
 
-check("the page's actions need its key", async () => {
-  for (const url of ['/open', '/dismiss', '/bounds?x=1&y=2&w=3&h=4&visible=1']) {
-    assert.equal((await request('POST', url)).status, 403, `${url} without the key`)
-    assert.equal((await request('POST', url, { headers: { 'x-narsil-page': 'f'.repeat(32) } })).status, 403, `${url} with a wrong key`)
+check('the window, its page and its pictures are gone', async () => {
+  for (const [method, url] of [['GET', '/'], ['GET', '/events'], ['GET', '/window'], ['GET', '/icon.png'], ['GET', '/anim/hola-oscuro.webp'], ['GET', '/tick'], ['POST', '/window?on=1'], ['POST', '/event'], ['POST', '/open'], ['POST', '/dismiss'], ['POST', '/bounds']]) {
+    const res = await request(method, url, { headers: MOD, body: method === 'POST' ? '{"kind":"done"}' : undefined })
+    assert.equal(res.status, 404, `${method} ${url}`)
   }
-  const page = await request('GET', '/')
-  const key = /<meta name="narsil-key" content="([0-9a-f]{32})">/.exec(page.text)[1]
-  for (const url of ['/open', '/dismiss', '/bounds?x=10&y=20&w=330&h=450&visible=1']) {
-    assert.equal((await request('POST', url, { headers: { 'x-narsil-page': key } })).status, 204, `${url} with the key`)
-  }
-  const box = JSON.parse((await request('GET', '/window')).text)
-  assert.deepEqual([box.x, box.y, box.width, box.height, box.isVisible], [10, 20, 330, 450, true])
+  await wait(50)
+  assert.deepEqual(started, [], 'no browser, keeper or script is started')
 })
 
-check("the mod's state needs its token, as before", async () => {
+check("the mod's state needs its token", async () => {
   const body = JSON.stringify({ sessionId: 'local_abc', mood: 'idle', status: 'idle', headline: 'h' })
-  const json = { 'content-type': 'application/json' }
-  assert.equal((await request('POST', '/state', { headers: json, body })).status, 403)
-  const res = await request('POST', '/state', { headers: { ...json, 'x-narsil-token': 'mod-token' }, body })
-  assert.equal(res.status, 200)
-  assert.equal(res.text, 'need-svg')
+  assert.equal((await request('POST', '/state', { headers: { 'content-type': 'application/json' }, body })).status, 403)
+  assert.equal((await request('POST', '/state', { headers: MOD, body })).status, 204)
 })
 
 check('every conversation is served to the mods alone, the most important first, without drawings', async () => {
-  const mod = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
   const push = (sessionId, status) =>
-    request('POST', '/state', { headers: mod, body: JSON.stringify({ sessionId, mood: 'm', status, headline: status, svg: '<svg/>' }) })
+    request('POST', '/state', { headers: MOD, body: JSON.stringify({ sessionId, mood: 'm', status, headline: status, svg: '<svg/>' }) })
   await push('local_done', 'done')
   await push('local_work', 'working')
   await push('local_ask', 'waiting')
   await push('local_fail', 'error')
   assert.equal((await request('GET', '/sessions')).status, 403, 'without the token')
-  assert.equal((await request('GET', '/sessions', { headers: { 'x-narsil-page': 'f'.repeat(32) } })).status, 403, 'with a page key')
   const res = await request('GET', '/sessions', { headers: { 'x-narsil-token': 'mod-token' } })
   assert.equal(res.status, 200)
   const list = JSON.parse(res.text).filter(s => s.sessionId !== 'local_abc')
@@ -112,14 +79,13 @@ check('every conversation is served to the mods alone, the most important first,
 })
 
 check('a conversation that stops beating stays listed for an hour, then goes until it beats again', async () => {
-  const mod = { 'content-type': 'application/json', 'x-narsil-token': 'mod-token' }
   const sessionId = 'local_dormant'
-  const body = JSON.stringify({ sessionId, mood: 'm', status: 'done', headline: 'done', svg: '<svg/>' })
+  const body = JSON.stringify({ sessionId, mood: 'm', status: 'done', headline: 'done' })
   const isListed = async () => {
     const res = await request('GET', '/sessions', { headers: { 'x-narsil-token': 'mod-token' } })
     return JSON.parse(res.text).some(s => s.sessionId === sessionId)
   }
-  assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
+  assert.equal((await request('POST', '/state', { headers: MOD, body })).status, 204)
   const now = Date.now
   try {
     // Most of an hour without its heartbeats (the app put its engine to sleep).
@@ -129,54 +95,11 @@ check('a conversation that stops beating stays listed for an hour, then goes unt
     Date.now = () => now() + 61 * 60_000
     assert.ok(!(await isListed()), 'the silent conversation is forgotten')
     // Opened again, its first heartbeat lists it once more.
-    assert.equal((await request('POST', '/state', { headers: mod, body })).status, 204)
+    assert.equal((await request('POST', '/state', { headers: MOD, body })).status, 204)
     assert.ok(await isListed(), 'the conversation is back with its first heartbeat')
   } finally {
     Date.now = now
   }
-})
-
-check("Narsil's sharp loops are served by name from assets/anim-hq, nothing else, at this address only", async () => {
-  const fs = require('fs')
-  const made = fs.existsSync(path.join(__dirname, '..', 'assets', 'anim-hq', 'etapa4', 'trabajando-oscuro.webp'))
-  const loop = await request('GET', '/anim/etapa4/trabajando-oscuro.webp')
-  if (made) {
-    assert.equal(loop.status, 200)
-    assert.equal(loop.type, 'image/webp')
-  }
-  assert.equal((await request('GET', '/anim/etapa4/nada-oscuro.webp')).status, 404)
-  for (const url of ['/anim/../hooks/register.tsx', '/anim/etapa9/hola-oscuro.webp', '/anim/etapa4/hola-gris.webp', '/anim/%2e%2e/overlay/server.cjs']) {
-    assert.equal((await request('GET', url)).status, 404, url)
-  }
-  assert.equal((await request('GET', '/anim/etapa4/trabajando-oscuro.webp', { host: `attacker.example:${port}` })).status, 403)
-})
-
-check('the window turns on and off for the mod alone, and the server stays', async () => {
-  assert.equal((await request('POST', '/window?on=0')).status, 403)
-  const mod = { 'x-narsil-token': 'mod-token' }
-  assert.equal((await request('POST', '/window?on=0', { headers: mod })).status, 204)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
-  assert.equal((await request('POST', '/window?on=1', { headers: mod })).status, 204)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
-})
-
-check('a window Edge hands to its running instance is not opened a second time', async () => {
-  if (process.platform === 'darwin') return
-  const mod = { 'x-narsil-token': 'mod-token' }
-  await request('POST', '/window?on=0', { headers: mod })
-  launches.length = 0
-  isProfileRunning = false
-  await request('POST', '/window?on=1', { headers: mod })
-  await wait(50)
-  assert.equal(launches.length, 1, 'the window opens')
-  // Edge hands the window to the profile's running instance: the launched
-  // process exits at once while the window stays.
-  isProfileRunning = true
-  launches[0].emit('exit')
-  await wait(50)
-  await request('POST', '/window?on=1', { headers: mod })
-  await wait(50)
-  assert.equal(launches.length, 1, 'no second window while the profile runs')
 })
 
 // Sends a request line as is, which http.request would not let through.
@@ -198,7 +121,7 @@ check('a request path no URL can be made of is refused, and the server keeps ans
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 4')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 5')
 })
 
 ;(async () => {

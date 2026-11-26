@@ -21,7 +21,6 @@ export type Pet = { mood: Mood; line: string; detail: string }
 export type Prefs = {
   isHidden: boolean
   isMuted: boolean
-  isFloating: boolean
   // Narsil's tips: on or off, at most one automatic tip every so many
   // minutes, and whether the turn-finished ones are spoken.
   isAdviceOn: boolean
@@ -43,13 +42,10 @@ export type Prefs = {
   phoneKey: string | null
 }
 
-// The tip on show: its text, why it was given (TipKind) and when. Faded: it
-// has left the band, and only the floating window still shows it. Windowed:
-// it opened in a window of its own, so neither the band nor the floating
-// window shows it.
-export type Tip = { text: string; kind: string; at: number; isFaded?: boolean; isWindowed?: boolean }
+// The tip on show in the band: its text, why it was given (TipKind) and when.
+export type Tip = { text: string; kind: string; at: number }
 
-// The open conversations, by state, as the floating window counts them.
+// The open conversations, by state, as /narsil estado counts them.
 export type Fleet = Record<Status, number> & { total: number }
 
 // One task of a conversation's list (hooks/tasks.ts); `running` is

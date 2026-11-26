@@ -255,7 +255,7 @@ export function ago(ms: number): string {
 // The desktop band's tip lines, in characters: short enough to fit beside
 // Narsil in a narrow window, since the band's width cannot be read from here.
 export const TIP_LINE = 60
-// Subagents listed in the band at most; the window lists as many.
+// Subagents listed in the band at most.
 export const MAX_AGENTS_SHOWN = 6
 
 // The tip as the band draws it, '💡' ahead of its first line.

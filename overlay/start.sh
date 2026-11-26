@@ -1,17 +1,7 @@
 #!/bin/sh
 # macOS: starts Narsil's hub (server.cjs) in the background and returns at
-# once. The server opens the floating window in a Chromium browser's app mode
-# (Chrome, Edge or Brave) when it is wanted; without such a browser it still
-# serves the conversations. Exits 3 when Node is missing.
-for app in \
-  "/Applications/Google Chrome.app" "$HOME/Applications/Google Chrome.app" \
-  "/Applications/Microsoft Edge.app" "$HOME/Applications/Microsoft Edge.app" \
-  "/Applications/Brave Browser.app" "$HOME/Applications/Brave Browser.app"; do
-  if [ -d "$app" ]; then
-    NARSIL_BROWSER_APP=$app
-    break
-  fi
-done
+# once. It serves the open conversations to each other and opens no window.
+# Exits 3 when Node is missing.
 
 # An app started from the Dock has a short PATH: look where Node usually is.
 node=$(command -v node 2>/dev/null)
@@ -24,5 +14,4 @@ done
 if [ -z "$node" ]; then
   exit 3
 fi
-export NARSIL_BROWSER_APP
 nohup "$node" "$(dirname "$0")/server.cjs" </dev/null >/dev/null 2>&1 &

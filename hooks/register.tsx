@@ -37,7 +37,6 @@ const ADVICE_MIGRATED_KEY = 'adviceEvery30'
 const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isHidden: false,
   isMuted: false,
-  isFloating: true,
   isAdviceOn: true,
   adviceEveryMinutes: ADVICE_EVERY_MINUTES,
   isAdviceSpoken: false,
@@ -62,7 +61,7 @@ const TASK_COLOR: Record<TaskStatus, string> = {
   completed: STATUS_COLOR.done,
   running: STATUS_COLOR.working,
 }
-// Narsil's tip on show, if any: under the headline and in the window.
+// Narsil's tip on show, if any: under the headline.
 const tip = atom({ plugin: 'narsil-pet', key: 'tip' } as const, null)
 // What the session has spent: context window, 5-hour and weekly limits.
 const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
@@ -70,7 +69,7 @@ const usage = atom({ plugin: 'narsil-pet', key: 'usage' } as const, NO_USAGE)
 // press on the context bar); null shows the bars.
 const contextDetail = atom({ plugin: 'narsil-pet', key: 'contextDetail' } as const, null)
 // The subagents running now, or just ended, in the order they started; and
-// their chips as the band and the window show them (agents.ts).
+// their chips as the band shows them (agents.ts).
 const agents = atom({ plugin: 'narsil-pet', key: 'agents' } as const, [])
 const agentChips = atom({ plugin: 'narsil-pet', key: 'agentChips' } as const, [])
 // The prompt cache's clock while Claude waits for you, and the next steps
@@ -154,8 +153,8 @@ async function speak($: EngineInterface, text: string): Promise<void> {
   void $.audio.speak(text).catch(() => undefined)
 }
 
-// The floating window (overlay/server.cjs) is shared by every session: the
-// token lives in the store so each session can push to whichever started it.
+// The hub (overlay/server.cjs) is shared by every session: the token lives
+// in the store so each session can push to whichever started it.
 async function overlayToken($: EngineInterface): Promise<string> {
   const saved = await $.store.get(TOKEN_KEY).catch(() => undefined)
   if (typeof saved === 'string' && saved) return saved
@@ -164,10 +163,10 @@ async function overlayToken($: EngineInterface): Promise<string> {
   return token
 }
 
-// What this version's window server answers a ping. A server another version
-// started answers otherwise ("narsil" before the drawing was sent only on a
-// change): it outlives the mod's updates, so it is closed and started anew.
-const OVERLAY_PROTOCOL = 'narsil 4'
+// What this version's hub answers a ping. A hub another version started
+// answers otherwise ("narsil 4" still opened the floating window): it outlives
+// the mod's updates, so it is closed and started anew.
+const OVERLAY_PROTOCOL = 'narsil 5'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -196,21 +195,17 @@ async function startOverlay($: EngineInterface): Promise<void> {
       await $.clock.sleep(300).catch(() => undefined)
     }
   }
-  // The server serves every conversation; the window opens only when wanted.
-  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190', NARSIL_WINDOW: (await read($, prefs)).isFloating ? '1' : '0' }
+  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
   if (os === 'mac') {
-    // start.sh finds Node and a Chromium browser and starts the server behind.
+    // start.sh finds Node and starts the hub behind.
     await run($, ['/bin/sh', `${$.plugin.root}/overlay/start.sh`], env)
     return
   }
   const root = $.plugin.root.replace(/\//g, '\\')
   const script = [
-    "$edge = @(\"${env:ProgramFiles(x86)}\\Microsoft\\Edge\\Application\\msedge.exe\", \"$env:ProgramFiles\\Microsoft\\Edge\\Application\\msedge.exe\") | Where-Object { Test-Path $_ } | Select-Object -First 1",
     "$node = (Get-Command node -ErrorAction SilentlyContinue).Source",
     "if (-not $node) { $node = \"$env:ProgramFiles\\nodejs\\node.exe\" }",
-    // Without Edge the server still serves the conversations, with no window.
     'if (-not (Test-Path $node)) { exit 3 }',
-    'if ($edge) { $env:NARSIL_EDGE = $edge }',
     'Start-Process -WindowStyle Hidden -FilePath $node -ArgumentList (\'"\' + $env:NARSIL_SERVER + \'"\')',
   ].join('; ')
   await powershell($, script, { ...env, NARSIL_SERVER: `${root}\\overlay\\server.cjs` })
@@ -239,38 +234,19 @@ function conversationLink(): string {
     : ''
 }
 
-// The drawing the window's server last got from this conversation: it is
-// sent again only when it changes, or when the server says it has none (it
-// restarted), not with every heartbeat.
-let sentSvg = ''
-
-// Every conversation pushes its state, window or not: the hub serves it to
-// the others. Returns whether the hub took it.
+// Every conversation pushes its state: the hub serves it to the others.
+// Returns whether the hub took it.
 async function pushOverlay($: EngineInterface): Promise<boolean> {
-  const s = await read($, pet)
-  const svg = sprite(s.mood, stageOf(levelOf(await read($, xp)).level), (await read($, milestone)) ?? undefined)
-  const state = await shownState($)
-  const send = async (withSvg: boolean): Promise<string | null> => {
-    try {
-      const reply = await $.http.fetch(`${OVERLAY}/state`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-narsil-token': await overlayToken($) },
-        body: JSON.stringify(withSvg ? { ...state, svg } : state),
-      })
-      return reply.ok ? reply.text : null
-    } catch {
-      return null
-    }
-  }
-  const withSvg = svg !== sentSvg
-  const reply = await send(withSvg)
-  if (reply === null) {
-    sentSvg = ''
+  try {
+    const reply = await $.http.fetch(`${OVERLAY}/state`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-narsil-token': await overlayToken($) },
+      body: JSON.stringify(await shownState($)),
+    })
+    return reply.ok
+  } catch {
     return false
   }
-  if (withSvg) sentSvg = svg
-  else if (reply === 'need-svg' && (await send(true)) !== null) sentSvg = svg
-  return true
 }
 
 // Every open conversation, as the hub serves it.
@@ -299,13 +275,6 @@ async function readSessions($: EngineInterface): Promise<void> {
   } catch {
     // the hub out of reach: the list stays as it was
   }
-}
-
-// The floating window on or off; the hub stays for the conversations.
-async function setWindow($: EngineInterface, isOn: boolean): Promise<void> {
-  await $.http
-    .fetch(`${OVERLAY}/window?on=${isOn ? 1 : 0}`, { method: 'POST', headers: { 'x-narsil-token': await overlayToken($) } })
-    .catch(() => undefined)
 }
 
 // This conversation's id as the hub keys it.
@@ -337,8 +306,7 @@ async function ownEntry($: EngineInterface): Promise<FleetSession> {
   }
 }
 
-// What the floating window shows of this conversation, as
-// the band shows it.
+// What this conversation pushes to the hub, as its band shows it.
 async function shownState($: EngineInterface) {
   const s = await read($, pet)
   const status = statusOf(s.mood)
@@ -351,7 +319,7 @@ async function shownState($: EngineInterface) {
     statusLabel: STATUS_LABEL[status],
     headline: headline(s.mood, s.detail),
     line: s.line,
-    tip: await read($, tip).then(t => (t && !t.isWindowed ? t.text : null)),
+    tip: await read($, tip).then(t => t?.text ?? null),
     usage: usageRows(await read($, usage), await $.clock.now(), contextToFull).map(r => ({ ...r, color: levelColor(r.percent) })),
     agents: await read($, agentChips),
     cache: await read($, cache).then(c => (c ? cacheLabel(c) : null)),
@@ -366,15 +334,12 @@ async function shownState($: EngineInterface) {
   }
 }
 
-// The heartbeat: keep the window in sync, and learn how many conversations
-// are open and in which state.
+// The heartbeat: keep the hub in sync, and learn how many conversations are
+// open and in which state.
 async function beat($: EngineInterface): Promise<void> {
-  // A tip leaves the band after TIP_SHOWN_MS; the window keeps it for
-  // TIP_KEPT_MS, since it shows while Claude is minimized, often later.
+  // A tip leaves the band after TIP_SHOWN_MS.
   const kept = await read($, tip)
-  const age = kept ? (await $.clock.now()) - kept.at : 0
-  if (kept && age >= TIP_KEPT_MS) await update($, tip, () => null)
-  else if (kept && !kept.isFaded && age >= TIP_SHOWN_MS) await update($, tip, t => (t ? { ...t, isFaded: true } : t))
+  if (kept && (await $.clock.now()) - kept.at >= TIP_SHOWN_MS) await update($, tip, () => null)
   const shown = await read($, milestone)
   if (shown && (await $.clock.now()) - shown.at >= MILESTONE_MS[shown.kind]) await update($, milestone, () => null)
   await tickCache($)
@@ -406,22 +371,9 @@ async function notify($: EngineInterface, title: string, text: string): Promise<
 
 type EventKind = 'done' | 'question' | 'error'
 
-async function postEvent($: EngineInterface, kind: EventKind, title: string, text: string, force: boolean): Promise<boolean> {
-  try {
-    const { ok } = await $.http.fetch(`${OVERLAY}/event`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-narsil-token': await overlayToken($) },
-      body: JSON.stringify({ kind, title, text, sessionId: hostSession, force }),
-    })
-    return ok
-  } catch {
-    return false
-  }
-}
-
-// The floating window quits by itself after 30 s without heartbeats, or when
-// you close it. An event that needs it starts it again, at most once a minute,
-// and waits up to OVERLAY_WAIT_MS for it to listen.
+// The hub quits by itself after 30 s without heartbeats. The heartbeat starts
+// it again, at most once a minute, and waits up to OVERLAY_WAIT_MS for it to
+// listen.
 const OVERLAY_RESTART_MS = 60_000
 const OVERLAY_WAIT_MS = 3000
 let lastOverlayStart = Number.NEGATIVE_INFINITY
@@ -442,23 +394,15 @@ async function ensureOverlay($: EngineInterface): Promise<boolean> {
   return false
 }
 
-// What needs you: Narsil's window pops up and, unless muted, she says it
-// aloud. With the window on, the window is the only place it shows (started
-// again when it is down), never a system notification as well; with the
-// window off, a system notification is.
+// What needs you: a system notification and, unless muted, Narsil says it
+// aloud. `force`: /narsil prueba, which shows it in quiet mode too.
 // `phoneText`: a longer text for the phone, which has room for more.
 async function announce($: EngineInterface, kind: EventKind, title: string, text: string, voice: string, force = false, phoneText = text): Promise<void> {
-  const { isMuted, isFloating, isQuiet } = await read($, prefs)
+  const { isMuted, isQuiet } = await read($, prefs)
   // Quiet: no voice, and only what needs you (a question, an error) is told.
   if (isQuiet && kind === 'done' && !force) return
   const spoken = isMuted || isQuiet ? Promise.resolve() : speak($, voice)
-  if (isFloating) {
-    if (!(await postEvent($, kind, title, text, force)) && (await ensureOverlay($))) {
-      await postEvent($, kind, title, text, force)
-    }
-  } else {
-    await notify($, `Narsil · ${title}`, text)
-  }
+  await notify($, `Narsil · ${title}`, text)
   await sendToPhone($, kind, title, phoneText)
   await spoken
 }
@@ -773,7 +717,6 @@ async function trackContext($: EngineInterface, percent: number): Promise<void> 
 // Narsil's tips. What she has seen of the work (advice.ts), and how often she
 // may speak up unasked: module variables, which a reload resets harmlessly.
 const TIP_SHOWN_MS = 3 * 60_000
-const TIP_KEPT_MS = 15 * 60_000
 const LONG_TURN_MS = 3 * 60_000
 const TIPS_PER_DAY = 20
 const RECENT_TIPS = 5
@@ -868,29 +811,12 @@ async function askTip($: EngineInterface, kind: TipKind): Promise<string | null>
   }
 }
 
-// On Windows and macOS a tip opens whole in a window of its own (overlay/tip.ps1,
-// overlay/tip.sh), above the floating window or in a corner of the screen, and
-// closes by itself once its time in the band would be up. True when it opened.
-async function openTipWindow($: EngineInterface, text: string): Promise<boolean> {
-  const os = await platformOf($)
-  if (os === 'other') return false
-  return launch($, 'tip', {
-    NARSIL_TEXT: text,
-    NARSIL_LINK: conversationLink(),
-    NARSIL_STAGE: String(stageOf(levelOf(await read($, xp)).level)),
-    NARSIL_SECONDS: String(TIP_SHOWN_MS / 1000),
-    NARSIL_ASSETS: os === 'windows' ? `${$.plugin.root.replace(/\//g, '\\')}\\assets` : `${$.plugin.root}/assets`,
-    // macOS asks it where the floating window is; Windows finds it itself
-    NARSIL_OVERLAY: OVERLAY,
-  })
-}
-
+// A tip shows under the headline, in the band, for TIP_SHOWN_MS.
 // 'context': the /compact suggestion, which is not the model's.
 async function showTip($: EngineInterface, text: string, kind: TipKind | 'context' | 'summary'): Promise<void> {
   remember(recentTips, text, RECENT_TIPS)
   const at = await $.clock.now()
-  const isWindowed = await openTipWindow($, text)
-  await update($, tip, () => ({ text, kind, at, isWindowed }))
+  await update($, tip, () => ({ text, kind, at }))
   $.ui.log(`💡 ${text}`)
   await pushOverlay($)
 }
@@ -1219,7 +1145,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -1242,9 +1168,8 @@ export const register: Register = on => {
     // A new conversation: Narsil is happy to see you.
     await setMood($, 'greeting')
 
-    // The hub serves every conversation to the others; its floating window
-    // shows itself while Claude is minimized or an event waits for you. The
-    // heartbeat keeps it in sync, and it closes itself once the beats stop.
+    // The hub serves every conversation to the others. The heartbeat keeps
+    // it in sync, and it closes itself once the beats stop.
     $.clock.after(10, () => startOverlay($))
     $.clock.every(2000, () => beat($))
 
@@ -1275,7 +1200,7 @@ export const register: Register = on => {
     }
     if (arg === 'prueba') {
       await setMood($, 'celebrating', 'prueba')
-      // A test shows the popup even while you look at Claude.
+      // A test shows the notification in quiet mode too.
       await announce($, 'done', 'Así te avisaré', 'Haz clic para volver a esta conversación.', 'Hola, soy Narsil. Así sonaré cuando termine.', true)
       return { text: 'Narsil: prueba de aviso y voz lanzada.' }
     }
@@ -1289,30 +1214,17 @@ export const register: Register = on => {
           `${counted || 'Esta es la única conversación abierta.'}\n${await surfaceReport($)}`,
       }
     }
-    if (arg === 'flotante') {
-      const saved = await update($, prefs, p => ({ ...p, isFloating: !p.isFloating }))
-      await $.store.set(PREFS_KEY, saved).catch(() => undefined)
-      if (saved.isFloating) {
-        await startOverlay($)
-        await setWindow($, true)
-        await pushOverlay($)
-        return { text: 'Narsil: ventana flotante activada (aparece con Claude minimizado o cuando algo te espera).' }
-      }
-      await setWindow($, false)
-      return { text: 'Narsil: ventana flotante desactivada (los avisos irán como notificación del sistema).' }
-    }
     const patch = change[arg]
     if (!patch) {
       const p = await read($, prefs)
       return {
         text:
-          `Narsil está ${p.isHidden ? 'oculta' : 'visible'}, con la voz ${p.isMuted ? 'apagada' : 'encendida'} ` +
-          `y la ventana flotante ${p.isFloating ? 'activada' : 'desactivada'}.\n` +
+          `Narsil está ${p.isHidden ? 'oculta' : 'visible'}, con la voz ${p.isMuted ? 'apagada' : 'encendida'}.\n` +
           `Consejos ${p.isAdviceOn ? `activados (como mucho uno cada ${p.adviceEveryMinutes} min)` : 'desactivados'}` +
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
           (p.isQuiet ? 'Modo discreto activado: sin voz, sin avisos de fin de turno ni consejos o pasos automáticos.\n' : '') +
-          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | flotante | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))
@@ -1581,8 +1493,7 @@ export const register: Register = on => {
     const color = STATUS_COLOR[top.status]
     const title = isOwnTop ? top.headline : `${top.title || 'Otra conversación'}: ${top.headline}`
     const aside = isOwnTop ? state.line : ''
-    const kept = await read($, tip)
-    const shown = kept && !kept.isFaded && !kept.isWindowed ? kept : null
+    const shown = await read($, tip)
     // The account's limits, once: each conversation has its own context.
     const limits = usageRows({ ...(await read($, usage)), context: null }, await $.clock.now())
     const v = await read($, fleetView)
