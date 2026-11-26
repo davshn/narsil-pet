@@ -43,6 +43,7 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isNextStepsOn: true,
   cacheMinutes: null,
   isQuiet: false,
+  isListening: false,
   phoneTopic: null,
   isPhoneOn: false,
   phoneKey: null,
@@ -195,7 +196,10 @@ async function startOverlay($: EngineInterface): Promise<void> {
       await $.clock.sleep(300).catch(() => undefined)
     }
   }
-  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
+  // The ear as the store has it: another conversation may have changed it.
+  const stored = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
+  const isListening = stored && typeof stored === 'object' ? stored.isListening === true : (await read($, prefs)).isListening
+  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190', NARSIL_EAR: isListening ? '1' : '0' }
   if (os === 'mac') {
     // start.sh finds Node and starts the hub behind.
     await run($, ['/bin/sh', `${$.plugin.root}/overlay/start.sh`], env)
@@ -348,6 +352,23 @@ async function beat($: EngineInterface): Promise<void> {
   // A hub that went down (or never started) is started again, at most once a minute.
   if (!(await pushOverlay($))) void ensureOverlay($).catch(() => undefined)
   await readSessions($)
+}
+
+// `/narsil escucha on|off`: the hub's ear (overlay/ear.cjs, overlay/listen.ps1),
+// one for the whole computer; undefined for any other words.
+async function earCommand($: EngineInterface, arg: string): Promise<string | undefined> {
+  if (arg !== 'escucha on' && arg !== 'escucha off') return undefined
+  if ((await platformOf($)) !== 'windows') return 'Narsil: escucharte cuando dices «Narsil» solo funciona en Windows.'
+  const isOn = arg === 'escucha on'
+  const saved = await update($, prefs, p => ({ ...p, isListening: isOn }))
+  await $.store.set(PREFS_KEY, saved).catch(() => undefined)
+  if (isOn && !(await isOverlayUp($))) await startOverlay($)
+  await $.http
+    .fetch(`${OVERLAY}/ear?on=${isOn ? 1 : 0}`, { method: 'POST', headers: { 'x-narsil-token': await overlayToken($) } })
+    .catch(() => undefined)
+  return isOn
+    ? 'Narsil: te escucho. Con Claude delante, di «Narsil» y dicta tu mensaje: tras unos segundos de silencio lo envío. El reconocimiento de voz es el de Windows, en tu equipo. /narsil escucha off lo apaga.'
+    : 'Narsil: ya no escucho el micrófono.'
 }
 
 async function stopOverlay($: EngineInterface): Promise<void> {
@@ -1145,7 +1166,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | escucha on|off | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -1185,6 +1206,8 @@ export const register: Register = on => {
     if (stepped !== undefined) return { text: stepped }
     const phoned = await phoneCommand($, arg)
     if (phoned !== undefined) return { text: phoned }
+    const heard = await earCommand($, arg)
+    if (heard !== undefined) return { text: heard }
     if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
     if (arg === 'nivel') {
       const now = await read($, xp)
@@ -1224,7 +1247,8 @@ export const register: Register = on => {
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
           (p.isQuiet ? 'Modo discreto activado: sin voz, sin avisos de fin de turno ni consejos o pasos automáticos.\n' : '') +
-          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+          (p.isListening ? 'Te escucho cuando dices «Narsil» con Claude delante.\n' : '') +
+          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | escucha on|off | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))

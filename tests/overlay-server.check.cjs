@@ -15,7 +15,11 @@ process.env.NARSIL_PORT = String(port)
 process.env.NARSIL_TOKEN = 'mod-token'
 // Whatever the hub would start is counted, and nothing runs for real.
 const started = []
-childProcess.spawn = (...args) => started.push(args)
+let killed = 0
+childProcess.spawn = (...args) => {
+  started.push(args)
+  return { on() {}, unref() {}, kill: () => killed++ }
+}
 childProcess.execFile = (...args) => started.push(args)
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -45,7 +49,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 5', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 6', 'the protocol the mod checks')
 })
 
 check('the window, its page and its pictures are gone', async () => {
@@ -115,13 +119,41 @@ function rawRequest(target) {
   })
 }
 
+check('the ear turns on and off for the mod alone, starting and stopping one listener', async () => {
+  assert.equal((await request('POST', '/ear?on=1')).status, 403, 'without the token')
+  assert.equal((await request('GET', '/ear/tick?level=0&heard=1&claude=1')).status, 403, 'a tick without the token')
+  started.length = 0
+  assert.equal((await request('POST', '/ear?on=1', { headers: MOD })).status, 204)
+  assert.equal((await request('POST', '/ear?on=1', { headers: MOD })).status, 204)
+  if (process.platform === 'win32') {
+    assert.equal(started.length, 1, 'one listener, however often it is turned on')
+    const [command, args, options] = started[0]
+    assert.equal(command, 'powershell.exe')
+    assert.ok(String(args.at(-1)).endsWith('listen.ps1'), 'the listener script')
+    assert.equal(options.env.NARSIL_TOKEN, 'mod-token')
+    assert.equal(options.env.NARSIL_PORT, String(port))
+  }
+  assert.equal((await request('POST', '/ear?on=0', { headers: MOD })).status, 204)
+  if (process.platform === 'win32') assert.equal(killed, 1, 'the listener is stopped')
+  assert.equal((await request('GET', '/ear/tick?level=0&heard=1&claude=1', { headers: MOD })).text, 'quit', 'a listener left running is told to quit')
+})
+
+check("the listener's ticks are answered with the keys to press", async () => {
+  await request('POST', '/ear?on=1', { headers: MOD })
+  const tick = query => request('GET', `/ear/tick?${query}`, { headers: MOD })
+  assert.equal((await tick('level=0&heard=0&claude=1')).text, '')
+  assert.equal((await tick('level=0&heard=1&claude=1')).text, 'ctrl+d')
+  assert.equal((await tick('level=40&heard=1&claude=1')).text, '', '"Narsil" while dictating')
+  await request('POST', '/ear?on=0', { headers: MOD })
+})
+
 check('a request path no URL can be made of is refused, and the server keeps answering', async () => {
   for (const target of ['//', 'http://']) {
     const reply = await rawRequest(target)
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 5')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 6')
 })
 
 ;(async () => {

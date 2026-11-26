@@ -1,9 +1,14 @@
 // Narsil's hub: a tiny local server every open conversation pushes its state
 // to, and reads the others' from, so each band can list them all. It opens no
 // window. It shuts itself down when Claude stops sending heartbeats.
+// With the ear on (/narsil escucha on, Windows), it also runs the one listener
+// (listen.ps1) and tells it which keys to press (ear.cjs).
 'use strict'
 
 const http = require('http')
+const path = require('path')
+const { spawn } = require('child_process')
+const { createEar } = require('./ear.cjs')
 
 const port = Number(process.env.NARSIL_PORT || 47190)
 const token = process.env.NARSIL_TOKEN || ''
@@ -26,6 +31,43 @@ const HOSTS = new Set([`127.0.0.1:${port}`, `localhost:${port}`])
 // stop although it still exists; a deleted one never beats again.
 const sessions = new Map()
 let lastBeat = Date.now()
+
+// The ear: wanted or not, the listener running now, and what it decides.
+const ear = createEar()
+let isEarOn = false
+let listener = null
+// A listener that exits while the ear is on is started again, after a while.
+const LISTENER_RESTART_MS = 5000
+
+function startListener() {
+  if (listener || process.platform !== 'win32') return
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'listen.ps1')], {
+    env: { ...process.env, NARSIL_PORT: String(port), NARSIL_TOKEN: token },
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+  listener = child
+  child.on('exit', () => {
+    if (listener !== child) return
+    listener = null
+    if (isEarOn) setTimeout(() => isEarOn && startListener(), LISTENER_RESTART_MS).unref()
+  })
+  child.on('error', () => undefined)
+}
+
+function setEar(isOn) {
+  isEarOn = isOn
+  if (isOn) return startListener()
+  ear.reset()
+  const child = listener
+  listener = null
+  if (child) child.kill()
+}
+
+function quit() {
+  setEar(false)
+  process.exit(0)
+}
 
 // Lets go of the conversations silent past SESSION_FORGET_MS.
 function forgetSilent() {
@@ -68,10 +110,22 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
 
-  // The protocol, as the mod checks it: "narsil 5" is the hub with no window.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 5')
+  // The protocol, as the mod checks it: "narsil 6" is the hub with the ear.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 6')
   if (!isTrusted) return send(403, 'text/plain', 'forbidden')
   if (req.method === 'GET' && url.pathname === '/sessions') return send(200, 'application/json', JSON.stringify(sessionList()))
+  // The listener's sample (loudest level, "Narsil" heard, Claude in front):
+  // the answer is the keys to press, one a line, or "quit" with the ear off.
+  if (req.method === 'GET' && url.pathname === '/ear/tick') {
+    if (!isEarOn) return send(200, 'text/plain', 'quit')
+    const q = url.searchParams
+    const keys = ear.tick({ level: Number(q.get('level')) || 0, isHeard: q.get('heard') === '1', isClaude: q.get('claude') === '1' })
+    return send(200, 'text/plain', keys.join('\n'))
+  }
+  if (req.method === 'POST' && url.pathname === '/ear') {
+    setEar(url.searchParams.get('on') === '1')
+    return send(204, 'text/plain', '')
+  }
   if (req.method !== 'POST') return send(404, 'text/plain', 'not found')
 
   const body = await readBody(req)
@@ -97,14 +151,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/quit') {
     send(204, 'text/plain', '')
-    return process.exit(0)
+    return quit()
   }
   return send(404, 'text/plain', 'not found')
 })
 
 server.on('error', () => process.exit(0)) // another hub already owns the port
-server.listen(port, '127.0.0.1')
+server.listen(port, '127.0.0.1', () => {
+  if (process.env.NARSIL_EAR === '1') setEar(true)
+})
 
 setInterval(() => {
-  if (Date.now() - lastBeat > HEARTBEAT_TIMEOUT_MS) process.exit(0)
+  if (Date.now() - lastBeat > HEARTBEAT_TIMEOUT_MS) quit()
 }, 5000)
