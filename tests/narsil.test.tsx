@@ -1653,16 +1653,28 @@ test('/narsil escucha off turns the ear off and keeps that', async ($, on) => {
   expect((store.prefs as { isListening?: boolean }).isListening).toBe(false)
 })
 
-test('away from Windows, /narsil escucha says it only works there and changes nothing', async ($, on) => {
+test('away from Windows and macOS, /narsil escucha says where it works and changes nothing', async ($, on) => {
+  const store = noWindow() as Record<string, unknown>
+  const posts = engine(on, null, { os: 'linux', store })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: 'escucha on', ...TYPED }))
+
+  expect(answer).toContain('solo funciona en Windows y macOS')
+  expect(earPosts(posts)).toEqual([])
+  expect((store.prefs as { isListening?: boolean }).isListening).toBeUndefined()
+})
+
+test('on macOS /narsil escucha on turns the ear on and names the permissions macOS will ask for', async ($, on) => {
   const store = noWindow() as Record<string, unknown>
   const posts = engine(on, null, { os: 'mac', store })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: 'escucha on', ...TYPED }))
 
-  expect(answer).toContain('solo funciona en Windows')
-  expect(earPosts(posts)).toEqual([])
-  expect((store.prefs as { isListening?: boolean }).isListening).toBeUndefined()
+  expect(earPosts(posts)).toEqual(['?on=1'])
+  expect((store.prefs as { isListening?: boolean }).isListening).toBe(true)
+  for (const word of ['Micrófono', 'Reconocimiento de voz', 'Accesibilidad']) expect(answer).toContain(word)
 })
 
 // What the hub is started with, with these prefs stored.
@@ -1688,11 +1700,11 @@ test('the hub starts with the ear off by default', async ($, on) => {
 async function voiceTurn(
   $: Engine,
   on: On,
-  { earSent, answer, reply = 'Arreglé el registro y pasan las pruebas. ¿Abro el PR?', prefs = {} }: { earSent: string; answer: string; reply?: string | ModelCompleteResult; prefs?: Record<string, unknown> },
+  { earSent, answer, reply = 'Arreglé el registro y pasan las pruebas. ¿Abro el PR?', prefs = {}, os = 'windows' }: { earSent: string; answer: string; reply?: string | ModelCompleteResult; prefs?: Record<string, unknown>; os?: 'windows' | 'mac' },
 ) {
   const asked = model(on, reply)
   const runs: Ran[] = []
-  const { clock } = await tipEngine($, on, { os: 'windows', runs, earSent, store: { prefs: { isHidden: false, isMuted: false, isListening: true, ...prefs } } })
+  const { clock } = await tipEngine($, on, { os, runs, earSent, store: { prefs: { isHidden: false, isMuted: false, isListening: true, ...prefs } } })
   await $.prompt.submit({ text: 'arregla el registro', wait: false, origin: TYPED.origin })
   await $.turn.start({ text: 'arregla el registro', turnId: 'voice' })
   await $.turn.complete({ reason: 'answer', answer, durationMs: 42_000, isAborted: false, turnId: 'voice' })
@@ -1723,6 +1735,15 @@ test('once the summary is said, the hub is told to open the dictation for your a
   expect(summary?.env.NARSIL_PORT).toBe('47190')
   // her other lines open nothing
   expect(speaking.filter(r => r !== summary).every(r => r.env.NARSIL_FOLLOW === undefined)).toBe(true)
+})
+
+test('on macOS too, the summary is said by speak.sh, which is told to open the dictation for your answer', async ($, on) => {
+  const { speaking } = await voiceTurn($, on, { earSent: '1200', answer: LONG_ANSWER, os: 'mac' })
+
+  const summary = speaking.find(r => r.env.NARSIL_TEXT === 'Arreglé el registro y pasan las pruebas. ¿Abro el PR?')
+  expect(String(summary?.env.NARSIL_SCRIPT)).toMatch(/overlay\/speak\.sh$/)
+  expect(summary?.env.NARSIL_FOLLOW).toBe('1')
+  expect(summary?.env.NARSIL_TOKEN).toBe('secret-token')
 })
 
 test('a long summary is said whole sentences at a time, never cut in the middle', async ($, on) => {

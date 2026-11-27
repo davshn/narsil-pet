@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Embedded in the Swift listener (listen-mac.sh links it into __TEXT,__info_plist):
+     macOS asks for the microphone and speech recognition only with these texts,
+     and lets the listener reach the hub on 127.0.0.1 over plain HTTP. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>tech.davshn.narsil.listener</string>
+  <key>CFBundleName</key>
+  <string>Narsil</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Narsil escucha el micrófono para oírte decir «Narsil» y saber cuándo terminas de dictar.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Narsil reconoce la palabra «Narsil» para abrir el dictado de Claude.</string>
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSAllowsLocalNetworking</key>
+    <true/>
+  </dict>
+</dict>
+</plist>

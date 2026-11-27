@@ -62,12 +62,14 @@ To bring them together, each conversation sends its state to a small local serve
 ### Voice and alerts
 Narsil tells you out loud, in Spanish, when she starts working on your prompt, when a turn ends, when a question or a permission is waiting for you, and when a turn fails. Each time she picks one of several phrases at random, so she does not always repeat the same one. In the desktop app, a turn that ends with a question in the next-step box alerts you as a question, with that question. The alert arrives as a system notification.
 
-### Saying "Narsil" to dictate (Windows)
+### Saying "Narsil" to dictate (Windows, and macOS in testing)
 With `/narsil escucha on`, say "Narsil" while the Claude window is in front: she starts Claude's dictation (Ctrl+D) in that conversation. Dictate your message; about 2 seconds after you stop talking she stops the dictation and sends it with Enter. With another app in front she presses nothing, and she presses no Enter if you switched away. If you say nothing, or keep dictating for 2 minutes, she stops the dictation without sending it. While you dictate, "Narsil" inside your message is not taken as the word.
 
 It is off by default, since it keeps the microphone open. Recognition is Windows' own speech recognizer (the one behind Windows' speech features), on your computer: no audio leaves it. Say "Narsil" on its own, then dictate once Claude's dictation has started. It listens in Spanish when Windows has Spanish speech recognition, which is what a Spanish speaker needs: the English recognizer does not catch "Narsil" said the Spanish way. To add it: Settings → Time & language → Language & region → Add a language → Spanish (Mexico) or Spanish (Spain), with Speech recognition ticked. Some regional Spanish variants come without speech recognition. It reads the default microphone (Settings → System → Sound → Input) and tells talking from silence against that mic's own noise, so quiet headsets work too. One listener serves every open conversation, so the word presses Ctrl+D once. Turn it off with `/narsil escucha off`.
 
 When a message reached Claude this way, Narsil answers aloud at the end of that turn. She says a short summary of what was done and where it stands, ending with Claude's question if there is one, so you can reply by voice. Once she has finished speaking, she opens Claude's dictation again by herself: just answer, and about 2 seconds of silence sends it. If you say nothing within about 5 seconds, she closes it without sending. It opens only if you have stayed in the Claude window since your message went. Narsil cannot tell which conversation the window shows, so it opens in the one in front. Haiku writes the summary from Claude's final answer, and she always says it in whole sentences. If Haiku does not answer, she reads the answer's first sentence and its closing question. This summary replaces her usual end-of-turn line. Typed messages keep that line. With her voice off (`/narsil silencio`) she says nothing.
+
+**On macOS it is experimental: it has not been run on a Mac yet.** The hub builds a small listener in Swift the first time you turn the ear on. That needs Xcode's command line tools (`xcode-select --install`), and the build takes a minute or so. It uses macOS's own speech recognition, on the device when your language allows it, in Spanish when macOS has it. macOS asks for permission to use the microphone and speech recognition. Pressing the dictation keys also needs Accessibility (System Settings → Privacy & Security → Accessibility). macOS likely asks these for the app that started the listener, Claude, rather than for Narsil. Which keys start Claude's dictation on a Mac is not confirmed: Narsil presses Ctrl+D, as on Windows. If your Mac uses others, start the hub with `NARSIL_DICTATE_KEY` set to them, for example `cmd+d`. The hub passes it to the listener. Caps Lock cannot be used: macOS does not take it as a pressed key.
 
 ### Tips
 Tips about the work in progress, generated with Haiku (medium effort): when a turn ends, after several failures in a row, or during a very long turn. The end-of-turn tip reads the diff of what was done (or the last commit, if it was already saved) and comments on a design decision: why it was done that way, what the alternative was and what is gained or lost, or how to improve that feature. No routine checks like "run the tests" or "check the push"; after several failures, on the other hand, the tip is about debugging. It is asked to mention something concrete and not to make up data. `/narsil consejo profundo` analyzes the whole conversation. The frequencies are configurable and never slow Claude down.
@@ -182,7 +184,7 @@ On Windows and macOS, the list of open conversations needs [Node.js](https://nod
 | `/narsil silencio` · `voz` | Turns the voice off or on. |
 | `/narsil discreto` · `normal` | Turns quiet mode on or off. |
 | `/narsil prueba` | Sends a test alert, with voice. |
-| `/narsil escucha on` · `off` | Saying "Narsil" with Claude in front starts its dictation, and a silence sends it. At the end of that turn Narsil says a short summary and opens the dictation again for your answer (Windows). |
+| `/narsil escucha on` · `off` | Saying "Narsil" with Claude in front starts its dictation, and a silence sends it. At the end of that turn Narsil says a short summary and opens the dictation again for your answer (Windows; macOS in testing). |
 | `/narsil consejo` | Asks for a tip now. |
 | `/narsil consejo profundo` | Asks for a tip that analyzes the whole conversation. |
 | `/narsil consejos on` · `off` | Turns automatic tips on or off. |
@@ -203,7 +205,7 @@ The band, its animations, the tips, and the usage bars work wherever Claude Code
 | Voice | A Windows Spanish voice, Latin American if there is one (for example Sabina, from Mexico) | `say`, with Paulina or another Latin American voice if installed, otherwise Mónica | Claude Code's voice |
 | Alerts | Windows notification; clicking it opens the conversation | macOS notification | Claude Code's, if any |
 | Other conversations in the band | Yes, with Node.js | Yes, with Node.js | Only this one |
-| Saying "Narsil" to dictate | Yes, with Node.js | No | No |
+| Saying "Narsil" to dictate | Yes, with Node.js | Experimental, untested: Node.js and Xcode's command line tools | No |
 
 ## Other Narsil mods
 
@@ -258,11 +260,12 @@ claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 node tests/overlay-server.check.cjs
 node tests/ear.check.cjs
+node tests/listener.check.cjs
 ```
 
 The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window, and that only the mod turns the ear on or off. The `ear` check verifies when hearing "Narsil" starts the dictation, when a silence stops and sends it, and when the dictation opens again by itself after Narsil has said the answer.
 
-To see what the listener hears and presses, start the hub with `NARSIL_LOG` set to a file path. The hub passes its environment to the listener, which then writes each word it takes or rejects, and each key it presses. The listener also reads `NARSIL_LANG`, the recognition language (for example `es-MX`; Spanish by default when installed), and `NARSIL_CONFIDENCE`, the least raw confidence for "Narsil", from 0 to 1 (0 by default).
+To see what the listener hears and presses, start the hub with `NARSIL_LOG` set to a file path. The hub passes its environment to the listener, which then writes each word it takes or rejects, and each key it presses. The listener also reads `NARSIL_LANG`, the recognition language (for example `es-MX`; Spanish by default when installed), and `NARSIL_CONFIDENCE`, the least raw confidence for "Narsil", from 0 to 1 (0 by default, Windows only). On macOS it reads `NARSIL_DICTATE_KEY` too. The `listener` check verifies which listener the hub starts on each system. On macOS, `listen-mac.sh` builds `listen-mac.swift` into `~/Library/Caches/narsil-pet` and runs it. `listen-mac.plist` holds the texts macOS shows when it asks for the microphone and speech recognition.
 
 - `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
 - `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
@@ -272,7 +275,7 @@ To see what the listener hears and presses, start the hub with `NARSIL_LOG` set 
 - `hooks/voice.ts`: the spoken answer to a message sent by voice (what Haiku is asked, whole sentences only, and what she reads when Haiku does not answer).
 - `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).
 - `hooks/sprite.ts`: Narsil's animations.
-- `overlay/`: the hub (`server.cjs`, the local server the conversations share), the ear (`ear.cjs`, which decides the keys, and `listen.ps1`, the Windows listener) and the Windows and macOS scripts for the voice and the notifications. `speak.ps1` tells the hub when it has finished a spoken answer, so the dictation opens only then.
+- `overlay/`: the hub (`server.cjs`, the local server the conversations share), the ear (`ear.cjs`, which decides the keys; `listener.cjs`, which picks the listener; `listen.ps1`, the Windows listener; and `listen-mac.swift`, the macOS one) and the Windows and macOS scripts for the voice and the notifications. `speak.ps1` tells the hub when it has finished a spoken answer, so the dictation opens only then.
 - `tests/`: the tests.
 
 The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` with `tools/build-art.ps1`. The hatchling is in `assets/raw/<pose>-<claro|oscuro>.png`, and each later stage has its own folder, `assets/raw/etapa2` to `assets/raw/etapa5`, with the same names. If a stage is missing a pose, its `base` pose is used. If it is missing all of them in a theme, the previous stage is used. The animations in this README are generated with `node tools/build-readme-art.mjs`.

@@ -1,14 +1,15 @@
 // Narsil's hub: a tiny local server every open conversation pushes its state
 // to, and reads the others' from, so each band can list them all. It opens no
 // window. It shuts itself down when Claude stops sending heartbeats.
-// With the ear on (/narsil escucha on, Windows), it also runs the one listener
-// (listen.ps1) and tells it which keys to press (ear.cjs).
+// With the ear on (/narsil escucha on, Windows and macOS), it also runs the one
+// listener (listen.ps1, or listen-mac.swift on macOS) and tells it which keys to
+// press (ear.cjs).
 'use strict'
 
 const http = require('http')
-const path = require('path')
 const { spawn } = require('child_process')
 const { createEar } = require('./ear.cjs')
+const { listenerCommand } = require('./listener.cjs')
 
 const port = Number(process.env.NARSIL_PORT || 47190)
 const token = process.env.NARSIL_TOKEN || ''
@@ -42,8 +43,9 @@ let listener = null
 const LISTENER_RESTART_MS = 5000
 
 function startListener() {
-  if (listener || process.platform !== 'win32') return
-  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'listen.ps1')], {
+  const how = listenerCommand(process.platform, __dirname)
+  if (listener || !how) return
+  const child = spawn(how.command, how.args, {
     env: { ...process.env, NARSIL_PORT: String(port), NARSIL_TOKEN: token },
     stdio: 'ignore',
     windowsHide: true,

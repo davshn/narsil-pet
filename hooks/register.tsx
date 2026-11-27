@@ -378,7 +378,8 @@ async function isOlderHub($: EngineInterface): Promise<boolean> {
 // one for the whole computer; undefined for any other words.
 async function earCommand($: EngineInterface, arg: string): Promise<string | undefined> {
   if (arg !== 'escucha on' && arg !== 'escucha off') return undefined
-  if ((await platformOf($)) !== 'windows') return 'Narsil: escucharte cuando dices «Narsil» solo funciona en Windows.'
+  const os = await platformOf($)
+  if (os !== 'windows' && os !== 'mac') return 'Narsil: escucharte cuando dices «Narsil» solo funciona en Windows y macOS.'
   const isOn = arg === 'escucha on'
   const saved = await update($, prefs, p => ({ ...p, isListening: isOn }))
   await $.store.set(PREFS_KEY, saved).catch(() => undefined)
@@ -386,9 +387,12 @@ async function earCommand($: EngineInterface, arg: string): Promise<string | und
   await $.http
     .fetch(`${OVERLAY}/ear?on=${isOn ? 1 : 0}`, { method: 'POST', headers: { 'x-narsil-token': await overlayToken($) } })
     .catch(() => undefined)
-  return isOn
+  if (!isOn) return 'Narsil: ya no escucho el micrófono.'
+  return os === 'windows'
     ? 'Narsil: te escucho. Con Claude delante, di «Narsil» y dicta tu mensaje: tras unos segundos de silencio lo envío. El reconocimiento de voz es el de Windows, en tu equipo. /narsil escucha off lo apaga.'
-    : 'Narsil: ya no escucho el micrófono.'
+    : 'Narsil: te escucho (en macOS aún está en pruebas). Con Claude delante, di «Narsil» y dicta tu mensaje: tras unos segundos de silencio lo envío. ' +
+        'La primera vez macOS pide permiso de Micrófono y de Reconocimiento de voz; para pulsar el atajo del dictado hace falta además Accesibilidad (Ajustes del Sistema → Privacidad y seguridad). ' +
+        'Necesita las herramientas de línea de comandos de Xcode (xcode-select --install). /narsil escucha off lo apaga.'
 }
 
 async function stopOverlay($: EngineInterface): Promise<void> {
