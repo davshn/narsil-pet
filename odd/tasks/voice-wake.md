@@ -13,6 +13,7 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
 - **S7 Answer by voice.** "cuando te pregunte con el dictado, tú me respondas también en voz un resumen de lo que hiciste o de la tarea" / "al terminar la tarea que me hagas un resumen para yo poder seguir contestándote en voz": a turn started by a message the ear sent ends with Narsil saying a short summary aloud (Haiku; the first sentence and closing question when Haiku fails), in place of her usual line; never with her voice off.
 - **S8 Answer without the word.** "Sí, implementalo así" (the proposal: once Narsil has said the summary, she opens the dictation herself; about 5 s with nothing said closes it unsent; it opens only once she has finished speaking, so she does not take down her own voice; and not in another conversation). The mod cannot tell which conversation the Claude window shows, so the guard is: you stayed in the Claude window since the message went.
 - **S9 Whole sentences.** "algunos cuando son muy largos [...] están llegando cortados [...] se cortan en la mitad y se nota que el mensaje está cortado": a spoken summary is never cut in the middle of a sentence.
+- **S10 Asks by voice, and no early dictation.** "cuando pasan esos eventos en los que Narsil dice, te necesito, no me explicas qué pasa, o sea, no me hablas con Haiku, ni me permites hablar" / "a veces cuando estás avanzando en una serie de tareas, paras para explicarme algo [...] y me activas el micrófono. No debería pasar porque aún no estás preparado para escuchar una respuesta mía": in a voice turn a mid-turn question, plan or permission is explained aloud (Haiku), and a question opens the dictation. A turn that ends with background work still running opens no dictation, and the turn after that work stays a voice turn.
 - **S6 Local.** Recognition is Windows' own (System.Speech), on this computer; no audio leaves it.
 
 ## Tasks
@@ -22,6 +23,7 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
 - [x] T3 S5: `/narsil escucha`, prefs, hub start env, README. Route: inline.
 - [x] T5 S7: the hub's `/ear/sent` (protocol `narsil 8`), voice turns marked at `prompt.submit`, and a Haiku summary spoken at `turn.complete` (hooks/voice.ts). Route: inline.
 - [x] T6 S8 S9: the ear's `follow()` and the hub's `POST /ear/follow` (protocol `narsil 9`); speak.ps1 reports when it has spoken; spoken summaries kept to whole sentences (`wholeSentences`). Route: inline.
+- [x] T7 S10: `speakAsk` with `ASK_SYSTEM`, `askOf` and `inputText` (hooks/voice.ts); `isVoiceCarried` across background work; `speakSummary(..., isFollow)`. Route: inline.
 - [x] T4 S1 S2 S4 S6: listener on Windows' modern recognizer (Spanish when installed) and a mic noise-floor talking flag; hub protocol `narsil 7`. Route: inline.
 
 ## Log
@@ -57,3 +59,8 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
   - **Second try:** "No, no se abrió", with no trace to explain it.
   - **Trace:** temporary traces were added to the installed copy only and removed afterwards.
   - **Third try:** the hub logged `follow -> true state=idle` at 23:00:43, then ctrl+d. The reply was sent with ctrl+d and Enter at 23:00:48. User: "Sí, se abrió." The follow-up is verified live.
+- **L16 (2026-11-26, user):** asked for S10, then "Sí, hazlo" for the proposal. That proposal was: speak the ask with Haiku; open the dictation for a question, but not for a plan or a permission; no dictation while background work runs; and a live test of whether dictation answers a question card.
+  - **Branch:** `feat/voice-asks`, from `feat/voice-mac` (PR #13 still open).
+  - **RED:** 4 new mod tests failed (question, permission, question fallback, background).
+  - **GREEN:** `claude plugin test .` 158 pass, 1 pre-existing fail. A typed question keeps the usual line, and a typed message ends the carried voice: both pinned.
+  - **Not verified yet:** whether Claude's dictation writes into the AskUserQuestion card. It needs a live test once installed.
