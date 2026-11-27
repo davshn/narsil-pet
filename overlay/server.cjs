@@ -34,6 +34,8 @@ let lastBeat = Date.now()
 
 // The ear: wanted or not, the listener running now, and what it decides.
 const ear = createEar()
+// When the ear last pressed Enter, sending what you dictated.
+let earSentAt = null
 let isEarOn = false
 let listener = null
 // A listener that exits while the ear is on is started again, after a while.
@@ -110,8 +112,9 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
 
-  // The protocol, as the mod checks it: "narsil 7" is the hub whose ear uses Windows' modern recognizer.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 7')
+  // The protocol, as the mod checks it: "narsil 8" is the hub that tells the
+  // mod when the ear sent a message.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 8')
   if (!isTrusted) return send(403, 'text/plain', 'forbidden')
   if (req.method === 'GET' && url.pathname === '/sessions') return send(200, 'application/json', JSON.stringify(sessionList()))
   // The listener's sample (you talked, "Narsil" heard, Claude in front):
@@ -120,7 +123,13 @@ const server = http.createServer(async (req, res) => {
     if (!isEarOn) return send(200, 'text/plain', 'quit')
     const q = url.searchParams
     const keys = ear.tick({ isVoice: q.get('voice') === '1', isHeard: q.get('heard') === '1', isClaude: q.get('claude') === '1' })
+    if (keys.includes('enter')) earSentAt = Date.now()
     return send(200, 'text/plain', keys.join('\n'))
+  }
+  // How long ago the ear sent a message (its Enter), in ms, or "none": the
+  // prompt that follows it in the conversation in front came by voice.
+  if (req.method === 'GET' && url.pathname === '/ear/sent') {
+    return send(200, 'text/plain', earSentAt === null ? 'none' : String(Date.now() - earSentAt))
   }
   if (req.method === 'POST' && url.pathname === '/ear') {
     setEar(url.searchParams.get('on') === '1')

@@ -7,6 +7,7 @@ import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, isClaudesCall, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { VOICE, say } from '../hooks/words'
+import { SPOKEN_SYSTEM } from '../hooks/voice'
 import { ART } from '../hooks/art'
 import { ANIMATED } from '../hooks/art/animated'
 import { sprite } from '../hooks/sprite'
@@ -54,6 +55,7 @@ function engine(
     files = {},
     fleet = [],
     hub,
+    earSent = 'none',
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -77,6 +79,8 @@ function engine(
     // the hub's ping answer, which a test may change; '' once /quit closed it
     // (pushes then fail), this version's again once the mod starts one
     hub?: { ping: string; quits?: number }
+    // what the hub answers /ear/sent: the ms since the ear last sent a message
+    earSent?: string
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -104,6 +108,10 @@ function engine(
     if (e.url.includes('-push/json')) {
       const message = await pushReply()
       return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}\n` : '' } }
+    }
+    if (e.url.endsWith('/ear/sent')) {
+      const isTrusted = e.init?.headers?.['x-narsil-token'] === 'secret-token'
+      return { value: { status: isTrusted ? 200 : 403, ok: isTrusted, headers: {}, text: isTrusted ? earSent : '' } }
     }
     if (hub && e.url.endsWith('/ping')) return { value: { status: hub.ping ? 200 : 503, ok: Boolean(hub.ping), headers: {}, text: hub.ping } }
     if (hub && e.url.endsWith('/quit')) {
@@ -135,7 +143,7 @@ function engine(
     // the hub, started through PowerShell or start.sh
     if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) {
       isUp = true
-      if (hub) hub.ping = 'narsil 7'
+      if (hub) hub.ping = 'narsil 8'
     }
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -605,6 +613,7 @@ async function tipEngine(
     stateReply,
     git,
     files,
+    earSent,
   }: {
     store?: Record<string, unknown>
     hasTools?: boolean
@@ -616,9 +625,10 @@ async function tipEngine(
     stateReply?: (body: Record<string, unknown>) => string
     git?: (args: readonly string[]) => string
     files?: Record<string, string>
+    earSent?: string
   } = {},
 ) {
-  const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply, git, files })
+  const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply, git, files, earSent })
   const clock = mock.clock(on, { now: 1_000_000 })
   if (hasTools) on('tool.call', () => ({ result: {} }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
@@ -1601,7 +1611,7 @@ const earPosts = (posts: Posted[]) => posts.filter(p => p.url.includes('/ear?'))
 
 test('an older hub that took over after the start is replaced from the heartbeat, though it takes the beats', async ($, on) => {
   const runs: Ran[] = []
-  const hub: { ping: string; quits?: number } = { ping: 'narsil 7' }
+  const hub: { ping: string; quits?: number } = { ping: 'narsil 8' }
   engine(on, null, { os: 'windows', runs, hub, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -1611,12 +1621,12 @@ test('an older hub that took over after the start is replaced from the heartbeat
   expect(hub.quits ?? 0).toBe(0)
 
   // a conversation of an older version put its own hub in place
-  hub.ping = 'narsil 6'
+  hub.ping = 'narsil 7'
   await clock.advance(40_000)
 
   expect(hub.quits).toBe(1)
   expect(started()).toBe(1)
-  expect(hub.ping).toBe('narsil 7')
+  expect(hub.ping).toBe('narsil 8')
 })
 
 test('/narsil escucha on turns the ear on in the hub, with the token, and keeps it', async ($, on) => {
@@ -1671,6 +1681,57 @@ test('the hub starts with the ear on when the stored prefs say so', async ($, on
 
 test('the hub starts with the ear off by default', async ($, on) => {
   expect(await earAtStart($, on, { isHidden: false, isMuted: false })).toBe('0')
+})
+
+// A turn you started: by voice when the hub says the ear sent a message
+// `earSent` ms ago. Returns what Narsil said aloud and what the model was asked.
+async function voiceTurn(
+  $: Engine,
+  on: On,
+  { earSent, answer, reply = 'Arreglé el registro y pasan las pruebas. ¿Abro el PR?', prefs = {} }: { earSent: string; answer: string; reply?: string | ModelCompleteResult; prefs?: Record<string, unknown> },
+) {
+  const asked = model(on, reply)
+  const runs: Ran[] = []
+  const { clock } = await tipEngine($, on, { os: 'windows', runs, earSent, store: { prefs: { isHidden: false, isMuted: false, isListening: true, ...prefs } } })
+  await $.prompt.submit({ text: 'arregla el registro', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'arregla el registro', turnId: 'voice' })
+  await $.turn.complete({ reason: 'answer', answer, durationMs: 42_000, isAborted: false, turnId: 'voice' })
+  await clock.settle()
+  const spoken = runs.filter(r => /[\\/]overlay[\\/]speak\.(ps1|sh)$/.test(String(r.env.NARSIL_SCRIPT))).map(r => r.env.NARSIL_TEXT)
+  return { spoken, asked }
+}
+
+const LONG_ANSWER = 'Arreglé el oyente en `overlay/listen.ps1`:\n\n- **Reconocedor:** uno nuevo al cancelar.\n- Pruebas: 10 de 10.\n\n¿Abro el PR de `fix/ear`?'
+
+test('a message the ear sent by voice is answered aloud with a short summary from Haiku', async ($, on) => {
+  const { spoken, asked } = await voiceTurn($, on, { earSent: '1200', answer: LONG_ANSWER })
+
+  const summaryAsk = asked.find(a => a.system === SPOKEN_SYSTEM)
+  expect(summaryAsk?.model).toBe('haiku')
+  expect(summaryAsk?.prompt).toContain('Reconocedor')
+  expect(spoken).toContain('Arreglé el registro y pasan las pruebas. ¿Abro el PR?')
+  // the summary takes the place of her usual line
+  expect(spoken.some(t => VOICE.done.includes(String(t)))).toBe(false)
+})
+
+test('a message typed a minute after the ear last sent one keeps her usual line, and asks for no summary', async ($, on) => {
+  const { spoken, asked } = await voiceTurn($, on, { earSent: '60000', answer: LONG_ANSWER })
+
+  expect(asked.some(a => a.system === SPOKEN_SYSTEM)).toBe(false)
+  expect(spoken.some(t => VOICE.done.includes(String(t)))).toBe(true)
+})
+
+test('without an answer from Haiku she reads the first sentence and the closing question, without markdown', async ($, on) => {
+  const { spoken } = await voiceTurn($, on, { earSent: '800', answer: LONG_ANSWER, reply: { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE } })
+
+  expect(spoken).toContain('Arreglé el oyente en overlay/listen.ps1. ¿Abro el PR de fix/ear?')
+})
+
+test('with her voice off, a voice turn is not read aloud', async ($, on) => {
+  const { spoken, asked } = await voiceTurn($, on, { earSent: '800', answer: LONG_ANSWER, prefs: { isMuted: true } })
+
+  expect(spoken).toEqual([])
+  expect(asked.some(a => a.system === SPOKEN_SYSTEM)).toBe(false)
 })
 
 test('/narsil names escucha in its usage and says whether the ear is on', async ($, on) => {
