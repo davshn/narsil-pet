@@ -49,7 +49,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 7', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 8', 'the protocol the mod checks')
 })
 
 check('the window, its page and its pictures are gone', async () => {
@@ -147,6 +147,13 @@ check("the listener's ticks are answered with the keys to press", async () => {
   // you talk, then a silence: the dictation stops (it would wait 5 s for a first word if talking were not counted)
   await wait(2100)
   assert.equal((await tick('voice=0&heard=0&claude=1')).text, 'ctrl+d', 'a silence after you talked')
+  // the text lands, then Enter sends it: the hub remembers when, for the mod
+  assert.equal((await request('GET', '/ear/sent')).status, 403, 'when it sent, without the token')
+  assert.equal((await request('GET', '/ear/sent', { headers: MOD })).text, 'none', 'nothing sent yet')
+  await wait(1100)
+  assert.equal((await tick('voice=0&heard=0&claude=1')).text, 'enter')
+  const since = Number((await request('GET', '/ear/sent', { headers: MOD })).text)
+  assert.ok(since >= 0 && since < 1000, `sent ${since} ms ago`)
   await request('POST', '/ear?on=0', { headers: MOD })
 })
 
@@ -162,7 +169,7 @@ check('a request path no URL can be made of is refused, and the server keeps ans
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 7')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 8')
 })
 
 ;(async () => {

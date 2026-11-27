@@ -15,6 +15,7 @@ import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
 import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, cacheShort, cacheStart, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
+import { SPOKEN_SYSTEM, VOICE_SENT_MS, fallbackSpoken, spokenOf, spokenPrompt } from './voice'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -167,7 +168,7 @@ async function overlayToken($: EngineInterface): Promise<string> {
 // What this version's hub answers a ping. A hub another version started
 // answers otherwise ("narsil 5" had no ear): it outlives the mod's updates, so
 // it is closed and started anew. Keep it equal to overlay/server.cjs's /ping.
-const OVERLAY_PROTOCOL = 'narsil 7'
+const OVERLAY_PROTOCOL = 'narsil 8'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -449,10 +450,41 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
   const { isMuted, isQuiet } = await read($, prefs)
   // Quiet: no voice, and only what needs you (a question, an error) is told.
   if (isQuiet && kind === 'done' && !force) return
-  const spoken = isMuted || isQuiet ? Promise.resolve() : speak($, voice)
+  const spoken = isMuted || isQuiet || !voice ? Promise.resolve() : speak($, voice)
   await notify($, `Narsil · ${title}`, text)
   await sendToPhone($, kind, title, phoneText)
   await spoken
+}
+
+// Whether the message being sent is one the ear just sent for you (you said
+// "Narsil" and dictated it): only the conversation in front gets its Enter,
+// so the prompt that follows it is that one.
+let isVoiceTurn = false
+
+async function sentByVoice($: EngineInterface): Promise<boolean> {
+  if (!(await read($, prefs)).isListening) return false
+  try {
+    const { ok, text } = await $.http.fetch(`${OVERLAY}/ear/sent`, { headers: { 'x-narsil-token': await overlayToken($) } })
+    const since = Number(text)
+    return ok && text !== 'none' && Number.isFinite(since) && since <= VOICE_SENT_MS
+  } catch {
+    return false
+  }
+}
+
+// The end of a turn you started by voice, said aloud so you can answer by
+// voice too: a short summary from Haiku, or the answer's first sentence and
+// its question when Haiku does not answer.
+async function speakSummary($: EngineInterface, answer: string, ask: string | null): Promise<void> {
+  let text = ''
+  try {
+    const reply = await $.model.complete({ model: 'haiku', system: SPOKEN_SYSTEM, prompt: spokenPrompt(answer, ask), effort: 'low', maxTokens: 400, timeoutMs: 20_000 })
+    if (reply.isAnswered) text = spokenOf(reply.text)
+  } catch {
+    // the fallback below
+  }
+  if (!text) text = fallbackSpoken(answer, ask)
+  if (text) await speak($, text)
 }
 
 // Whether you last wrote through Remote Control (your phone, the web) rather
@@ -1320,7 +1352,10 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (!e.isMeta) seen.prompt = e.text.slice(0, 400)
+    if (!e.isMeta) {
+      seen.prompt = e.text.slice(0, 400)
+      isVoiceTurn = await sentByVoice($)
+    }
     await noteOrigin($, e.origin)
 
     return next(e)
@@ -1450,11 +1485,16 @@ export const register: Register = on => {
     stopWaiting()
     await bumpStats($, s => ({ ...s, turns: s.turns + 1, workedMs: s.workedMs + (e.durationMs ?? 0) }))
     await startCache($)
+    // A turn you started by voice ends aloud with its summary, in place of
+    // her usual line, unless her voice is off.
+    const ask = turnAsk
+    const isSpokenBack = isVoiceTurn && e.reason === 'answer' && !(await read($, prefs)).isMuted
+    isVoiceTurn = false
 
     if (e.reason === 'answer' && turnAsk) {
       await setMood($, 'asking', 'tengo una pregunta para ti')
       await gainXp($, 'turn')
-      await announce($, 'question', 'Te necesito', turnAsk, say('question'))
+      await announce($, 'question', 'Te necesito', turnAsk, isSpokenBack ? '' : say('question'))
       await startWaiting($, 'tengo una pregunta para ti.')
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
@@ -1470,7 +1510,7 @@ export const register: Register = on => {
       // Not on a $.clock timer: a reload of the mod (which follows any turn
       // that edited it) cancels timers, and the announcement with them. It
       // starts processes of its own, so this returns within a second.
-      await announce($, 'done', 'He terminado', summary(e.answer, took), say('done'), false, summary(e.answer, took, Infinity, PHONE_ROOM))
+      await announce($, 'done', 'He terminado', summary(e.answer, took), isSpokenBack ? '' : say('done'), false, summary(e.answer, took, Infinity, PHONE_ROOM))
       seen.durationMs = e.durationMs
       seen.answer = e.answer.slice(0, 4 * MAX_ANSWER)
       tipLater($, 'review')
@@ -1481,6 +1521,8 @@ export const register: Register = on => {
       await setMood($, 'failed', why)
       await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, say('error'))
     }
+    // Not awaited: Haiku takes a few seconds, and the turn's end does not wait.
+    if (isSpokenBack) void speakSummary($, e.answer, ask).catch(() => undefined)
     await sendStatus($)
 
     return result
