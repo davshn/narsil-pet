@@ -49,7 +49,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 8', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 9', 'the protocol the mod checks')
 })
 
 check('the window, its page and its pictures are gone', async () => {
@@ -154,6 +154,10 @@ check("the listener's ticks are answered with the keys to press", async () => {
   assert.equal((await tick('voice=0&heard=0&claude=1')).text, 'enter')
   const since = Number((await request('GET', '/ear/sent', { headers: MOD })).text)
   assert.ok(since >= 0 && since < 1000, `sent ${since} ms ago`)
+  // Narsil has said the answer aloud: the dictation opens again by itself
+  assert.equal((await request('POST', '/ear/follow')).status, 403, 'the answer said, without the token')
+  assert.equal((await request('POST', '/ear/follow', { headers: MOD })).status, 204)
+  assert.equal((await tick('voice=0&heard=0&claude=1')).text, 'ctrl+d', 'the dictation opens for your answer')
   await request('POST', '/ear?on=0', { headers: MOD })
 })
 
@@ -169,7 +173,7 @@ check('a request path no URL can be made of is refused, and the server keeps ans
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 8')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 9')
 })
 
 ;(async () => {

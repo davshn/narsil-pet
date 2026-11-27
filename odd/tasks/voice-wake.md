@@ -11,6 +11,8 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
 - **S4 One listener per computer.** The hub (overlay/server.cjs) starts the single listener (overlay/listen.ps1) and decides the keys; PowerShell only reports what it hears, the mic level and whether Claude is in front, and presses what the hub answers. Windows only.
 - **S5 Opt-in.** Off by default; `/narsil escucha on|off` turns it on or off, kept in prefs (`isListening`). Elsewhere than Windows the command says it only works on Windows.
 - **S7 Answer by voice.** "cuando te pregunte con el dictado, tú me respondas también en voz un resumen de lo que hiciste o de la tarea" / "al terminar la tarea que me hagas un resumen para yo poder seguir contestándote en voz": a turn started by a message the ear sent ends with Narsil saying a short summary aloud (Haiku; the first sentence and closing question when Haiku fails), in place of her usual line; never with her voice off.
+- **S8 Answer without the word.** "Sí, implementalo así" (the proposal: once Narsil has said the summary, she opens the dictation herself; about 5 s with nothing said closes it unsent; it opens only once she has finished speaking, so she does not take down her own voice; and not in another conversation). The mod cannot tell which conversation the Claude window shows, so the guard is: you stayed in the Claude window since the message went.
+- **S9 Whole sentences.** "algunos cuando son muy largos [...] están llegando cortados [...] se cortan en la mitad y se nota que el mensaje está cortado": a spoken summary is never cut in the middle of a sentence.
 - **S6 Local.** Recognition is Windows' own (System.Speech), on this computer; no audio leaves it.
 
 ## Tasks
@@ -19,6 +21,7 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
 - [x] T2 S1 S4 S6: listener script overlay/listen.ps1. Route: inline.
 - [x] T3 S5: `/narsil escucha`, prefs, hub start env, README. Route: inline.
 - [x] T5 S7: the hub's `/ear/sent` (protocol `narsil 8`), voice turns marked at `prompt.submit`, and a Haiku summary spoken at `turn.complete` (hooks/voice.ts). Route: inline.
+- [x] T6 S8 S9: the ear's `follow()` and the hub's `POST /ear/follow` (protocol `narsil 9`); speak.ps1 reports when it has spoken; spoken summaries kept to whole sentences (`wholeSentences`). Route: inline.
 - [x] T4 S1 S2 S4 S6: listener on Windows' modern recognizer (Spanish when installed) and a mic noise-floor talking flag; hub protocol `narsil 7`. Route: inline.
 
 ## Log
@@ -41,3 +44,11 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
   - **RED:** overlay-server.check 3 of 9 failed ("nothing sent yet", the protocol twice); the 4 new mod tests failed.
   - **GREEN:** overlay-server.check 9 passed; ear.check 10 passed; `claude plugin test .` 147 pass, 1 pre-existing fail.
   - **Not verified live:** it needs this version's mod loaded (a new conversation) and the `narsil 8` hub.
+- **L13 (2026-11-26, user):** after PR #10 merged, 4.3.0 was installed and the `narsil 8` hub started at 22:37:17. First live try: "No, aún no me ha hablado"; `/ear/sent` showed that message sent at 22:38:56, into this same conversation. I assumed this conversation still ran an older mod. Then "En esta última respuesta que te di, funcionó perfecto": the spoken summary worked in this conversation. So its mod did pick up 4.3.0, and that assumption was wrong. Why the first try said nothing was not traced: the listener ran without `NARSIL_LOG`.
+- **L14 (2026-11-26, user):** asked for S8 and S9.
+  - **Cause of the cuts:** `spokenOf` clipped past 400 characters mid-word with "…". Now `wholeSentences` keeps whole sentences up to about 600, always the first whole, and drops an unfinished last sentence.
+  - **Follow-up:** the ear's `canFollow` turns on when a send ends with Enter and off whenever Claude is not in front while idle. `follow()` makes the next tick with Claude in front open the dictation, once. speak.ps1, given `NARSIL_FOLLOW`, `NARSIL_PORT` and `NARSIL_TOKEN` (only for the voice summary), posts `/ear/follow` after it has spoken. Protocol `narsil 9`.
+  - **RED:** ear.check 5 of 15 failed; overlay-server.check failed (404 on `/ear/follow`); 3 new mod tests failed.
+  - **GREEN:** ear.check 15 passed; overlay-server.check 9 passed; `claude plugin test .` 150 pass, 1 pre-existing fail.
+  - **Smoke:** speak.ps1 said "Prueba." (1.6 s) and then posted `/ear/follow` with the token to a test server.
+  - **Not verified live:** the follow-up dictation itself, and whether it catches her own voice on the laptop's speakers.

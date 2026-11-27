@@ -143,7 +143,7 @@ function engine(
     // the hub, started through PowerShell or start.sh
     if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) {
       isUp = true
-      if (hub) hub.ping = 'narsil 8'
+      if (hub) hub.ping = 'narsil 9'
     }
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1611,7 +1611,7 @@ const earPosts = (posts: Posted[]) => posts.filter(p => p.url.includes('/ear?'))
 
 test('an older hub that took over after the start is replaced from the heartbeat, though it takes the beats', async ($, on) => {
   const runs: Ran[] = []
-  const hub: { ping: string; quits?: number } = { ping: 'narsil 8' }
+  const hub: { ping: string; quits?: number } = { ping: 'narsil 9' }
   engine(on, null, { os: 'windows', runs, hub, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -1621,12 +1621,12 @@ test('an older hub that took over after the start is replaced from the heartbeat
   expect(hub.quits ?? 0).toBe(0)
 
   // a conversation of an older version put its own hub in place
-  hub.ping = 'narsil 7'
+  hub.ping = 'narsil 8'
   await clock.advance(40_000)
 
   expect(hub.quits).toBe(1)
   expect(started()).toBe(1)
-  expect(hub.ping).toBe('narsil 8')
+  expect(hub.ping).toBe('narsil 9')
 })
 
 test('/narsil escucha on turns the ear on in the hub, with the token, and keeps it', async ($, on) => {
@@ -1697,8 +1697,8 @@ async function voiceTurn(
   await $.turn.start({ text: 'arregla el registro', turnId: 'voice' })
   await $.turn.complete({ reason: 'answer', answer, durationMs: 42_000, isAborted: false, turnId: 'voice' })
   await clock.settle()
-  const spoken = runs.filter(r => /[\\/]overlay[\\/]speak\.(ps1|sh)$/.test(String(r.env.NARSIL_SCRIPT))).map(r => r.env.NARSIL_TEXT)
-  return { spoken, asked }
+  const speaking = runs.filter(r => /[\\/]overlay[\\/]speak\.(ps1|sh)$/.test(String(r.env.NARSIL_SCRIPT)))
+  return { spoken: speaking.map(r => r.env.NARSIL_TEXT), speaking, asked }
 }
 
 const LONG_ANSWER = 'Arreglé el oyente en `overlay/listen.ps1`:\n\n- **Reconocedor:** uno nuevo al cancelar.\n- Pruebas: 10 de 10.\n\n¿Abro el PR de `fix/ear`?'
@@ -1714,11 +1714,40 @@ test('a message the ear sent by voice is answered aloud with a short summary fro
   expect(spoken.some(t => VOICE.done.includes(String(t)))).toBe(false)
 })
 
+test('once the summary is said, the hub is told to open the dictation for your answer', async ($, on) => {
+  const { speaking } = await voiceTurn($, on, { earSent: '1200', answer: LONG_ANSWER })
+
+  const summary = speaking.find(r => r.env.NARSIL_TEXT === 'Arreglé el registro y pasan las pruebas. ¿Abro el PR?')
+  expect(summary?.env.NARSIL_FOLLOW).toBe('1')
+  expect(summary?.env.NARSIL_TOKEN).toBe('secret-token')
+  expect(summary?.env.NARSIL_PORT).toBe('47190')
+  // her other lines open nothing
+  expect(speaking.filter(r => r !== summary).every(r => r.env.NARSIL_FOLLOW === undefined)).toBe(true)
+})
+
+test('a long summary is said whole sentences at a time, never cut in the middle', async ($, on) => {
+  const sentence = (n: number) => `La parte ${n} quedó lista y comprobada con sus pruebas, sin nada pendiente que revisar en ella ahora mismo.`
+  const reply = [1, 2, 3, 4, 5, 6, 7, 8].map(sentence).join(' ')
+  const { spoken } = await voiceTurn($, on, { earSent: '1200', answer: LONG_ANSWER, reply })
+
+  const said = String(spoken.find(t => String(t).startsWith('La parte 1')))
+  expect(said.length).toBeLessThan(reply.length)
+  expect(said.endsWith('ahora mismo.')).toBe(true)
+  expect(said).not.toContain('…')
+})
+
+test('a summary Haiku left unfinished drops the half sentence', async ($, on) => {
+  const { spoken } = await voiceTurn($, on, { earSent: '1200', answer: LONG_ANSWER, reply: 'Arreglé el oyente y pasan las pruebas. Ahora falta que lo pruebes con tu voz y que me' })
+
+  expect(spoken).toContain('Arreglé el oyente y pasan las pruebas.')
+})
+
 test('a message typed a minute after the ear last sent one keeps her usual line, and asks for no summary', async ($, on) => {
-  const { spoken, asked } = await voiceTurn($, on, { earSent: '60000', answer: LONG_ANSWER })
+  const { spoken, speaking, asked } = await voiceTurn($, on, { earSent: '60000', answer: LONG_ANSWER })
 
   expect(asked.some(a => a.system === SPOKEN_SYSTEM)).toBe(false)
   expect(spoken.some(t => VOICE.done.includes(String(t)))).toBe(true)
+  expect(speaking.every(r => r.env.NARSIL_FOLLOW === undefined)).toBe(true)
 })
 
 test('without an answer from Haiku she reads the first sentence and the closing question, without markdown', async ($, on) => {

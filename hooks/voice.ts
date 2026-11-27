@@ -6,9 +6,10 @@
 // follows to count as yours by voice.
 export const VOICE_SENT_MS = 5000
 
-// The longest answer the summary is asked about, and the longest spoken text.
+// The longest answer the summary is asked about, and about the longest spoken
+// text: past it, whole sentences only.
 const MAX_ANSWER = 6000
-const MAX_SPOKEN = 400
+const MAX_SPOKEN = 600
 
 export const SPOKEN_SYSTEM = [
   'You turn the final answer of a coding assistant into what a voice assistant says aloud to the person who asked by voice.',
@@ -36,10 +37,26 @@ export function plainText(text: string): string {
     .trim()
 }
 
+// Whole sentences, never one cut in the middle: past `max`, the sentences
+// that fit (the first one whole, however long); a last sentence left
+// unfinished (no closing mark, as when the model ran out of room) is dropped
+// when one before it ends.
+export function wholeSentences(text: string, max: number): string {
+  // A mark ends a sentence only before a space or the end, so "listen.ps1" or
+  // "4.2.2" stay whole.
+  const sentences = (text.match(/[\s\S]*?[.!?…]+(?=\s|$)/g) ?? []).map(s => s.trim()).filter(Boolean)
+  if (sentences.length === 0) return text
+  const kept: string[] = []
+  for (const sentence of sentences) {
+    if (kept.length > 0 && [...kept, sentence].join(' ').length > max) break
+    kept.push(sentence)
+  }
+  return kept.join(' ')
+}
+
 // What the model wrote, as spoken text; empty when there is nothing to say.
 export function spokenOf(reply: string): string {
-  const text = plainText(reply)
-  return text.length > MAX_SPOKEN ? `${text.slice(0, MAX_SPOKEN - 1).replace(/\s\S*$/, '')}…` : text
+  return wholeSentences(plainText(reply), MAX_SPOKEN)
 }
 
 // Without the model: the answer's first sentence, and its closing question
