@@ -8,8 +8,6 @@
 'use strict'
 
 const DEFAULTS = {
-  // the mic level (0 to 100) at or above which you are talking
-  voiceLevel: 12,
   // the silence after you spoke that ends the message
   silenceMs: 2000,
   // how long to wait for you to start before giving up
@@ -38,9 +36,10 @@ function createEar(options = {}) {
     return ['ctrl+d']
   }
 
-  // One sample: the loudest level since the last, whether "Narsil" was heard,
-  // whether a Claude window is in front. Returns the keys to press, in order.
-  function tick({ level = 0, isHeard = false, isClaude = false } = {}) {
+  // One sample: whether you talked since the last (the listener judges it
+  // against its mic's own noise), whether "Narsil" was heard, whether a Claude
+  // window is in front. Returns the keys to press, in order.
+  function tick({ isVoice = false, isHeard = false, isClaude = false } = {}) {
     const at = clock()
     if (state === 'idle') {
       if (!isHeard || !isClaude) return []
@@ -56,7 +55,7 @@ function createEar(options = {}) {
         state = 'idle'
         return []
       }
-      if (level >= o.voiceLevel) {
+      if (isVoice) {
         hasSpoken = true
         lastVoiceAt = at
       }

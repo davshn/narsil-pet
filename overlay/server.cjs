@@ -110,16 +110,16 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
 
-  // The protocol, as the mod checks it: "narsil 6" is the hub with the ear.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 6')
+  // The protocol, as the mod checks it: "narsil 7" is the hub whose ear uses Windows' modern recognizer.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 7')
   if (!isTrusted) return send(403, 'text/plain', 'forbidden')
   if (req.method === 'GET' && url.pathname === '/sessions') return send(200, 'application/json', JSON.stringify(sessionList()))
-  // The listener's sample (loudest level, "Narsil" heard, Claude in front):
+  // The listener's sample (you talked, "Narsil" heard, Claude in front):
   // the answer is the keys to press, one a line, or "quit" with the ear off.
   if (req.method === 'GET' && url.pathname === '/ear/tick') {
     if (!isEarOn) return send(200, 'text/plain', 'quit')
     const q = url.searchParams
-    const keys = ear.tick({ level: Number(q.get('level')) || 0, isHeard: q.get('heard') === '1', isClaude: q.get('claude') === '1' })
+    const keys = ear.tick({ isVoice: q.get('voice') === '1', isHeard: q.get('heard') === '1', isClaude: q.get('claude') === '1' })
     return send(200, 'text/plain', keys.join('\n'))
   }
   if (req.method === 'POST' && url.pathname === '/ear') {

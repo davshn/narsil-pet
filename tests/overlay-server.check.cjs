@@ -49,7 +49,7 @@ check('another host name (a page rebound to this address) is refused everywhere'
   }
   const ping = await request('GET', '/ping', { host: `localhost:${port}` })
   assert.equal(ping.status, 200)
-  assert.equal(ping.text, 'narsil 6', 'the protocol the mod checks')
+  assert.equal(ping.text, 'narsil 7', 'the protocol the mod checks')
 })
 
 check('the window, its page and its pictures are gone', async () => {
@@ -121,7 +121,7 @@ function rawRequest(target) {
 
 check('the ear turns on and off for the mod alone, starting and stopping one listener', async () => {
   assert.equal((await request('POST', '/ear?on=1')).status, 403, 'without the token')
-  assert.equal((await request('GET', '/ear/tick?level=0&heard=1&claude=1')).status, 403, 'a tick without the token')
+  assert.equal((await request('GET', '/ear/tick?voice=0&heard=1&claude=1')).status, 403, 'a tick without the token')
   started.length = 0
   assert.equal((await request('POST', '/ear?on=1', { headers: MOD })).status, 204)
   assert.equal((await request('POST', '/ear?on=1', { headers: MOD })).status, 204)
@@ -135,15 +135,18 @@ check('the ear turns on and off for the mod alone, starting and stopping one lis
   }
   assert.equal((await request('POST', '/ear?on=0', { headers: MOD })).status, 204)
   if (process.platform === 'win32') assert.equal(killed, 1, 'the listener is stopped')
-  assert.equal((await request('GET', '/ear/tick?level=0&heard=1&claude=1', { headers: MOD })).text, 'quit', 'a listener left running is told to quit')
+  assert.equal((await request('GET', '/ear/tick?voice=0&heard=1&claude=1', { headers: MOD })).text, 'quit', 'a listener left running is told to quit')
 })
 
 check("the listener's ticks are answered with the keys to press", async () => {
   await request('POST', '/ear?on=1', { headers: MOD })
   const tick = query => request('GET', `/ear/tick?${query}`, { headers: MOD })
-  assert.equal((await tick('level=0&heard=0&claude=1')).text, '')
-  assert.equal((await tick('level=0&heard=1&claude=1')).text, 'ctrl+d')
-  assert.equal((await tick('level=40&heard=1&claude=1')).text, '', '"Narsil" while dictating')
+  assert.equal((await tick('voice=0&heard=0&claude=1')).text, '')
+  assert.equal((await tick('voice=0&heard=1&claude=1')).text, 'ctrl+d')
+  assert.equal((await tick('voice=1&heard=1&claude=1')).text, '', '"Narsil" while dictating')
+  // you talk, then a silence: the dictation stops (it would wait 5 s for a first word if talking were not counted)
+  await wait(2100)
+  assert.equal((await tick('voice=0&heard=0&claude=1')).text, 'ctrl+d', 'a silence after you talked')
   await request('POST', '/ear?on=0', { headers: MOD })
 })
 
@@ -159,7 +162,7 @@ check('a request path no URL can be made of is refused, and the server keeps ans
     assert.match(reply, /^HTTP\/1\.1 400 /, `GET ${target}`)
   }
   await wait(50)
-  assert.equal((await request('GET', '/ping')).text, 'narsil 6')
+  assert.equal((await request('GET', '/ping')).text, 'narsil 7')
 })
 
 ;(async () => {

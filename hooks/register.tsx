@@ -167,7 +167,7 @@ async function overlayToken($: EngineInterface): Promise<string> {
 // What this version's hub answers a ping. A hub another version started
 // answers otherwise ("narsil 5" had no ear): it outlives the mod's updates, so
 // it is closed and started anew. Keep it equal to overlay/server.cjs's /ping.
-const OVERLAY_PROTOCOL = 'narsil 6'
+const OVERLAY_PROTOCOL = 'narsil 7'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {

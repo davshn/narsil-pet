@@ -7,14 +7,11 @@ const assert = require('assert')
 const path = require('path')
 const { createEar } = require(path.join(__dirname, '..', 'overlay', 'ear.cjs'))
 
-const QUIET = 2
-const LOUD = 40
-
 // An ear with a clock of its own, ticked every 200 ms like the listener.
 function setup(options = {}) {
   let now = 0
   const ear = createEar({ now: () => now, ...options })
-  const tick = (sample = {}) => ear.tick({ level: QUIET, isHeard: false, isClaude: true, ...sample })
+  const tick = (sample = {}) => ear.tick({ isVoice: false, isHeard: false, isClaude: true, ...sample })
   const pass = (ms, sample) => {
     const pressed = []
     for (let t = 0; t < ms; t += 200) {
@@ -44,7 +41,7 @@ check('"Narsil" with another app in front presses nothing', () => {
 check('after you spoke, about 2 s of silence stops the dictation, and Enter follows once the text lands', () => {
   const { tick, pass, ear } = setup()
   tick({ isHeard: true })
-  assert.deepEqual(pass(3000, { level: LOUD }), [], 'nothing while you talk')
+  assert.deepEqual(pass(3000, { isVoice: true }), [], 'nothing while you talk')
   assert.deepEqual(pass(1800), [], 'a short pause is not the end')
   assert.deepEqual(pass(400), ['ctrl+d'], 'the silence stops it')
   assert.equal(ear.state(), 'settling')
@@ -55,13 +52,13 @@ check('after you spoke, about 2 s of silence stops the dictation, and Enter foll
 check('"Narsil" said while dictating is not acted on', () => {
   const { tick, pass } = setup()
   tick({ isHeard: true })
-  assert.deepEqual(pass(1000, { level: LOUD, isHeard: true }), [])
+  assert.deepEqual(pass(1000, { isVoice: true, isHeard: true }), [])
 })
 
 check('no Enter when the Claude window is no longer in front', () => {
   const { tick, pass, ear } = setup()
   tick({ isHeard: true })
-  pass(1000, { level: LOUD })
+  pass(1000, { isVoice: true })
   pass(2200)
   assert.equal(ear.state(), 'settling')
   assert.deepEqual(pass(1200, { isClaude: false }), [])
@@ -71,7 +68,7 @@ check('no Enter when the Claude window is no longer in front', () => {
 check('leaving Claude while dictating presses nothing more', () => {
   const { tick, pass, ear } = setup()
   tick({ isHeard: true })
-  pass(1000, { level: LOUD })
+  pass(1000, { isVoice: true })
   assert.deepEqual(pass(3000, { isClaude: false }), [])
   assert.equal(ear.state(), 'idle')
 })
@@ -87,14 +84,14 @@ check('when nothing is said, the dictation stops without sending', () => {
 check('a dictation past the maximum stops without sending', () => {
   const { tick, pass, ear } = setup({ maxMs: 10_000 })
   tick({ isHeard: true })
-  assert.deepEqual(pass(12_000, { level: LOUD }), ['ctrl+d'])
+  assert.deepEqual(pass(12_000, { isVoice: true }), ['ctrl+d'])
   assert.equal(ear.state(), 'idle')
 })
 
 check('after a message is sent, "Narsil" starts a new one', () => {
   const { tick, pass } = setup()
   tick({ isHeard: true })
-  pass(1000, { level: LOUD })
+  pass(1000, { isVoice: true })
   pass(2200)
   pass(1200)
   assert.deepEqual(tick({ isHeard: true }), ['ctrl+d'])

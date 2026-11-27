@@ -135,7 +135,7 @@ function engine(
     // the hub, started through PowerShell or start.sh
     if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) {
       isUp = true
-      if (hub) hub.ping = 'narsil 6'
+      if (hub) hub.ping = 'narsil 7'
     }
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -1601,7 +1601,7 @@ const earPosts = (posts: Posted[]) => posts.filter(p => p.url.includes('/ear?'))
 
 test('an older hub that took over after the start is replaced from the heartbeat, though it takes the beats', async ($, on) => {
   const runs: Ran[] = []
-  const hub: { ping: string; quits?: number } = { ping: 'narsil 6' }
+  const hub: { ping: string; quits?: number } = { ping: 'narsil 7' }
   engine(on, null, { os: 'windows', runs, hub, hasClock: false })
   const clock = mock.clock(on, { now: 1_000_000 })
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
@@ -1611,12 +1611,12 @@ test('an older hub that took over after the start is replaced from the heartbeat
   expect(hub.quits ?? 0).toBe(0)
 
   // a conversation of an older version put its own hub in place
-  hub.ping = 'narsil 5'
+  hub.ping = 'narsil 6'
   await clock.advance(40_000)
 
   expect(hub.quits).toBe(1)
   expect(started()).toBe(1)
-  expect(hub.ping).toBe('narsil 6')
+  expect(hub.ping).toBe('narsil 7')
 })
 
 test('/narsil escucha on turns the ear on in the hub, with the token, and keeps it', async ($, on) => {
