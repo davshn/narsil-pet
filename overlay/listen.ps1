@@ -6,7 +6,7 @@
 # heard "Narsil" and whether a Claude window is in front, and presses the keys
 # the hub answers (ctrl+d, enter), only while Claude is in front. It exits when
 # the hub answers "quit" or stops answering. Exits 3 when Windows has no speech
-# recognition language, 4 when the recognizer keeps failing.
+# recognition language, 4 when the recognizer keeps failing or hangs.
 #   NARSIL_PORT, NARSIL_TOKEN  the hub's port and token (set by the hub)
 #   NARSIL_LOG                 optional: a file to trace what it hears and presses
 #   NARSIL_LANG                optional: the recognition language (es-MX, en-US...)
@@ -158,6 +158,8 @@ Trace "listening ($language)"
 
 $resultType = [Windows.Media.SpeechRecognition.SpeechRecognitionResult]
 $listening = $null
+$listeningSince = Get-Date
+$spoke = $false
 $failures = 0
 $heard = 0
 $port = $env:NARSIL_PORT
@@ -166,6 +168,12 @@ $misses = 0
 while ($true) {
   # One phrase at a time: when one ends, see whether it was "Narsil", then
   # listen for the next.
+  # A phrase lasts at most about 15 s (10 s of silence, or 4 s of talk and a
+  # pause): one running past 30 s has hung, and a new listener starts afresh.
+  if ($listening -and -not $listening.IsCompleted -and ((Get-Date) - $listeningSince).TotalSeconds -gt 30) {
+    Trace 'recognizer stuck, starting again'
+    exit 4
+  }
   if ($listening -and $listening.IsCompleted) {
     if ($listening.IsFaulted) {
       $failures++
@@ -177,13 +185,22 @@ while ($true) {
       if ("$($result.Confidence)" -ne 'Rejected' -and $result.Text -and $result.RawConfidence -ge $minConfidence) {
         $heard = 1
         Trace "heard '$($result.Text)' ($($result.Confidence), $([math]::Round($result.RawConfidence, 2)))"
+      } elseif ($spoke -or "$($result.Status)" -ne 'Success' -or $result.Text) {
+        Trace "not taken: status $($result.Status), '$($result.Text)' ($($result.Confidence), $([math]::Round($result.RawConfidence, 2)))"
       }
     }
     $listening = $null
   }
-  if (-not $listening) { $listening = ConvertTo-Task ($recognizer.RecognizeAsync()) $resultType }
+  if (-not $listening) {
+    $listening = ConvertTo-Task ($recognizer.RecognizeAsync()) $resultType
+    $listeningSince = Get-Date
+    $spoke = $false
+  }
 
   $voice = [int][NarsilMic]::TakeVoice()
+  # Whether you talked during this phrase: a phrase you spoke that is not
+  # taken is traced, a silent one is not.
+  if ($voice) { $spoke = $true }
   $claude = [int][NarsilMic]::IsClaudeInFront()
   try {
     $client.Headers['x-narsil-token'] = $env:NARSIL_TOKEN
