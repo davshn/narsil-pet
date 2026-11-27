@@ -6,7 +6,7 @@
 # heard "Narsil" and whether a Claude window is in front, and presses the keys
 # the hub answers (ctrl+d, enter), only while Claude is in front. It exits when
 # the hub answers "quit" or stops answering. Exits 3 when Windows has no speech
-# recognition language, 4 when the recognizer keeps failing or hangs.
+# recognition language, 4 when the recognizer keeps failing.
 #   NARSIL_PORT, NARSIL_TOKEN  the hub's port and token (set by the hub)
 #   NARSIL_LOG                 optional: a file to trace what it hears and presses
 #   NARSIL_LANG                optional: the recognition language (es-MX, en-US...)
@@ -136,20 +136,42 @@ function ConvertTo-Task($operation, [Type]$type) { $asTask.MakeGenericMethod($ty
 
 $language = Select-Language
 if (-not $language) { Trace 'no speech recognition language installed'; exit 3 }
-$recognizer = New-Object Windows.Media.SpeechRecognition.SpeechRecognizer ([Windows.Globalization.Language]::new($language))
-# How the recognizer writes "Narsil" back as it hears it.
-$words = New-Object 'System.Collections.Generic.List[string]'
-foreach ($word in 'Narsil', 'Nar sil', 'Narcil') { $words.Add($word) }
-$wake = New-Object Windows.Media.SpeechRecognition.SpeechRecognitionListConstraint ($words, 'narsil')
-# The constraint list reaches PowerShell as a bare COM object: add through its
-# .NET interface.
-[System.Collections.Generic.ICollection[Windows.Media.SpeechRecognition.ISpeechRecognitionConstraint]].GetMethod('Add').Invoke($recognizer.Constraints, [object[]]@($wake.psobject.BaseObject)) | Out-Null
-$compiled = ConvertTo-Task ($recognizer.CompileConstraintsAsync()) ([Windows.Media.SpeechRecognition.SpeechRecognitionCompilationResult])
-$null = $compiled.Wait(-1)
-if ("$($compiled.Result.Status)" -ne 'Success') { Trace "grammar not compiled: $($compiled.Result.Status)"; exit 4 }
-$recognizer.Timeouts.InitialSilenceTimeout = [TimeSpan]::FromSeconds(10)
-$recognizer.Timeouts.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(500)
-$recognizer.Timeouts.BabbleTimeout = [TimeSpan]::FromSeconds(4)
+# A recognizer for "Narsil", ready to listen; null when its grammar does not
+# compile.
+function New-Recognizer {
+  $made = New-Object Windows.Media.SpeechRecognition.SpeechRecognizer ([Windows.Globalization.Language]::new($language))
+  # How the recognizer writes "Narsil" back as it hears it.
+  $words = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($word in 'Narsil', 'Nar sil', 'Narcil') { $words.Add($word) }
+  $wake = New-Object Windows.Media.SpeechRecognition.SpeechRecognitionListConstraint ($words, 'narsil')
+  # The constraint list reaches PowerShell as a bare COM object: add through
+  # its .NET interface.
+  [System.Collections.Generic.ICollection[Windows.Media.SpeechRecognition.ISpeechRecognitionConstraint]].GetMethod('Add').Invoke($made.Constraints, [object[]]@($wake.psobject.BaseObject)) | Out-Null
+  $compiled = ConvertTo-Task ($made.CompileConstraintsAsync()) ([Windows.Media.SpeechRecognition.SpeechRecognitionCompilationResult])
+  $null = $compiled.Wait(-1)
+  if ("$($compiled.Result.Status)" -ne 'Success') { Trace "grammar not compiled: $($compiled.Result.Status)"; return $null }
+  $made.Timeouts.InitialSilenceTimeout = [TimeSpan]::FromSeconds(10)
+  $made.Timeouts.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(500)
+  $made.Timeouts.BabbleTimeout = [TimeSpan]::FromSeconds(4)
+  return $made
+}
+
+# Windows cancels a listening recognizer now and then (switching to another
+# app does it), and the next phrase on that recognizer never ends: a new one
+# takes its place. Too many in a row: exit, and the hub starts a new listener.
+function Reset-Recognizer($reason) {
+  $script:resets++
+  Trace "recognizer reset ($reason)"
+  if ($script:resets -gt 5) { exit 4 }
+  try { $script:recognizer.Dispose() } catch { }
+  $script:recognizer = New-Recognizer
+  if (-not $script:recognizer) { exit 4 }
+  $script:listening = $null
+}
+
+$recognizer = New-Recognizer
+if (-not $recognizer) { exit 4 }
+$resets = 0
 $minConfidence = 0.0
 if ($env:NARSIL_CONFIDENCE) { $minConfidence = [double]$env:NARSIL_CONFIDENCE }
 
@@ -169,10 +191,9 @@ while ($true) {
   # One phrase at a time: when one ends, see whether it was "Narsil", then
   # listen for the next.
   # A phrase lasts at most about 15 s (10 s of silence, or 4 s of talk and a
-  # pause): one running past 30 s has hung, and a new listener starts afresh.
-  if ($listening -and -not $listening.IsCompleted -and ((Get-Date) - $listeningSince).TotalSeconds -gt 30) {
-    Trace 'recognizer stuck, starting again'
-    exit 4
+  # pause): one running past 20 s has hung.
+  if ($listening -and -not $listening.IsCompleted -and ((Get-Date) - $listeningSince).TotalSeconds -gt 20) {
+    Reset-Recognizer 'stuck'
   }
   if ($listening -and $listening.IsCompleted) {
     if ($listening.IsFaulted) {
@@ -182,6 +203,7 @@ while ($true) {
     } else {
       $failures = 0
       $result = $listening.Result
+      if ("$($result.Status)" -eq 'Success') { $resets = 0 }
       if ("$($result.Confidence)" -ne 'Rejected' -and $result.Text -and $result.RawConfidence -ge $minConfidence) {
         $heard = 1
         Trace "heard '$($result.Text)' ($($result.Confidence), $([math]::Round($result.RawConfidence, 2)))"
@@ -190,6 +212,8 @@ while ($true) {
       }
     }
     $listening = $null
+    if ($result -and "$($result.Status)" -eq 'UserCanceled') { Reset-Recognizer 'canceled by Windows' }
+    $result = $null
   }
   if (-not $listening) {
     $listening = ConvertTo-Task ($recognizer.RecognizeAsync()) $resultType
