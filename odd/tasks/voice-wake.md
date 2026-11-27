@@ -52,3 +52,8 @@ Branch: `feat/voice-wake` · Delivery: ask-on-risk · Tests: `claude plugin test
   - **GREEN:** ear.check 15 passed; overlay-server.check 9 passed; `claude plugin test .` 150 pass, 1 pre-existing fail.
   - **Smoke:** speak.ps1 said "Prueba." (1.6 s) and then posted `/ear/follow` with the token to a test server.
   - **Not verified live:** the follow-up dictation itself, and whether it catches her own voice on the laptop's speakers.
+- **L15 (2026-11-26, user):** 4.4.0 was installed from main. A conversation's own mod, already on 4.4.0, replaced the hub with `narsil 9` by itself a few seconds later.
+  - **First live try:** "No se abrió [...] creo que es porque estaba en otra pestaña", which is the guard working.
+  - **Second try:** "No, no se abrió", with no trace to explain it.
+  - **Trace:** temporary traces were added to the installed copy only and removed afterwards.
+  - **Third try:** the hub logged `follow -> true state=idle` at 23:00:43, then ctrl+d. The reply was sent with ctrl+d and Enter at 23:00:48. User: "Sí, se abrió." The follow-up is verified live.

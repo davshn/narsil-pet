@@ -182,7 +182,7 @@ On Windows and macOS, the list of open conversations needs [Node.js](https://nod
 | `/narsil silencio` · `voz` | Turns the voice off or on. |
 | `/narsil discreto` · `normal` | Turns quiet mode on or off. |
 | `/narsil prueba` | Sends a test alert, with voice. |
-| `/narsil escucha on` · `off` | Saying "Narsil" with Claude in front starts its dictation, and a silence sends it (Windows). |
+| `/narsil escucha on` · `off` | Saying "Narsil" with Claude in front starts its dictation, and a silence sends it. At the end of that turn Narsil says a short summary and opens the dictation again for your answer (Windows). |
 | `/narsil consejo` | Asks for a tip now. |
 | `/narsil consejo profundo` | Asks for a tip that analyzes the whole conversation. |
 | `/narsil consejos on` · `off` | Turns automatic tips on or off. |
@@ -260,16 +260,19 @@ node tests/overlay-server.check.cjs
 node tests/ear.check.cjs
 ```
 
-The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window, and that only the mod turns the ear on or off. The `ear` check verifies when hearing "Narsil" starts the dictation and when a silence stops and sends it.
+The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window, and that only the mod turns the ear on or off. The `ear` check verifies when hearing "Narsil" starts the dictation, when a silence stops and sends it, and when the dictation opens again by itself after Narsil has said the answer.
+
+To see what the listener hears and presses, start the hub with `NARSIL_LOG` set to a file path. The hub passes its environment to the listener, which then writes each word it takes or rejects, and each key it presses. The listener also reads `NARSIL_LANG`, the recognition language (for example `es-MX`; Spanish by default when installed), and `NARSIL_CONFIDENCE`, the least raw confidence for "Narsil", from 0 to 1 (0 by default).
 
 - `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
 - `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
 - `hooks/phone.ts`: the phone alerts (the ntfy.sh message with its icon, the topic, and the daily count), and the state the [Narsil Watch](https://github.com/davshn/narsil-watch) reads (Claude's limits and the open conversations).
 - `hooks/fleet.ts`: all conversations as a list: the order by importance, the band's pages, and which one is open.
 - `hooks/tasks.ts`: a conversation's task list, as `TodoWrite`, `TaskCreate`/`TaskUpdate`, and the desktop app's plan leave it.
+- `hooks/voice.ts`: the spoken answer to a message sent by voice (what Haiku is asked, whole sentences only, and what she reads when Haiku does not answer).
 - `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).
 - `hooks/sprite.ts`: Narsil's animations.
-- `overlay/`: the hub (`server.cjs`, the local server the conversations share), the ear (`ear.cjs`, which decides the keys, and `listen.ps1`, the Windows listener) and the Windows and macOS scripts for the voice and the notifications.
+- `overlay/`: the hub (`server.cjs`, the local server the conversations share), the ear (`ear.cjs`, which decides the keys, and `listen.ps1`, the Windows listener) and the Windows and macOS scripts for the voice and the notifications. `speak.ps1` tells the hub when it has finished a spoken answer, so the dictation opens only then.
 - `tests/`: the tests.
 
 The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` with `tools/build-art.ps1`. The hatchling is in `assets/raw/<pose>-<claro|oscuro>.png`, and each later stage has its own folder, `assets/raw/etapa2` to `assets/raw/etapa5`, with the same names. If a stage is missing a pose, its `base` pose is used. If it is missing all of them in a theme, the previous stage is used. The animations in this README are generated with `node tools/build-readme-art.mjs`.
