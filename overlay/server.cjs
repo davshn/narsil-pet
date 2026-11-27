@@ -112,9 +112,9 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.has(String(req.headers.host || '').toLowerCase())) return send(403, 'text/plain', 'forbidden')
   const isTrusted = token !== '' && req.headers['x-narsil-token'] === token
 
-  // The protocol, as the mod checks it: "narsil 8" is the hub that tells the
-  // mod when the ear sent a message.
-  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 8')
+  // The protocol, as the mod checks it: "narsil 9" is the hub that tells the
+  // mod when the ear sent a message and opens the dictation for your answer.
+  if (req.method === 'GET' && url.pathname === '/ping') return send(200, 'text/plain', 'narsil 9')
   if (!isTrusted) return send(403, 'text/plain', 'forbidden')
   if (req.method === 'GET' && url.pathname === '/sessions') return send(200, 'application/json', JSON.stringify(sessionList()))
   // The listener's sample (you talked, "Narsil" heard, Claude in front):
@@ -130,6 +130,12 @@ const server = http.createServer(async (req, res) => {
   // prompt that follows it in the conversation in front came by voice.
   if (req.method === 'GET' && url.pathname === '/ear/sent') {
     return send(200, 'text/plain', earSentAt === null ? 'none' : String(Date.now() - earSentAt))
+  }
+  // Narsil has said aloud the answer to a message sent by voice (speak.ps1
+  // tells it once done): the dictation opens again for your answer.
+  if (req.method === 'POST' && url.pathname === '/ear/follow') {
+    ear.follow()
+    return send(204, 'text/plain', '')
   }
   if (req.method === 'POST' && url.pathname === '/ear') {
     setEar(url.searchParams.get('on') === '1')

@@ -149,9 +149,11 @@ async function powershell($: EngineInterface, script: string, env: Record<string
   return run($, ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], env)
 }
 
-async function speak($: EngineInterface, text: string): Promise<void> {
+// `extra`: more for the script, as the hub's address and token for it to
+// tell the hub once it has spoken.
+async function speak($: EngineInterface, text: string, extra: Record<string, string> = {}): Promise<void> {
   // The mod's own script first, so a Spanish voice is chosen when one is installed.
-  if (await launch($, 'speak', { NARSIL_TEXT: text })) return
+  if (await launch($, 'speak', { ...extra, NARSIL_TEXT: text })) return
   void $.audio.speak(text).catch(() => undefined)
 }
 
@@ -168,7 +170,7 @@ async function overlayToken($: EngineInterface): Promise<string> {
 // What this version's hub answers a ping. A hub another version started
 // answers otherwise ("narsil 5" had no ear): it outlives the mod's updates, so
 // it is closed and started anew. Keep it equal to overlay/server.cjs's /ping.
-const OVERLAY_PROTOCOL = 'narsil 8'
+const OVERLAY_PROTOCOL = 'narsil 9'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -484,7 +486,9 @@ async function speakSummary($: EngineInterface, answer: string, ask: string | nu
     // the fallback below
   }
   if (!text) text = fallbackSpoken(answer, ask)
-  if (text) await speak($, text)
+  // Once said, the script tells the hub, which opens the dictation for your
+  // answer: only then, so it does not take down her own voice.
+  if (text) await speak($, text, { NARSIL_FOLLOW: '1', NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' })
 }
 
 // Whether you last wrote through Remote Control (your phone, the web) rather

@@ -5,6 +5,9 @@
 //   dictating  you talk; a silence after you spoke, nothing said, or the
 //              maximum reached: Ctrl+D stops it (only the silence sends)
 //   settling   waits for the text to land, then Enter, if Claude is in front
+// Once a message is sent by voice, and while you stay in Claude, follow()
+// (Narsil has said the answer aloud) opens the dictation again by itself on
+// the next tick, so you can answer without saying "Narsil".
 'use strict'
 
 const DEFAULTS = {
@@ -28,6 +31,18 @@ function createEar(options = {}) {
   let hasSpoken = false
   let stoppedAt = 0
   let shouldSend = false
+  // A message went by voice and you have not left Claude since.
+  let canFollow = false
+  // The answer was said: the next tick with Claude in front opens dictation.
+  let isFollowPending = false
+
+  function start(at) {
+    state = 'dictating'
+    startedAt = at
+    lastVoiceAt = at
+    hasSpoken = false
+    return ['ctrl+d']
+  }
 
   function stop(isSent) {
     state = 'settling'
@@ -42,12 +57,19 @@ function createEar(options = {}) {
   function tick({ isVoice = false, isHeard = false, isClaude = false } = {}) {
     const at = clock()
     if (state === 'idle') {
-      if (!isHeard || !isClaude) return []
-      state = 'dictating'
-      startedAt = at
-      lastVoiceAt = at
-      hasSpoken = false
-      return ['ctrl+d']
+      if (!isClaude) {
+        canFollow = false
+        isFollowPending = false
+        return []
+      }
+      if (isFollowPending) {
+        isFollowPending = false
+        canFollow = false
+        return start(at)
+      }
+      if (!isHeard) return []
+      canFollow = false
+      return start(at)
     }
     if (state === 'dictating') {
       // Gone from Claude: a key now would land in another app.
@@ -67,14 +89,26 @@ function createEar(options = {}) {
     // settling
     if (at - stoppedAt < o.settleMs) return []
     state = 'idle'
-    return shouldSend && isClaude ? ['enter'] : []
+    const isSent = shouldSend && isClaude
+    canFollow = isSent
+    return isSent ? ['enter'] : []
+  }
+
+  // Narsil has said the answer to a message sent by voice: whether the
+  // dictation will open again by itself.
+  function follow() {
+    if (!canFollow || state !== 'idle') return false
+    isFollowPending = true
+    return true
   }
 
   function reset() {
     state = 'idle'
+    canFollow = false
+    isFollowPending = false
   }
 
-  return { tick, reset, state: () => state }
+  return { tick, follow, reset, state: () => state }
 }
 
 module.exports = { createEar, DEFAULTS }
