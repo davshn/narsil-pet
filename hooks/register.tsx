@@ -15,7 +15,8 @@ import type { ContextSample } from './usage'
 import { NO_USAGE, contextDetailOf, contextDetailRows, contextDetailSummary, contextDetailSvg, hasUsage, levelColor, minutesLabel, minutesToFull, textBar, usageOf, usageRows, usageSummary, usageSvg } from './usage'
 import { IDLE_SUMMARY_MS, KEEP_STATS, NUDGE_AFTER_MS, STATS_PREFIX, addFile, emptyStats, isClaudesCall, nudgeText, statsOf, summaryText } from './watch'
 import { ASKING_TOOLS, MAX_AGENTS_SHOWN, MOOD_BY_TOOL, PHONE_ROOM, SHELL_TOOLS, STATUS_LABEL, TEST_COMMAND, TIP_LINE, WRITING_TOOLS, ago, basename, cacheColor, cacheLabel, cacheLeft, cacheShort, cacheStart, dangerOf, describeCall, duration, fleetSummary, headline, pick, say, summary, tipLines } from './words'
-import { SPOKEN_SYSTEM, VOICE_SENT_MS, fallbackSpoken, spokenOf, spokenPrompt } from './voice'
+import { ASK_SYSTEM, SPOKEN_SYSTEM, VOICE_SENT_MS, askOf, askPrompt, fallbackAsk, fallbackSpoken, inputText, spokenOf, spokenPrompt } from './voice'
+import type { Ask } from './voice'
 import type { XpReason } from './xp'
 import { STAGES, STAGE_FROM, XP_GAIN, XP_KEY, levelOf, stageOf, xpLabel, xpOf } from './xp'
 
@@ -466,6 +467,11 @@ async function announce($: EngineInterface, kind: EventKind, title: string, text
 // "Narsil" and dictated it): only the conversation in front gets its Enter,
 // so the prompt that follows it is that one.
 let isVoiceTurn = false
+// A voice turn that ended with work still in the background: Claude goes on
+// by itself once that work is done, and that turn answers by voice too. A
+// message of yours ends it.
+let isVoiceCarried = false
+const isByVoice = () => isVoiceTurn || isVoiceCarried
 
 async function sentByVoice($: EngineInterface): Promise<boolean> {
   if (!(await read($, prefs)).isListening) return false
@@ -481,18 +487,31 @@ async function sentByVoice($: EngineInterface): Promise<boolean> {
 // The end of a turn you started by voice, said aloud so you can answer by
 // voice too: a short summary from Haiku, or the answer's first sentence and
 // its question when Haiku does not answer.
-async function speakSummary($: EngineInterface, answer: string, ask: string | null): Promise<void> {
+// `isFollow`: once said, the script tells the hub, which opens the dictation
+// for your answer: only then, so it does not take down her own voice. Not
+// while work goes on in the background: Claude is not ready for an answer.
+async function speakSummary($: EngineInterface, answer: string, ask: string | null, isFollow = true): Promise<void> {
+  await speakFromHaiku($, SPOKEN_SYSTEM, spokenPrompt(answer, ask), fallbackSpoken(answer, ask), isFollow)
+}
+
+// What Claude needs from you in a turn you started by voice, said aloud: a
+// question opens the dictation for your answer; a plan or a permission is
+// answered on screen.
+async function speakAsk($: EngineInterface, ask: Ask): Promise<void> {
+  await speakFromHaiku($, ASK_SYSTEM, askPrompt(ask), fallbackAsk(ask), ask.kind === 'question')
+}
+
+async function speakFromHaiku($: EngineInterface, system: string, prompt: string, fallback: string, isFollow: boolean): Promise<void> {
   let text = ''
   try {
-    const reply = await $.model.complete({ model: 'haiku', system: SPOKEN_SYSTEM, prompt: spokenPrompt(answer, ask), effort: 'low', maxTokens: 400, timeoutMs: 20_000 })
+    const reply = await $.model.complete({ model: 'haiku', system, prompt, effort: 'low', maxTokens: 400, timeoutMs: 20_000 })
     if (reply.isAnswered) text = spokenOf(reply.text)
   } catch {
     // the fallback below
   }
-  if (!text) text = fallbackSpoken(answer, ask)
-  // Once said, the script tells the hub, which opens the dictation for your
-  // answer: only then, so it does not take down her own voice.
-  if (text) await speak($, text, { NARSIL_FOLLOW: '1', NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' })
+  if (!text) text = fallback
+  if (!text) return
+  await speak($, text, isFollow ? { NARSIL_FOLLOW: '1', NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' } : {})
 }
 
 // Whether you last wrote through Remote Control (your phone, the web) rather
@@ -694,11 +713,15 @@ let lastQuestionAt = 0
 const ASK_BOX_TOOL = 'mcp__ccd_turn__wrap_up'
 let turnAsk: string | null = null
 
-async function announceQuestion($: EngineInterface, text: string): Promise<void> {
+// `ask`: what is asked, said aloud in full when the turn is yours by voice.
+async function announceQuestion($: EngineInterface, text: string, ask?: Ask): Promise<void> {
   const now = await $.clock.now()
   if (now - lastQuestionAt < 3000) return
   lastQuestionAt = now
-  await announce($, 'question', 'Te necesito', text, say('question'))
+  const isSpoken = Boolean(ask) && isByVoice() && !(await read($, prefs)).isMuted
+  await announce($, 'question', 'Te necesito', text, isSpoken ? '' : say('question'))
+  // Not awaited: Haiku takes a few seconds, and the question shows meanwhile.
+  if (isSpoken && ask) void speakAsk($, ask).catch(() => undefined)
   // The app shows her waiting, not the state of the last turn.
   await sendStatus($)
 }
@@ -1362,7 +1385,12 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     if (!e.isMeta) {
       seen.prompt = e.text.slice(0, 400)
-      isVoiceTurn = await sentByVoice($)
+      // Yours, typed or sent by the ear (not Claude going on by itself after
+      // background work): whether this one came by voice.
+      if (e.origin?.kind === 'composer' || e.origin?.kind === 'bridge') {
+        isVoiceTurn = await sentByVoice($)
+        isVoiceCarried = false
+      }
     }
     await noteOrigin($, e.origin)
 
@@ -1392,7 +1420,7 @@ export const register: Register = on => {
     if (!isDecided && !ASKING_TOOLS.has(e.tool_name)) {
       await setMood($, 'asking', `pido permiso para usar ${e.tool_name}`)
       await startWaiting($, `pido permiso para usar ${e.tool_name}.`)
-      await announceQuestion($, `Pido permiso para usar ${e.tool_name}.`)
+      await announceQuestion($, `Pido permiso para usar ${e.tool_name}.`, { kind: 'permission', tool: e.tool_name, input: inputText(e.tool_input) })
     }
 
     return result
@@ -1418,7 +1446,7 @@ export const register: Register = on => {
     if (ASKING_TOOLS.has(e.tool)) {
       const isPlan = e.tool === 'ExitPlanMode'
       await setMood($, 'asking', isPlan ? 'tengo un plan para que lo apruebes' : 'tengo una pregunta para ti')
-      await announceQuestion($, isPlan ? 'Tiene un plan para que lo apruebes.' : 'Tiene una pregunta para ti.')
+      await announceQuestion($, isPlan ? 'Tiene un plan para que lo apruebes.' : 'Tiene una pregunta para ti.', askOf(e as unknown as Record<string, unknown>, isPlan))
       await startWaiting($, isPlan ? 'tengo un plan para que lo apruebes.' : 'tengo una pregunta para ti.')
       try {
         return await next(e)
@@ -1496,8 +1524,10 @@ export const register: Register = on => {
     // A turn you started by voice ends aloud with its summary, in place of
     // her usual line, unless her voice is off.
     const ask = turnAsk
-    const isSpokenBack = isVoiceTurn && e.reason === 'answer' && !(await read($, prefs)).isMuted
+    const isBackground = backgroundAtStop > 0
+    const isSpokenBack = isByVoice() && e.reason === 'answer' && !(await read($, prefs)).isMuted
     isVoiceTurn = false
+    isVoiceCarried = isSpokenBack && isBackground
 
     if (e.reason === 'answer' && turnAsk) {
       await setMood($, 'asking', 'tengo una pregunta para ti')
@@ -1530,7 +1560,7 @@ export const register: Register = on => {
       await announce($, 'error', 'Me he detenido', `El turno terminó con un error (${why}).`, say('error'))
     }
     // Not awaited: Haiku takes a few seconds, and the turn's end does not wait.
-    if (isSpokenBack) void speakSummary($, e.answer, ask).catch(() => undefined)
+    if (isSpokenBack) void speakSummary($, e.answer, ask, !isBackground).catch(() => undefined)
     await sendStatus($)
 
     return result

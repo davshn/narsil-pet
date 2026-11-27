@@ -7,7 +7,7 @@ import { agentChip, modelLabel } from '../hooks/agents'
 import { emptyStats, isClaudesCall, summaryText } from '../hooks/watch'
 import { levelOf, stageOf, xpLabel, xpOf } from '../hooks/xp'
 import { VOICE, say } from '../hooks/words'
-import { SPOKEN_SYSTEM } from '../hooks/voice'
+import { ASK_SYSTEM, SPOKEN_SYSTEM } from '../hooks/voice'
 import { ART } from '../hooks/art'
 import { ANIMATED } from '../hooks/art/animated'
 import { sprite } from '../hooks/sprite'
@@ -80,7 +80,7 @@ function engine(
     // (pushes then fail), this version's again once the mod starts one
     hub?: { ping: string; quits?: number }
     // what the hub answers /ear/sent: the ms since the ear last sent a message
-    earSent?: string
+    earSent?: string | (() => string)
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -111,7 +111,7 @@ function engine(
     }
     if (e.url.endsWith('/ear/sent')) {
       const isTrusted = e.init?.headers?.['x-narsil-token'] === 'secret-token'
-      return { value: { status: isTrusted ? 200 : 403, ok: isTrusted, headers: {}, text: isTrusted ? earSent : '' } }
+      return { value: { status: isTrusted ? 200 : 403, ok: isTrusted, headers: {}, text: isTrusted ? (typeof earSent === 'function' ? earSent() : earSent) : '' } }
     }
     if (hub && e.url.endsWith('/ping')) return { value: { status: hub.ping ? 200 : 503, ok: Boolean(hub.ping), headers: {}, text: hub.ping } }
     if (hub && e.url.endsWith('/quit')) {
@@ -625,7 +625,7 @@ async function tipEngine(
     stateReply?: (body: Record<string, unknown>) => string
     git?: (args: readonly string[]) => string
     files?: Record<string, string>
-    earSent?: string
+    earSent?: string | (() => string)
   } = {},
 ) {
   const posts = engine(on, null, { hasClock: false, store, os, runs, stateReply, git, files, earSent })
@@ -1744,6 +1744,112 @@ test('on macOS too, the summary is said by speak.sh, which is told to open the d
   expect(String(summary?.env.NARSIL_SCRIPT)).toMatch(/overlay\/speak\.sh$/)
   expect(summary?.env.NARSIL_FOLLOW).toBe('1')
   expect(summary?.env.NARSIL_TOKEN).toBe('secret-token')
+})
+
+// A conversation with the ear on, its turns left to the test: `ear.sent` is
+// what the hub answers /ear/sent at each moment.
+async function voiceSession($: Engine, on: On, reply: string | ModelCompleteResult = 'Te pregunto cuál prefieres: contestar sin Narsil o menos activaciones.') {
+  const asked = model(on, reply)
+  const runs: Ran[] = []
+  const ear = { sent: '1200' }
+  on('classic.Stop', () => ({}))
+  on('classic.PermissionRequest', () => ({}))
+  const { clock } = await tipEngine($, on, { os: 'windows', runs, earSent: () => ear.sent, store: { prefs: { isHidden: false, isMuted: false, isListening: true } } })
+  const speaking = () => runs.filter(r => /[\\/]overlay[\\/]speak\.(ps1|sh)$/.test(String(r.env.NARSIL_SCRIPT)))
+  return { asked, clock, ear, speaking }
+}
+
+const QUESTIONS = [{ question: '¿Cuál prefieres?', header: 'Mejora', multiSelect: false, options: [{ label: 'Contestar sin Narsil', description: '' }, { label: 'Menos activaciones', description: '' }] }]
+
+test('in a turn started by voice, a question is explained aloud by Haiku, and the dictation opens for the answer', async ($, on) => {
+  const { asked, clock, speaking } = await voiceSession($, on)
+  await $.prompt.submit({ text: 'mejora la voz', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'mejora la voz', turnId: 'v' })
+  await $.tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS } as never)
+  await clock.settle()
+
+  const ask = asked.find(a => a.system === ASK_SYSTEM)
+  expect(ask?.model).toBe('haiku')
+  expect(ask?.prompt).toContain('¿Cuál prefieres?')
+  expect(ask?.prompt).toContain('Contestar sin Narsil')
+  const said = speaking().find(r => r.env.NARSIL_TEXT === 'Te pregunto cuál prefieres: contestar sin Narsil o menos activaciones.')
+  expect(said?.env.NARSIL_FOLLOW).toBe('1')
+  expect(speaking().some(r => VOICE.question.includes(String(r.env.NARSIL_TEXT)))).toBe(false)
+})
+
+test('in a turn started by voice, a permission is explained aloud, and the dictation stays closed: it is answered on screen', async ($, on) => {
+  const { asked, clock, speaking } = await voiceSession($, on, 'Necesito tu permiso para borrar la carpeta build. Apruébalo en la pantalla.')
+  await $.prompt.submit({ text: 'limpia', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'limpia', turnId: 'p' })
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' }, permission_mode: 'default' })
+  await clock.settle()
+
+  const ask = asked.find(a => a.system === ASK_SYSTEM)
+  expect(ask?.prompt).toContain('Bash')
+  expect(ask?.prompt).toContain('rm -rf build')
+  const said = speaking().find(r => r.env.NARSIL_TEXT === 'Necesito tu permiso para borrar la carpeta build. Apruébalo en la pantalla.')
+  expect(said).toBeDefined()
+  expect(said?.env.NARSIL_FOLLOW).toBeUndefined()
+})
+
+test('without Haiku, a question in a voice turn is read with its choices', async ($, on) => {
+  const { clock, speaking } = await voiceSession($, on, { isAnswered: false as const, reason: 'aborted' as const, usage: USAGE })
+  await $.prompt.submit({ text: 'mejora la voz', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'mejora la voz', turnId: 'v' })
+  await $.tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS } as never)
+  await clock.settle()
+
+  expect(speaking().map(r => r.env.NARSIL_TEXT)).toContain('Tengo una pregunta para ti. ¿Cuál prefieres? Contestar sin Narsil, o Menos activaciones.')
+})
+
+test('a question in a typed turn keeps her usual line, and asks Haiku nothing', async ($, on) => {
+  const { asked, clock, ear, speaking } = await voiceSession($, on)
+  ear.sent = '60000'
+  await $.prompt.submit({ text: 'mejora la voz', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'mejora la voz', turnId: 't' })
+  await $.tool.call({ tool: 'AskUserQuestion', questions: QUESTIONS } as never)
+  await clock.settle()
+
+  expect(asked.some(a => a.system === ASK_SYSTEM)).toBe(false)
+  expect(speaking().some(r => VOICE.question.includes(String(r.env.NARSIL_TEXT)))).toBe(true)
+})
+
+test('a voice turn that ends with work still in the background says where it stands, but opens no dictation until the work is done', async ($, on) => {
+  const { clock, ear, speaking } = await voiceSession($, on, 'Sigo esperando la revisión.')
+  await $.prompt.submit({ text: 'revisa el código', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'revisa el código', turnId: 'bg' })
+  const running = [{ id: 'a1', type: 'agent', status: 'running', description: 'review' }]
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: running, session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Sigo esperando la revisión.', durationMs: 42_000, isAborted: false, turnId: 'bg' })
+  await clock.settle()
+  expect(speaking().filter(r => r.env.NARSIL_TEXT === 'Sigo esperando la revisión.').map(r => r.env.NARSIL_FOLLOW)).toEqual([undefined])
+
+  // the work ends: Claude goes on by itself, and that turn is still yours by voice
+  ear.sent = '90000'
+  await $.turn.start({ text: '', turnId: 'wake' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Listo, la revisión pasó.', durationMs: 42_000, isAborted: false, turnId: 'wake' })
+  await clock.settle()
+  expect(speaking().at(-1)?.env.NARSIL_FOLLOW).toBe('1')
+})
+
+test('a message you type after a voice turn left work in the background ends the voice answers', async ($, on) => {
+  const { clock, ear, speaking } = await voiceSession($, on, 'Sigo esperando la revisión.')
+  await $.prompt.submit({ text: 'revisa el código', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'revisa el código', turnId: 'bg' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'a1', type: 'agent', status: 'running', description: 'review' }], session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Sigo esperando la revisión.', durationMs: 42_000, isAborted: false, turnId: 'bg' })
+  await clock.settle()
+  const before = speaking().length
+
+  ear.sent = '90000'
+  await $.prompt.submit({ text: 'otra cosa', wait: false, origin: TYPED.origin })
+  await $.turn.start({ text: 'otra cosa', turnId: 'typed' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [], session_crons: [] } as never)
+  await $.turn.complete({ reason: 'answer', answer: 'Hecho.', durationMs: 42_000, isAborted: false, turnId: 'typed' })
+  await clock.settle()
+  expect(speaking().slice(before).every(r => r.env.NARSIL_FOLLOW === undefined)).toBe(true)
+  expect(speaking().slice(before).some(r => VOICE.done.includes(String(r.env.NARSIL_TEXT)))).toBe(true)
 })
 
 test('a long summary is said whole sentences at a time, never cut in the middle', async ($, on) => {
