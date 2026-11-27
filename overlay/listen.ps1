@@ -189,6 +189,7 @@ while ($true) {
     $client.Headers['x-narsil-token'] = $env:NARSIL_TOKEN
     $answer = $client.DownloadString("http://127.0.0.1:$port/ear/tick?voice=$voice&heard=$heard&claude=$claude")
     $misses = 0
+    if ($heard -and -not $answer.Trim()) { Trace "heard, nothing to press (claude=$claude)" }
     $heard = 0
   } catch {
     $misses++
