@@ -43,6 +43,7 @@ const prefs = atom({ plugin: 'narsil-pet', key: 'prefs' } as const, {
   isNextStepsOn: true,
   cacheMinutes: null,
   isQuiet: false,
+  isListening: false,
   phoneTopic: null,
   isPhoneOn: false,
   phoneKey: null,
@@ -164,9 +165,9 @@ async function overlayToken($: EngineInterface): Promise<string> {
 }
 
 // What this version's hub answers a ping. A hub another version started
-// answers otherwise ("narsil 4" still opened the floating window): it outlives
-// the mod's updates, so it is closed and started anew.
-const OVERLAY_PROTOCOL = 'narsil 5'
+// answers otherwise ("narsil 5" had no ear): it outlives the mod's updates, so
+// it is closed and started anew. Keep it equal to overlay/server.cjs's /ping.
+const OVERLAY_PROTOCOL = 'narsil 7'
 
 async function overlayPing($: EngineInterface): Promise<'up' | 'stale' | 'down'> {
   try {
@@ -195,7 +196,10 @@ async function startOverlay($: EngineInterface): Promise<void> {
       await $.clock.sleep(300).catch(() => undefined)
     }
   }
-  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190' }
+  // The ear as the store has it: another conversation may have changed it.
+  const stored = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
+  const isListening = stored && typeof stored === 'object' ? stored.isListening === true : (await read($, prefs)).isListening
+  const env = { NARSIL_TOKEN: await overlayToken($), NARSIL_PORT: '47190', NARSIL_EAR: isListening ? '1' : '0' }
   if (os === 'mac') {
     // start.sh finds Node and starts the hub behind.
     await run($, ['/bin/sh', `${$.plugin.root}/overlay/start.sh`], env)
@@ -345,9 +349,43 @@ async function beat($: EngineInterface): Promise<void> {
   await tickCache($)
   await tickWatch($)
   await refreshAgents($)
-  // A hub that went down (or never started) is started again, at most once a minute.
+  // A hub that went down (or never started) is started again, at most once a
+  // minute. One of an older version takes the beats too, so its version is
+  // checked every PROTOCOL_CHECK_MS, and it is replaced the same way.
   if (!(await pushOverlay($))) void ensureOverlay($).catch(() => undefined)
+  else if (await isOlderHub($)) void ensureOverlay($).catch(() => undefined)
   await readSessions($)
+}
+
+const PROTOCOL_CHECK_MS = 30_000
+let lastProtocolCheck = Number.NEGATIVE_INFINITY
+
+// Whether the hub answering is another version's, asked at most every
+// PROTOCOL_CHECK_MS.
+async function isOlderHub($: EngineInterface): Promise<boolean> {
+  const now = await $.clock.now()
+  // A clock set back (or a reload's fresh one) counts as due.
+  const since = now - lastProtocolCheck
+  if (since >= 0 && since < PROTOCOL_CHECK_MS) return false
+  lastProtocolCheck = now
+  return (await overlayPing($)) === 'stale'
+}
+
+// `/narsil escucha on|off`: the hub's ear (overlay/ear.cjs, overlay/listen.ps1),
+// one for the whole computer; undefined for any other words.
+async function earCommand($: EngineInterface, arg: string): Promise<string | undefined> {
+  if (arg !== 'escucha on' && arg !== 'escucha off') return undefined
+  if ((await platformOf($)) !== 'windows') return 'Narsil: escucharte cuando dices «Narsil» solo funciona en Windows.'
+  const isOn = arg === 'escucha on'
+  const saved = await update($, prefs, p => ({ ...p, isListening: isOn }))
+  await $.store.set(PREFS_KEY, saved).catch(() => undefined)
+  if (isOn && !(await isOverlayUp($))) await startOverlay($)
+  await $.http
+    .fetch(`${OVERLAY}/ear?on=${isOn ? 1 : 0}`, { method: 'POST', headers: { 'x-narsil-token': await overlayToken($) } })
+    .catch(() => undefined)
+  return isOn
+    ? 'Narsil: te escucho. Con Claude delante, di «Narsil» y dicta tu mensaje: tras unos segundos de silencio lo envío. El reconocimiento de voz es el de Windows, en tu equipo. /narsil escucha off lo apaga.'
+    : 'Narsil: ya no escucho el micrófono.'
 }
 
 async function stopOverlay($: EngineInterface): Promise<void> {
@@ -377,8 +415,18 @@ type EventKind = 'done' | 'question' | 'error'
 const OVERLAY_RESTART_MS = 60_000
 const OVERLAY_WAIT_MS = 3000
 let lastOverlayStart = Number.NEGATIVE_INFINITY
+// The start under way, if any: a start outlasts the 2 s between beats, and a
+// second one would close the hub the first just started.
+let overlayStarting: Promise<boolean> | null = null
 
-async function ensureOverlay($: EngineInterface): Promise<boolean> {
+function ensureOverlay($: EngineInterface): Promise<boolean> {
+  overlayStarting ??= startOverlayOnce($).finally(() => {
+    overlayStarting = null
+  })
+  return overlayStarting
+}
+
+async function startOverlayOnce($: EngineInterface): Promise<boolean> {
   if (await isOverlayUp($)) return true
   const now = await $.clock.now()
   if (now - lastOverlayStart < OVERLAY_RESTART_MS) return false
@@ -1145,7 +1193,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'narsil',
       description:
-        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+        'Narsil, tu mascota: estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | escucha on|off | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
     })
     const saved = (await $.store.get(PREFS_KEY).catch(() => undefined)) as Partial<Prefs> | undefined
     if (saved && typeof saved === 'object') {
@@ -1185,6 +1233,8 @@ export const register: Register = on => {
     if (stepped !== undefined) return { text: stepped }
     const phoned = await phoneCommand($, arg)
     if (phoned !== undefined) return { text: phoned }
+    const heard = await earCommand($, arg)
+    if (heard !== undefined) return { text: heard }
     if (arg === 'resumen') return { text: `Narsil: ${await summarize($)}` }
     if (arg === 'nivel') {
       const now = await read($, xp)
@@ -1224,7 +1274,8 @@ export const register: Register = on => {
           `${p.isAdviceSpoken ? ', dichos en voz alta' : ''}.\n` +
           `Próximos pasos ${p.isNextStepsOn ? 'activados' : 'desactivados'}; la caché dura ${await cacheMinutes($)} min.\n` +
           (p.isQuiet ? 'Modo discreto activado: sin voz, sin avisos de fin de turno ni consejos o pasos automáticos.\n' : '') +
-          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
+          (p.isListening ? 'Te escucho cuando dices «Narsil» con Claude delante.\n' : '') +
+          'Uso:/narsil estado | ocultar | mostrar | silencio | voz | discreto | normal | prueba | escucha on|off | consejo [profundo] | consejos on|off|cada <min>|voz | pasos on|off | cache [auto|<min>] | resumen | nivel | movil [on|off|nuevo|prueba|clave [off]]',
       }
     }
     const saved = await update($, prefs, p => ({ ...p, ...patch }))

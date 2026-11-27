@@ -33,6 +33,9 @@ export type Prefs = {
   // Quiet mode: no voice, no turn-finished alerts, no automatic tips or next
   // steps; a question or an error still tells you. Leaves the rest as it was.
   isQuiet: boolean
+  // The ear (Windows): saying "Narsil" with Claude in front starts its
+  // dictation, and a silence sends what you said (/narsil escucha on|off).
+  isListening: boolean
   // The phone: the private ntfy.sh topic its notifications go to (null until
   // /narsil movil makes one), and whether they go.
   phoneTopic: string | null

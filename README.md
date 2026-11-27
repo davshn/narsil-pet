@@ -62,6 +62,11 @@ To bring them together, each conversation sends its state to a small local serve
 ### Voice and alerts
 Narsil tells you out loud, in Spanish, when she starts working on your prompt, when a turn ends, when a question or a permission is waiting for you, and when a turn fails. Each time she picks one of several phrases at random, so she does not always repeat the same one. In the desktop app, a turn that ends with a question in the next-step box alerts you as a question, with that question. The alert arrives as a system notification.
 
+### Saying "Narsil" to dictate (Windows)
+With `/narsil escucha on`, say "Narsil" while the Claude window is in front: she starts Claude's dictation (Ctrl+D) in that conversation. Dictate your message; about 2 seconds after you stop talking she stops the dictation and sends it with Enter. With another app in front she presses nothing, and she presses no Enter if you switched away. If you say nothing, or keep dictating for 2 minutes, she stops the dictation without sending it. While you dictate, "Narsil" inside your message is not taken as the word.
+
+It is off by default, since it keeps the microphone open. Recognition is Windows' own speech recognizer (the one behind Windows' speech features), on your computer: no audio leaves it. Say "Narsil" on its own, then dictate once Claude's dictation has started. It listens in Spanish when Windows has Spanish speech recognition, which is what a Spanish speaker needs: the English recognizer does not catch "Narsil" said the Spanish way. To add it: Settings → Time & language → Language & region → Add a language → Spanish (Mexico) or Spanish (Spain), with Speech recognition ticked. Some regional Spanish variants come without speech recognition. It reads the default microphone (Settings → System → Sound → Input) and tells talking from silence against that mic's own noise, so quiet headsets work too. One listener serves every open conversation, so the word presses Ctrl+D once. Turn it off with `/narsil escucha off`.
+
 ### Tips
 Tips about the work in progress, generated with Haiku (medium effort): when a turn ends, after several failures in a row, or during a very long turn. The end-of-turn tip reads the diff of what was done (or the last commit, if it was already saved) and comments on a design decision: why it was done that way, what the alternative was and what is gained or lost, or how to improve that feature. No routine checks like "run the tests" or "check the push"; after several failures, on the other hand, the tip is about debugging. It is asked to mention something concrete and not to make up data. `/narsil consejo profundo` analyzes the whole conversation. The frequencies are configurable and never slow Claude down.
 
@@ -175,6 +180,7 @@ On Windows and macOS, the list of open conversations needs [Node.js](https://nod
 | `/narsil silencio` · `voz` | Turns the voice off or on. |
 | `/narsil discreto` · `normal` | Turns quiet mode on or off. |
 | `/narsil prueba` | Sends a test alert, with voice. |
+| `/narsil escucha on` · `off` | Saying "Narsil" with Claude in front starts its dictation, and a silence sends it (Windows). |
 | `/narsil consejo` | Asks for a tip now. |
 | `/narsil consejo profundo` | Asks for a tip that analyzes the whole conversation. |
 | `/narsil consejos on` · `off` | Turns automatic tips on or off. |
@@ -195,6 +201,7 @@ The band, its animations, the tips, and the usage bars work wherever Claude Code
 | Voice | A Windows Spanish voice, Latin American if there is one (for example Sabina, from Mexico) | `say`, with Paulina or another Latin American voice if installed, otherwise Mónica | Claude Code's voice |
 | Alerts | Windows notification; clicking it opens the conversation | macOS notification | Claude Code's, if any |
 | Other conversations in the band | Yes, with Node.js | Yes, with Node.js | Only this one |
+| Saying "Narsil" to dictate | Yes, with Node.js | No | No |
 
 ## Other Narsil mods
 
@@ -248,9 +255,10 @@ Narsil is open source and contributions are welcome: open an issue or a pull req
 claude plugin validate .claude-plugin/plugin.json
 claude plugin test .
 node tests/overlay-server.check.cjs
+node tests/ear.check.cjs
 ```
 
-The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window.
+The `overlay-server` check verifies who can use the hub: only the mod (with its token), and only on its local address, so no website you visit can read or change the conversations. It also checks that the hub opens no window, and that only the mod turns the ear on or off. The `ear` check verifies when hearing "Narsil" starts the dictation and when a silence stops and sends it.
 
 - `hooks/register.tsx`: the mod's hooks (states, alerts, tips, usage, reactions).
 - `hooks/words.ts`: how Narsil says things (state names, headlines, phrases, dangerous and test commands).
@@ -259,7 +267,7 @@ The `overlay-server` check verifies who can use the hub: only the mod (with its 
 - `hooks/tasks.ts`: a conversation's task list, as `TodoWrite`, `TaskCreate`/`TaskUpdate`, and the desktop app's plan leave it.
 - `hooks/seal.ts`: the `/narsil movil clave` encryption (HMAC-SHA256 in counter mode, with a tag).
 - `hooks/sprite.ts`: Narsil's animations.
-- `overlay/`: the hub (`server.cjs`, the local server the conversations share) and the Windows and macOS scripts for the voice and the notifications.
+- `overlay/`: the hub (`server.cjs`, the local server the conversations share), the ear (`ear.cjs`, which decides the keys, and `listen.ps1`, the Windows listener) and the Windows and macOS scripts for the voice and the notifications.
 - `tests/`: the tests.
 
 The drawings in `hooks/art.ts` and `hooks/art/` are generated from `assets/raw` with `tools/build-art.ps1`. The hatchling is in `assets/raw/<pose>-<claro|oscuro>.png`, and each later stage has its own folder, `assets/raw/etapa2` to `assets/raw/etapa5`, with the same names. If a stage is missing a pose, its `base` pose is used. If it is missing all of them in a theme, the previous stage is used. The animations in this README are generated with `node tools/build-readme-art.mjs`.

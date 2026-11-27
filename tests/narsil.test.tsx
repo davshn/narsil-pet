@@ -53,6 +53,7 @@ function engine(
     git = () => '',
     files = {},
     fleet = [],
+    hub,
   }: {
     hasClock?: boolean
     store?: Record<string, unknown>
@@ -73,6 +74,9 @@ function engine(
     files?: Record<string, string>
     // the other conversations the hub serves at /sessions
     fleet?: Record<string, unknown>[]
+    // the hub's ping answer, which a test may change; '' once /quit closed it
+    // (pushes then fail), this version's again once the mod starts one
+    hub?: { ping: string; quits?: number }
   } = {},
 ): Posted[] {
   const posts: Posted[] = []
@@ -101,6 +105,12 @@ function engine(
       const message = await pushReply()
       return { value: { status: 200, ok: true, headers: {}, text: message ? `${JSON.stringify({ event: 'message', message })}\n` : '' } }
     }
+    if (hub && e.url.endsWith('/ping')) return { value: { status: hub.ping ? 200 : 503, ok: Boolean(hub.ping), headers: {}, text: hub.ping } }
+    if (hub && e.url.endsWith('/quit')) {
+      hub.ping = ''
+      hub.quits = (hub.quits ?? 0) + 1
+    }
+    if (hub && !hub.ping) return { value: { status: 503, ok: false, headers: {}, text: '' } }
     if (isStale && e.url.endsWith('/ping')) return { value: { status: 200, ok: true, headers: {}, text: 'narsil 4' } }
     if (isStale && e.url.endsWith('/quit')) {
       isStale = false
@@ -108,8 +118,8 @@ function engine(
       return { value: { status: 204, ok: true, headers: {}, text: '' } }
     }
     if (!isUp) return { value: { status: 503, ok: false, headers: {}, text: '' } }
-    if (e.init?.method === 'POST' && e.init.body) {
-      posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: JSON.parse(e.init.body) })
+    if (e.init?.method === 'POST') {
+      posts.push({ url: e.url, token: e.init.headers?.['x-narsil-token'], body: e.init.body ? JSON.parse(e.init.body) : {} })
     }
     if (e.url.endsWith('/sessions')) {
       const isTrusted = e.init?.headers?.['x-narsil-token'] === 'secret-token'
@@ -117,13 +127,16 @@ function engine(
     }
     const isSummary = e.url.endsWith('/summary')
     if (e.url.endsWith('/state') && e.init?.body) return { value: { status: 200, ok: true, headers: {}, text: stateReply(JSON.parse(e.init.body)) } }
-    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 5' : ''
+    const text = isSummary ? JSON.stringify(summary) : e.url.endsWith('/ping') && (isOverlayDown || isOverlayStale) ? 'narsil 6' : ''
     return { value: { status: 200, ok: !isSummary || summary !== null, headers: {}, text } }
   })
   on('process.run', (_, e) => {
     runs.push({ argv: e.argv, env: e.init?.env ?? {} })
     // the hub, started through PowerShell or start.sh
-    if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) isUp = true
+    if (e.init?.env?.NARSIL_SERVER || String(e.argv[1]).endsWith('/overlay/start.sh')) {
+      isUp = true
+      if (hub) hub.ping = 'narsil 7'
+    }
     const stdout = e.argv[0] === 'uname' ? `${uname}\n` : e.argv[0] === 'git' ? git(e.argv.slice(1).filter(a => a !== '--no-pager')) : ''
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -1580,6 +1593,94 @@ test('on another system Narsil runs none of her scripts', async ($, on) => {
   await $.command.run({ command: 'narsil', args: 'prueba', ...TYPED })
 
   expect(runs.filter(r => r.argv[0] !== 'uname')).toEqual([])
+})
+
+// --- Saying "Narsil" to dictate (overlay/listen.ps1, overlay/ear.cjs) ---
+
+const earPosts = (posts: Posted[]) => posts.filter(p => p.url.includes('/ear?')).map(p => p.url.split('/ear')[1])
+
+test('an older hub that took over after the start is replaced from the heartbeat, though it takes the beats', async ($, on) => {
+  const runs: Ran[] = []
+  const hub: { ping: string; quits?: number } = { ping: 'narsil 7' }
+  engine(on, null, { os: 'windows', runs, hub, hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+  const started = () => runs.filter(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs')).length
+  expect(started()).toBe(0)
+  expect(hub.quits ?? 0).toBe(0)
+
+  // a conversation of an older version put its own hub in place
+  hub.ping = 'narsil 6'
+  await clock.advance(40_000)
+
+  expect(hub.quits).toBe(1)
+  expect(started()).toBe(1)
+  expect(hub.ping).toBe('narsil 7')
+})
+
+test('/narsil escucha on turns the ear on in the hub, with the token, and keeps it', async ($, on) => {
+  const store = noWindow() as Record<string, unknown>
+  const posts = engine(on, null, { os: 'windows', store })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: 'escucha on', ...TYPED }))
+
+  expect(answer).toContain('Narsil')
+  expect(earPosts(posts)).toEqual(['?on=1'])
+  expect(posts.find(p => p.url.includes('/ear?'))?.token).toBe('secret-token')
+  expect((store.prefs as { isListening?: boolean }).isListening).toBe(true)
+})
+
+test('/narsil escucha off turns the ear off and keeps that', async ($, on) => {
+  const store = { prefs: { isHidden: false, isMuted: false, isListening: true } } as Record<string, unknown>
+  const posts = engine(on, null, { os: 'windows', store })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await $.command.run({ command: 'narsil', args: 'escucha off', ...TYPED })
+
+  expect(earPosts(posts)).toEqual(['?on=0'])
+  expect((store.prefs as { isListening?: boolean }).isListening).toBe(false)
+})
+
+test('away from Windows, /narsil escucha says it only works there and changes nothing', async ($, on) => {
+  const store = noWindow() as Record<string, unknown>
+  const posts = engine(on, null, { os: 'mac', store })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: 'escucha on', ...TYPED }))
+
+  expect(answer).toContain('solo funciona en Windows')
+  expect(earPosts(posts)).toEqual([])
+  expect((store.prefs as { isListening?: boolean }).isListening).toBeUndefined()
+})
+
+// What the hub is started with, with these prefs stored.
+async function earAtStart($: Engine, on: On, prefs: Record<string, unknown>): Promise<string | undefined> {
+  const runs: Ran[] = []
+  engine(on, null, { os: 'windows', runs, store: { prefs }, isOverlayDown: true, hasClock: false })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(2000)
+  return runs.find(r => String(r.env.NARSIL_SERVER).endsWith('\\overlay\\server.cjs'))?.env.NARSIL_EAR
+}
+
+test('the hub starts with the ear on when the stored prefs say so', async ($, on) => {
+  expect(await earAtStart($, on, { isHidden: false, isMuted: false, isListening: true })).toBe('1')
+})
+
+test('the hub starts with the ear off by default', async ($, on) => {
+  expect(await earAtStart($, on, { isHidden: false, isMuted: false })).toBe('0')
+})
+
+test('/narsil names escucha in its usage and says whether the ear is on', async ($, on) => {
+  engine(on, null, { store: { prefs: { isHidden: false, isMuted: false, isListening: true } } })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const answer = JSON.stringify(await $.command.run({ command: 'narsil', args: '', ...TYPED }))
+
+  expect(answer).toContain('escucha on|off')
+  expect(answer).toContain('Te escucho cuando dices «Narsil»')
 })
 
 test('/narsil flotante is gone: it changes nothing, and the usage no longer names it', async ($, on) => {
